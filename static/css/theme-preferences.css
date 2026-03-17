@@ -1,0 +1,815 @@
+/**
+ * ALCOEN ERP - 用户主题偏好样式
+ * 支持背景、主题模式、界面风格切换
+ */
+
+/* ============================================
+   基础变量
+   ============================================ */
+:root {
+  --alco-primary: #1e3a5f;
+  --alco-primary-light: #2a5080;
+  --alco-primary-dark: #152942;
+  
+  /* 玻璃效果变量 */
+  --glass-bg: rgba(255, 255, 255, 0.55);
+  --glass-bg-hover: rgba(255, 255, 255, 0.72);
+  --glass-border: rgba(255, 255, 255, 0.7);
+  --glass-border-subtle: rgba(255, 255, 255, 0.4);
+  --glass-shine: linear-gradient(180deg, rgba(255, 255, 255, 0.5) 0%, rgba(255, 255, 255, 0.2) 40%, transparent 100%);
+  
+  --shadow-md: 0 4px 12px rgba(30, 58, 95, 0.1), 0 2px 4px rgba(30, 58, 95, 0.06);
+  --shadow-lg: 0 12px 24px rgba(30, 58, 95, 0.12), 0 4px 8px rgba(30, 58, 95, 0.08);
+  --shadow-glass: 0 8px 32px rgba(30, 58, 95, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.6), inset 0 -1px 0 rgba(255, 255, 255, 0.2);
+  
+  --radius-lg: 16px;
+  --radius-md: 12px;
+}
+
+/* ============================================
+   背景样式 - 保持不变
+   ============================================ */
+
+/* 视频背景容器 */
+.video-background {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: -2;
+    overflow: hidden;
+}
+
+.video-background video {
+    min-width: 100%;
+    min-height: 100%;
+    width: auto;
+    height: auto;
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    object-fit: cover;
+}
+
+/* 图片背景容器 */
+.image-background {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: -2;
+    background-size: cover;
+    background-position: center;
+    background-attachment: fixed;
+    background-repeat: no-repeat;
+}
+
+.image-background::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.2);
+    pointer-events: none;
+}
+
+/* ============================================
+   主题模式 - Theme Mode
+   ============================================ */
+
+/* 日间模式 (light) - 恢复原始玻璃效果 */
+body.theme-light {
+    color: var(--alco-primary);
+}
+
+body.theme-light .card {
+    background: var(--glass-bg);
+    backdrop-filter: blur(24px) saturate(200%) brightness(1.05);
+    -webkit-backdrop-filter: blur(24px) saturate(200%) brightness(1.05);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-md), inset 0 1px 0 rgba(255, 255, 255, 0.6), inset 0 -1px 0 rgba(255, 255, 255, 0.2);
+}
+
+/* 卡片顶部光泽效果 */
+body.theme-light .card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 50%;
+    background: var(--glass-shine);
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+    pointer-events: none;
+    z-index: 0;
+}
+
+/* 卡片边框镀铬效果 */
+body.theme-light .card::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    border-radius: var(--radius-lg);
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    pointer-events: none;
+    z-index: 2;
+}
+
+body.theme-light .card > * {
+    position: relative;
+    z-index: 1;
+}
+
+body.theme-light .card:hover {
+    box-shadow: var(--shadow-lg), inset 0 1px 0 rgba(255, 255, 255, 0.7), inset 0 -1px 0 rgba(255, 255, 255, 0.3);
+    transform: translateY(-3px);
+    background: var(--glass-bg-hover);
+    border-color: rgba(255, 255, 255, 0.9);
+}
+
+body.theme-light .card-header {
+    background: linear-gradient(135deg, rgba(30, 58, 95, 0.04) 0%, rgba(30, 58, 95, 0.08) 100%);
+    border-bottom: 1px solid var(--glass-border-subtle);
+    padding: 1rem 1.25rem;
+    font-weight: 600;
+}
+
+body.theme-light .card-body {
+    padding: 1.5rem;
+}
+
+body.theme-light .navbar {
+    background: rgba(255, 255, 255, 0.75);
+    backdrop-filter: blur(24px) saturate(200%);
+    -webkit-backdrop-filter: blur(24px) saturate(200%);
+    border-bottom: 1px solid var(--glass-border);
+    box-shadow: 0 1px 3px rgba(30, 58, 95, 0.05);
+}
+
+body.theme-light .navbar-brand {
+    color: var(--alco-primary);
+}
+
+body.theme-light .navbar-brand:hover {
+    color: var(--alco-primary-light);
+}
+
+body.theme-light .nav-link {
+    color: rgba(30, 58, 95, 0.75);
+}
+
+body.theme-light .nav-link:hover {
+    color: var(--alco-primary);
+    background: rgba(30, 58, 95, 0.05);
+}
+
+/* 表单控件 */
+body.theme-light .form-control,
+body.theme-light .form-select {
+    background: rgba(255, 255, 255, 0.6);
+    border: 1px solid rgba(30, 58, 95, 0.12);
+    border-radius: var(--radius-md);
+}
+
+body.theme-light .form-control:focus,
+body.theme-light .form-select:focus {
+    background: rgba(255, 255, 255, 0.9);
+    border-color: rgba(30, 58, 95, 0.25);
+    box-shadow: 0 0 0 4px rgba(30, 58, 95, 0.06);
+}
+
+body.theme-light .input-group-text {
+    background: rgba(255, 255, 255, 0.5);
+    border-color: rgba(30, 58, 95, 0.12);
+}
+
+/* 按钮 */
+body.theme-light .btn-primary {
+    background: linear-gradient(135deg, rgba(30, 58, 95, 0.9) 0%, rgba(42, 80, 128, 0.95) 100%);
+    border: none;
+    box-shadow: 0 4px 12px rgba(30, 58, 95, 0.2);
+}
+
+body.theme-light .btn-primary:hover {
+    background: linear-gradient(135deg, rgba(42, 80, 128, 0.95) 0%, rgba(30, 58, 95, 0.95) 100%);
+    transform: translateY(-1px);
+    box-shadow: 0 6px 16px rgba(30, 58, 95, 0.25);
+}
+
+/* 下拉菜单 */
+body.theme-light .dropdown-menu {
+    background: rgba(255, 255, 255, 0.85);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(255, 255, 255, 0.6);
+    box-shadow: var(--shadow-lg);
+}
+
+/* 夜间模式 (dark) - 保持不变 */
+body.theme-dark {
+    color: #e9ecef;
+}
+
+body.theme-dark .card {
+    background: rgba(33, 37, 41, 0.85);
+    backdrop-filter: blur(24px) saturate(200%);
+    -webkit-backdrop-filter: blur(24px) saturate(200%);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: var(--radius-lg);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+}
+
+body.theme-dark .card-header {
+    background: rgba(33, 37, 41, 0.9);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    color: #e9ecef;
+}
+
+body.theme-dark .card-body {
+    color: #e9ecef;
+}
+
+/* 夜间模式 - 导航栏 */
+body.theme-dark .navbar {
+    background: rgba(33, 37, 41, 0.95);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+body.theme-dark .navbar-brand {
+    color: #ffffff !important;
+}
+
+body.theme-dark .navbar-brand:hover {
+    color: #e9ecef !important;
+}
+
+body.theme-dark .nav-link {
+    color: rgba(255, 255, 255, 0.9) !important;
+}
+
+body.theme-dark .nav-link:hover {
+    color: #ffffff !important;
+    background: rgba(255, 255, 255, 0.1);
+}
+
+body.theme-dark .navbar-toggler-icon {
+    filter: invert(1);
+}
+
+body.theme-dark .form-control,
+body.theme-dark .form-select {
+    background: rgba(33, 37, 41, 0.8);
+    border-color: rgba(255, 255, 255, 0.2);
+    color: #e9ecef;
+}
+
+body.theme-dark .form-control:focus {
+    background: rgba(33, 37, 41, 0.9);
+    color: #e9ecef;
+}
+
+body.theme-dark .dropdown-menu {
+    background: rgba(33, 37, 41, 0.95);
+    border-color: rgba(255, 255, 255, 0.1);
+}
+
+body.theme-dark .dropdown-item {
+    color: #e9ecef;
+}
+
+body.theme-dark .dropdown-item:hover {
+    background: rgba(255, 255, 255, 0.1);
+}
+
+body.theme-dark .text-muted {
+    color: rgba(233, 236, 239, 0.6) !important;
+}
+
+/* 夜间模式 - 表格 */
+body.theme-dark .table {
+    color: #e9ecef;
+    --bs-table-color: #e9ecef;
+}
+
+body.theme-dark .table th {
+    color: #ffffff;
+    background: rgba(255, 255, 255, 0.1);
+}
+
+body.theme-dark .table td {
+    color: #e9ecef;
+    border-color: rgba(255, 255, 255, 0.1);
+}
+
+body.theme-dark .table-striped > tbody > tr:nth-of-type(odd) > td {
+    background-color: rgba(255, 255, 255, 0.05);
+}
+
+body.theme-dark .table-hover > tbody > tr:hover > td {
+    background-color: rgba(255, 255, 255, 0.1);
+}
+
+/* 完成合同绿色背景 - 成功提示同款淡透明效果 */
+body.theme-light .table-success,
+body.theme-light .table-success > td,
+body.theme-light .table-success > th {
+    background: rgba(25, 135, 84, 0.08) !important;
+    border-color: rgba(25, 135, 84, 0.15);
+    color: #0f5132 !important;
+}
+
+body.theme-dark .table-success,
+body.theme-dark .table-success > td,
+body.theme-dark .table-success > th {
+    background: rgba(25, 135, 84, 0.15) !important;
+    border-color: rgba(25, 135, 84, 0.25);
+    color: #75b798 !important;
+}
+
+/* 对账单主色行（合计/小计）- 夜间模式透明背景 */
+body.theme-dark .table-primary,
+body.theme-dark .table-primary > td,
+body.theme-dark .table-primary > th {
+    background: rgba(13, 110, 253, 0.15) !important;
+    border-color: rgba(13, 110, 253, 0.25);
+    color: #6ea8fe !important;
+}
+
+/* 对账单信息行（合同小计）- 夜间模式透明背景 */
+body.theme-dark .table-info,
+body.theme-dark .table-info > td,
+body.theme-dark .table-info > th {
+    background: rgba(13, 202, 240, 0.15) !important;
+    border-color: rgba(13, 202, 240, 0.25);
+    color: #6edff6 !important;
+}
+
+/* 表头和次要行 - 夜间模式透明背景 */
+body.theme-dark .table-light,
+body.theme-dark .table-light > td,
+body.theme-dark .table-light > th,
+body.theme-dark .table-secondary,
+body.theme-dark .table-secondary > td,
+body.theme-dark .table-secondary > th {
+    background: rgba(255, 255, 255, 0.08) !important;
+    border-color: rgba(255, 255, 255, 0.15);
+    color: #e9ecef !important;
+}
+
+/* 深色表头 - 夜间模式 */
+body.theme-dark .table-dark,
+body.theme-dark .table-dark > td,
+body.theme-dark .table-dark > th {
+    background: rgba(33, 37, 41, 0.8) !important;
+    border-color: rgba(255, 255, 255, 0.1);
+    color: #ffffff !important;
+}
+
+/* 警告和危险行 - 夜间模式透明背景 */
+body.theme-dark .table-warning,
+body.theme-dark .table-warning > td,
+body.theme-dark .table-warning > th {
+    background: rgba(255, 193, 7, 0.15) !important;
+    border-color: rgba(255, 193, 7, 0.25);
+    color: #ffda6a !important;
+}
+
+body.theme-dark .table-danger,
+body.theme-dark .table-danger > td,
+body.theme-dark .table-danger > th {
+    background: rgba(220, 53, 69, 0.15) !important;
+    border-color: rgba(220, 53, 69, 0.25);
+    color: #ea868f !important;
+}
+
+/* 夜间模式 - 链接 */
+body.theme-dark a {
+    color: #6ea8fe;
+}
+
+body.theme-dark a:hover {
+    color: #8bb9fe;
+}
+
+body.theme-dark .btn-link {
+    color: #6ea8fe;
+}
+
+/* 夜间模式 - 列表组 */
+body.theme-dark .list-group-item {
+    background: rgba(33, 37, 41, 0.8);
+    border-color: rgba(255, 255, 255, 0.1);
+    color: #e9ecef;
+}
+
+body.theme-dark .list-group-item:hover {
+    background: rgba(255, 255, 255, 0.1);
+}
+
+/* 夜间模式 - 分页 */
+body.theme-dark .page-item.active .page-link {
+    background: #0d6efd;
+    border-color: #0d6efd;
+    color: #ffffff;
+}
+
+/* 夜间模式 - 对账单统计卡片 */
+body.theme-dark .bg-light {
+    background: rgba(255, 255, 255, 0.1) !important;
+}
+
+body.theme-dark .bg-light .text-muted {
+    color: rgba(255, 255, 255, 0.7) !important;
+}
+
+body.theme-dark .bg-light .fw-bold {
+    color: #ffffff !important;
+}
+
+/* 夜间模式 - 备注说明文字 */
+body.theme-dark .small.text-muted {
+    color: rgba(255, 255, 255, 0.6) !important;
+}
+
+/* 夜间模式 - 签章区域 */
+body.theme-dark .fw-bold {
+    color: #ffffff;
+}
+
+/* 夜间模式 - 首页统计卡片 */
+body.theme-dark .stat-card .card-title {
+    color: rgba(255, 255, 255, 0.8);
+}
+
+body.theme-dark .stat-card .display-6 {
+    color: #ffffff;
+}
+
+body.theme-dark .text-secondary {
+    color: rgba(255, 255, 255, 0.6) !important;
+}
+
+/* 夜间模式 - logo变白色 */
+body.theme-dark .navbar-brand img {
+    filter: brightness(0) invert(1);
+}
+
+body.theme-dark .text-center img[alt="ALCOEN"] {
+    filter: brightness(0) invert(1);
+}
+
+/* 夜间模式 - 标签 */
+body.theme-dark .badge {
+    color: #ffffff;
+}
+
+/* 夜间模式 - 提示框 */
+body.theme-dark .toast {
+    background: rgba(33, 37, 41, 0.95);
+    color: #e9ecef;
+}
+
+/* 夜间模式 - 代码块 */
+body.theme-dark code {
+    color: #e9ecef;
+    background: rgba(255, 255, 255, 0.1);
+}
+
+/* 夜间模式 - 强调文字 */
+body.theme-dark strong,
+body.theme-dark b {
+    color: #ffffff;
+}
+
+/* 夜间模式 - 段落 */
+body.theme-dark p {
+    color: #e9ecef;
+}
+
+/* 夜间模式 - 标题 */
+body.theme-dark h1,
+body.theme-dark h2,
+body.theme-dark h3,
+body.theme-dark h4,
+body.theme-dark h5,
+body.theme-dark h6 {
+    color: #ffffff;
+}
+
+/* 完成状态卡片头部 - 成功提示同款淡透明效果 */
+body.theme-light .card-header.bg-success {
+    background: rgba(25, 135, 84, 0.08) !important;
+    border-bottom: 1px solid rgba(25, 135, 84, 0.15);
+    color: #0f5132 !important;
+}
+
+body.theme-dark .card-header.bg-success {
+    background: rgba(25, 135, 84, 0.15) !important;
+    border-bottom: 1px solid rgba(25, 135, 84, 0.25);
+    color: #75b798 !important;
+}
+
+body.theme-dark .alert-success {
+    background: rgba(25, 135, 84, 0.2);
+    border-color: rgba(25, 135, 84, 0.3);
+    color: #75b798;
+}
+
+body.theme-dark .alert-danger {
+    background: rgba(220, 53, 69, 0.2);
+    border-color: rgba(220, 53, 69, 0.3);
+    color: #ea868f;
+}
+
+body.theme-dark .alert-warning {
+    background: rgba(255, 193, 7, 0.2);
+    border-color: rgba(255, 193, 7, 0.3);
+    color: #ffda6a;
+}
+
+body.theme-dark .alert-info {
+    background: rgba(13, 202, 240, 0.2);
+    border-color: rgba(13, 202, 240, 0.3);
+    color: #6edff6;
+}
+
+body.theme-dark .page-link {
+    background: rgba(33, 37, 41, 0.8);
+    border-color: rgba(255, 255, 255, 0.2);
+    color: #e9ecef;
+}
+
+body.theme-dark .page-item.active .page-link {
+    background: #0d6efd;
+    border-color: #0d6efd;
+}
+
+/* ============================================
+   界面风格 - Style Options
+   ============================================ */
+
+/* 玻璃风格 (glass) - 默认，上面已经定义 */
+
+/* 现代风格 (modern) - 平面化，无毛玻利效果 */
+body.style-modern .card {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    background: rgba(255, 255, 255, 0.9);
+    border: 1px solid rgba(0, 0, 0, 0.08);
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
+    border-radius: var(--radius-md);
+}
+
+body.style-modern .card::before,
+body.style-modern .card::after {
+    display: none;
+}
+
+body.style-modern .navbar {
+    backdrop-filter: blur(24px) saturate(200%);
+    -webkit-backdrop-filter: blur(24px) saturate(200%);
+    background: rgba(255, 255, 255, 0.9);
+    border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+body.style-modern .btn {
+    border-radius: 8px;
+}
+
+body.style-modern .form-control,
+body.style-modern .form-select {
+    border-radius: 8px;
+}
+
+/* 现代风格 + 夜间模式 */
+body.style-modern.theme-dark .card {
+    background: rgba(33, 37, 41, 0.95);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+/* 经典风格 (classic) - Bootstrap 默认风格 */
+body.style-classic .card {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    background: #fff;
+    border: 1px solid rgba(0, 0, 0, 0.125);
+    box-shadow: none;
+    border-radius: 4px;
+}
+
+body.style-classic .card::before,
+body.style-classic .card::after {
+    display: none;
+}
+
+body.style-classic .card-header {
+    background: rgba(0, 0, 0, 0.03);
+    border-bottom: 1px solid rgba(0, 0, 0, 0.125);
+}
+
+body.style-classic .navbar {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    background: rgba(255, 255, 255, 0.95);
+    border-bottom: 1px solid rgba(0, 0, 0, 0.125);
+}
+
+body.style-classic .btn {
+    border-radius: 4px;
+}
+
+body.style-classic .form-control,
+body.style-classic .form-select {
+    border-radius: 4px;
+}
+
+/* 经典风格 + 夜间模式 */
+body.style-classic.theme-dark .card {
+    background: #212529;
+    border: 1px solid rgba(255, 255, 255, 0.125);
+}
+
+body.style-classic.theme-dark .card-header {
+    background: rgba(255, 255, 255, 0.05);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.125);
+}
+
+/* ============================================
+   主题选项卡片样式 (Theme Settings Page)
+   ============================================ */
+
+.theme-option-card {
+    cursor: pointer;
+    transition: all 0.2s ease;
+    border: 2px solid transparent;
+}
+
+.theme-option-card:hover {
+    border-color: #0d6efd;
+    transform: translateY(-2px);
+}
+
+.theme-option-card.selected {
+    border-color: #0d6efd;
+    background-color: rgba(13, 110, 253, 0.1);
+}
+
+.theme-option-card .form-check-input {
+    margin-top: 0.3rem;
+}
+
+.theme-option-card .form-check-label {
+    cursor: pointer;
+    display: block;
+    padding-left: 1.5rem;
+}
+
+/* 暗色模式下的主题选项卡片 */
+body.theme-dark .theme-option-card {
+    background-color: rgba(33, 37, 41, 0.8);
+    border-color: rgba(255, 255, 255, 0.1);
+}
+
+body.theme-dark .theme-option-card.selected {
+    background-color: rgba(13, 110, 253, 0.3);
+    border-color: #0d6efd;
+}
+
+/* ============================================
+   图片选择样式
+   ============================================ */
+
+.image-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+    gap: 10px;
+    max-height: 300px;
+    overflow-y: auto;
+    padding: 10px;
+    background: rgba(0,0,0,0.03);
+    border-radius: 8px;
+}
+
+.image-option {
+    position: relative;
+    cursor: pointer;
+    border-radius: 8px;
+    overflow: hidden;
+    border: 3px solid transparent;
+    transition: all 0.15s ease;
+    aspect-ratio: 16/10;
+    background: #f0f0f0;
+}
+
+.image-thumb {
+    width: 100%;
+    height: 100%;
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+}
+
+.image-option:hover {
+    border-color: #0d6efd;
+    transform: scale(1.03);
+}
+
+.image-option.selected {
+    border-color: #0d6efd;
+    box-shadow: 0 0 0 2px rgba(13, 110, 253, 0.3);
+}
+
+.image-option input[type="radio"] {
+    display: none;
+}
+
+.image-overlay {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    display: none;
+    background: white;
+    border-radius: 50%;
+    width: 20px;
+    height: 20px;
+    align-items: center;
+    justify-content: center;
+}
+
+.image-option.selected .image-overlay {
+    display: flex;
+}
+
+.image-overlay i {
+    color: #0d6efd;
+    font-size: 1rem;
+}
+
+body.theme-dark .image-grid {
+    background: rgba(255,255,255,0.05);
+}
+
+body.theme-dark .image-overlay {
+    background: #212529;
+}
+
+/* ============================================
+   玻璃球动画 (iOS Glass Orbs)
+   ============================================ */
+
+.orb {
+    position: fixed;
+    border-radius: 50%;
+    filter: blur(60px);
+    opacity: 0.4;
+    pointer-events: none;
+    z-index: -1;
+}
+
+.orb-1 {
+    width: 400px;
+    height: 400px;
+    background: radial-gradient(circle, rgba(74, 144, 217, 0.5) 0%, rgba(74, 144, 217, 0) 70%);
+    top: -100px;
+    right: -100px;
+}
+
+.orb-2 {
+    width: 300px;
+    height: 300px;
+    background: radial-gradient(circle, rgba(192, 192, 192, 0.4) 0%, rgba(192, 192, 192, 0) 70%);
+    bottom: -50px;
+    left: -50px;
+}
+
+.orb-3 {
+    width: 250px;
+    height: 250px;
+    background: radial-gradient(circle, rgba(30, 58, 95, 0.3) 0%, rgba(30, 58, 95, 0) 70%);
+    top: 50%;
+    left: 30%;
+}
+
+/* 夜间模式下的玻璃球 */
+body.theme-dark .orb-1 {
+    background: radial-gradient(circle, rgba(74, 144, 217, 0.3) 0%, rgba(74, 144, 217, 0) 70%);
+}
+
+body.theme-dark .orb-2 {
+    background: radial-gradient(circle, rgba(192, 192, 192, 0.2) 0%, rgba(192, 192, 192, 0) 70%);
+}
+
+body.theme-dark .orb-3 {
+    background: radial-gradient(circle, rgba(100, 149, 237, 0.2) 0%, rgba(100, 149, 237, 0) 70%);
+}

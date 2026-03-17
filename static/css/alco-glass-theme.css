@@ -1,0 +1,920 @@
+/**
+ * ALCOEN ERP - ALCOCHROM Inspired Glassmorphism Theme
+ * Clean Laboratory Aesthetic + Apple iOS Glass
+ * Version: 2.0
+ */
+
+/* ============================================
+   FONT FACE - 苹方黑体-准-简
+   ============================================ */
+@font-face {
+  font-family: 'PingFang Medium';
+  src: url('../fonts/pingfang-medium.ttf') format('truetype');
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* ============================================
+   CSS VARIABLES - ALCOCHROM Design System
+   ============================================ */
+:root {
+  /* ALCOCHROM Brand Colors - Professional Lab Blue */
+  --alco-primary: #1e3a5f;
+  --alco-primary-light: #2a5080;
+  --alco-primary-dark: #152942;
+  --alco-accent: #4a90d9;
+  --alco-chrome: #c0c0c0;
+  
+  /* Glass Backgrounds - Enhanced Transparency */
+  --glass-bg: rgba(255, 255, 255, 0.55);
+  --glass-bg-hover: rgba(255, 255, 255, 0.72);
+  --glass-bg-active: rgba(255, 255, 255, 0.88);
+  --glass-bg-dark: rgba(30, 58, 95, 0.75);
+  
+  /* Glass Shine Effects */
+  --glass-shine: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.4) 0%,
+    rgba(255, 255, 255, 0.1) 50%,
+    rgba(255, 255, 255, 0) 100%
+  );
+  --glass-reflection: rgba(255, 255, 255, 0.25);
+  
+  /* iOS Borders - Enhanced shine */
+  --glass-border: rgba(255, 255, 255, 0.7);
+  --glass-border-subtle: rgba(255, 255, 255, 0.4);
+  --glass-border-highlight: rgba(255, 255, 255, 0.9);
+  --glass-border-chrome: rgba(192, 192, 192, 0.5);
+  --chrome-border: rgba(192, 192, 192, 0.4);
+  
+  /* Enhanced Shadows */
+  --shadow-sm: 0 1px 3px rgba(30, 58, 95, 0.08);
+  --shadow-md: 0 4px 12px rgba(30, 58, 95, 0.1), 0 2px 4px rgba(30, 58, 95, 0.06);
+  --shadow-lg: 0 12px 24px rgba(30, 58, 95, 0.12), 0 4px 8px rgba(30, 58, 95, 0.08);
+  --shadow-xl: 0 24px 48px rgba(30, 58, 95, 0.15), 0 8px 16px rgba(30, 58, 95, 0.1);
+  --shadow-glass: 
+    0 8px 32px rgba(30, 58, 95, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.6),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.2);
+  
+  /* Border Radius */
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 20px;
+  --radius-full: 9999px;
+  
+  /* Typography - 苹方黑体-准-简 */
+  --font-sans: 'PingFang Medium', 'PingFang SC', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  
+  /* Transitions */
+  --transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-base: 200ms cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-slow: 300ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* ============================================
+   BASE STYLES - Laboratory Background
+   ============================================ */
+* {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  font-family: var(--font-sans);
+  background: 
+    /* 半透明覆盖层 - 提高透明度让背景图更明显 */
+    linear-gradient(135deg, rgba(245, 247, 250, 0.15) 0%, rgba(240, 242, 245, 0.12) 100%),
+    url('../img/backgrounds/bg-main.jpg') center/cover fixed no-repeat;
+  background-blend-mode: normal;
+  min-height: 100vh;
+  color: var(--alco-primary);
+  line-height: 1.6;
+}
+
+/* 磨砂玻璃效果层 - 降低模糊度 */
+body::before {
+  content: '';
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: 
+    linear-gradient(135deg, rgba(245, 247, 250, 0.1) 0%, rgba(235, 238, 242, 0.08) 50%, rgba(240, 242, 245, 0.1) 100%);
+  backdrop-filter: blur(2px) saturate(105%);
+  -webkit-backdrop-filter: blur(2px) saturate(105%);
+  z-index: -1;
+  pointer-events: none;
+}
+
+/* Alternative backgrounds via body classes - INS风格磨砂玻璃 */
+body.bg-lab-1 {
+  background: 
+    linear-gradient(135deg, rgba(245, 247, 250, 0.85) 0%, rgba(240, 242, 245, 0.82) 100%),
+    url('../img/backgrounds/lab-white-1.jpg') center/cover fixed no-repeat;
+  background-blend-mode: normal;
+}
+
+body.bg-lab-2 {
+  background: 
+    linear-gradient(135deg, rgba(245, 247, 250, 0.85) 0%, rgba(240, 242, 245, 0.82) 100%),
+    url('../img/backgrounds/lab-white-2.jpg') center/cover fixed no-repeat;
+  background-blend-mode: normal;
+}
+
+body.bg-lab-3 {
+  background: 
+    linear-gradient(135deg, rgba(245, 247, 250, 0.85) 0%, rgba(240, 242, 245, 0.82) 100%),
+    url('../img/backgrounds/lab-white-3.jpg') center/cover fixed no-repeat;
+  background-blend-mode: normal;
+}
+
+body.bg-clean {
+  background: 
+    linear-gradient(135deg, rgba(245, 247, 250, 0.85) 0%, rgba(240, 242, 245, 0.82) 100%),
+    url('../img/backgrounds/bg-clean-surface.jpg') center/cover fixed no-repeat;
+  background-blend-mode: normal;
+}
+
+/* ============================================
+   GLASS PANEL - Enhanced with Shine
+   ============================================ */
+.glass-panel {
+  position: relative;
+  background: var(--glass-bg);
+  backdrop-filter: blur(24px) saturate(200%) brightness(1.05);
+  -webkit-backdrop-filter: blur(24px) saturate(200%) brightness(1.05);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-glass);
+  transition: all var(--transition-base);
+  overflow: hidden;
+}
+
+/* Glass Shine Effect */
+.glass-panel::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 50%;
+  background: var(--glass-shine);
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.glass-panel:hover {
+  background: var(--glass-bg-hover);
+  box-shadow: 
+    0 16px 40px rgba(30, 58, 95, 0.15),
+    inset 0 1px 0 rgba(255, 255, 255, 0.7),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.25);
+  transform: translateY(-2px);
+}
+
+.glass-panel > * {
+  position: relative;
+  z-index: 1;
+}
+
+/* ============================================
+   CARDS - Laboratory Clean Style
+   ============================================ */
+.card {
+  position: relative;
+  background: var(--glass-bg);
+  backdrop-filter: blur(24px) saturate(200%) brightness(1.05);
+  -webkit-backdrop-filter: blur(24px) saturate(200%) brightness(1.05);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-lg);
+  box-shadow: 
+    var(--shadow-md),
+    inset 0 1px 0 rgba(255, 255, 255, 0.6),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.2);
+  transition: all var(--transition-base);
+  overflow: hidden;
+}
+
+/* Card Shine - Multi-layer */
+.card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 50%;
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.5) 0%,
+    rgba(255, 255, 255, 0.2) 40%,
+    transparent 100%
+  );
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* Card Chrome Edge */
+.card::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  border-radius: var(--radius-lg);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  pointer-events: none;
+  z-index: 2;
+}
+
+.card:hover {
+  box-shadow: 
+    var(--shadow-lg),
+    inset 0 1px 0 rgba(255, 255, 255, 0.7),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.3);
+  transform: translateY(-3px);
+  background: var(--glass-bg-hover);
+  border-color: var(--glass-border-highlight);
+}
+
+.card:hover::before {
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.6) 0%,
+    rgba(255, 255, 255, 0.25) 40%,
+    transparent 100%
+  );
+}
+
+.card > * {
+  position: relative;
+  z-index: 1;
+}
+
+.card-header {
+  background: linear-gradient(
+    135deg, 
+    rgba(30, 58, 95, 0.04) 0%, 
+    rgba(30, 58, 95, 0.08) 100%
+  );
+  border-bottom: 1px solid var(--glass-border-subtle);
+  padding: 1rem 1.25rem;
+  font-weight: 600;
+}
+
+.card-header.bg-primary {
+  background: linear-gradient(
+    135deg,
+    rgba(30, 58, 95, 0.85) 0%,
+    rgba(42, 80, 128, 0.9) 100%
+  ) !important;
+  color: white;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+.card-header.bg-primary::before {
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.15) 0%,
+    transparent 100%
+  );
+}
+
+.card-body {
+  padding: 1.5rem;
+}
+
+.card-footer {
+  background: rgba(255, 255, 255, 0.3);
+  border-top: 1px solid var(--glass-border-subtle);
+  padding: 1rem 1.25rem;
+}
+
+/* ============================================
+   BUTTONS - Chrome Laboratory Style
+   ============================================ */
+.btn {
+  font-family: var(--font-sans);
+  font-weight: 500;
+  border-radius: var(--radius-md);
+  padding: 0.5rem 1rem;
+  transition: all var(--transition-fast);
+  border: none;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  position: relative;
+  overflow: hidden;
+}
+
+/* Button Shine Effect */
+.btn::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.3),
+    transparent
+  );
+  transition: left 0.5s;
+}
+
+.btn:hover::before {
+  left: 100%;
+}
+
+/* Primary Button - Glass with ALCO Blue */
+.btn-primary {
+  background: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.6) 0%,
+    rgba(255, 255, 255, 0.3) 50%,
+    rgba(30, 58, 95, 0.08) 100%
+  );
+  color: var(--alco-primary);
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  box-shadow: 
+    inset 0 1px 0 rgba(255, 255, 255, 0.8),
+    inset 0 -1px 0 rgba(30, 58, 95, 0.1),
+    0 2px 4px rgba(30, 58, 95, 0.08);
+  backdrop-filter: blur(8px);
+}
+
+.btn-primary:hover {
+  background: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.75) 0%,
+    rgba(255, 255, 255, 0.4) 50%,
+    rgba(30, 58, 95, 0.12) 100%
+  );
+  border-color: rgba(255, 255, 255, 0.8);
+  color: var(--alco-primary);
+  transform: translateY(-1px);
+  box-shadow: 
+    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    inset 0 -1px 0 rgba(30, 58, 95, 0.15),
+    0 6px 16px rgba(30, 58, 95, 0.15);
+}
+
+/* Solid Primary */
+.btn-primary:not(.btn-outline) {
+  background: linear-gradient(
+    135deg,
+    var(--alco-primary) 0%,
+    var(--alco-primary-light) 100%
+  );
+  color: white;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.btn-primary:not(.btn-outline):hover {
+  background: linear-gradient(
+    135deg,
+    var(--alco-primary-light) 0%,
+    var(--alco-primary) 100%
+  );
+  box-shadow: 0 4px 16px rgba(30, 58, 95, 0.3);
+}
+
+/* Secondary Button */
+.btn-secondary {
+  background: rgba(255, 255, 255, 0.5);
+  color: #495057;
+  border: 1px solid rgba(255, 255, 255, 0.6);
+}
+
+.btn-secondary:hover {
+  background: rgba(255, 255, 255, 0.7);
+  border-color: rgba(255, 255, 255, 0.8);
+}
+
+/* Outline Buttons */
+.btn-outline-primary {
+  background: rgba(255, 255, 255, 0.3);
+  color: var(--alco-primary);
+  border: 1px solid rgba(30, 58, 95, 0.25);
+}
+
+.btn-outline-primary:hover {
+  background: rgba(30, 58, 95, 0.08);
+  border-color: rgba(30, 58, 95, 0.4);
+}
+
+/* ============================================
+   FORMS - Clean Laboratory Inputs
+   ============================================ */
+.form-control,
+.form-select {
+  background: rgba(255, 255, 255, 0.55);
+  border: 1px solid rgba(30, 58, 95, 0.12);
+  border-radius: var(--radius-md);
+  padding: 0.625rem 1rem;
+  font-family: var(--font-sans);
+  transition: all var(--transition-fast);
+  backdrop-filter: blur(4px);
+}
+
+.form-control:focus,
+.form-select:focus {
+  background: rgba(255, 255, 255, 0.85);
+  border-color: rgba(30, 58, 95, 0.25);
+  box-shadow: 
+    0 0 0 4px rgba(30, 58, 95, 0.06),
+    inset 0 1px 0 rgba(255, 255, 255, 0.8);
+  outline: none;
+}
+
+.form-control::placeholder {
+  color: rgba(30, 58, 95, 0.4);
+}
+
+.form-label {
+  font-weight: 500;
+  color: var(--alco-primary);
+  margin-bottom: 0.375rem;
+  font-size: 0.875rem;
+}
+
+/* ============================================
+   NAVBAR - Floating Glass Navigation
+   ============================================ */
+.navbar {
+  position: relative;
+  background: rgba(255, 255, 255, 0.75);
+  backdrop-filter: blur(24px) saturate(200%);
+  -webkit-backdrop-filter: blur(24px) saturate(200%);
+  border-bottom: 1px solid var(--glass-border);
+  box-shadow: 0 1px 3px rgba(30, 58, 95, 0.05);
+  padding: 0.75rem 1.5rem;
+  z-index: 1030;
+}
+
+.navbar::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 50%;
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.5) 0%,
+    transparent 100%
+  );
+  pointer-events: none;
+}
+
+.navbar-brand {
+  font-weight: 700;
+  color: var(--alco-primary);
+  font-size: 1.25rem;
+  position: relative;
+  z-index: 1;
+}
+
+.navbar-brand:hover {
+  color: var(--alco-primary-light);
+}
+
+.navbar-brand img {
+  height: 32px;
+  margin-right: 0.75rem;
+}
+
+.nav-link {
+  color: rgba(30, 58, 95, 0.75);
+  font-weight: 500;
+  padding: 0.5rem 0.75rem;
+  border-radius: var(--radius-md);
+  transition: all var(--transition-fast);
+  margin: 0 0.125rem;
+  position: relative;
+  z-index: 1;
+}
+
+.nav-link:hover {
+  color: var(--alco-primary);
+  background: rgba(30, 58, 95, 0.05);
+}
+
+.nav-link.active {
+  color: var(--alco-primary);
+  background: rgba(30, 58, 95, 0.1);
+}
+
+/* ============================================
+   DROPDOWNS - High z-index Fix
+   ============================================ */
+.dropdown-menu {
+  background: rgba(255, 255, 255, 0.9);
+  backdrop-filter: blur(24px) saturate(200%);
+  -webkit-backdrop-filter: blur(24px) saturate(200%);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-xl);
+  padding: 0.5rem;
+  min-width: 220px;
+  z-index: 1050 !important;
+}
+
+.dropdown-item {
+  color: var(--alco-primary);
+  padding: 0.625rem 1rem;
+  border-radius: var(--radius-md);
+  transition: all var(--transition-fast);
+  font-weight: 500;
+}
+
+.dropdown-item:hover {
+  background: rgba(30, 58, 95, 0.08);
+  color: var(--alco-primary);
+}
+
+.dropdown-divider {
+  border-top: 1px solid var(--glass-border-subtle);
+  margin: 0.5rem 0;
+}
+
+/* Fix dropdown z-index stacking */
+.navbar .dropdown-menu {
+  margin-top: 0.5rem;
+  z-index: 1050 !important;
+}
+
+/* ============================================
+   TABLES - Laboratory Data Display
+   ============================================ */
+.table {
+  --bs-table-bg: transparent;
+  --bs-table-color: var(--alco-primary);
+  --bs-table-border-color: var(--glass-border-subtle);
+}
+
+.table thead th {
+  background: rgba(30, 58, 95, 0.04);
+  font-weight: 600;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 0.875rem 1rem;
+  border-bottom: 2px solid var(--glass-border);
+  color: rgba(30, 58, 95, 0.7);
+}
+
+.table tbody td {
+  padding: 0.875rem 1rem;
+  vertical-align: middle;
+}
+
+.table tbody tr {
+  transition: background var(--transition-fast);
+}
+
+.table tbody tr:hover {
+  background: rgba(30, 58, 95, 0.03);
+}
+
+/* ============================================
+   BADGES - Chrome Accents
+   ============================================ */
+.badge {
+  font-weight: 600;
+  font-size: 0.75rem;
+  padding: 0.375rem 0.625rem;
+  border-radius: var(--radius-full);
+  backdrop-filter: blur(4px);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+}
+
+.bg-primary {
+  background: rgba(30, 58, 95, 0.12) !important;
+  color: var(--alco-primary);
+}
+
+.bg-success {
+  background: rgba(25, 135, 84, 0.12) !important;
+  color: #0f5132;
+}
+
+.bg-danger {
+  background: rgba(220, 53, 69, 0.12) !important;
+  color: #842029;
+}
+
+.bg-warning {
+  background: rgba(255, 193, 7, 0.18) !important;
+  color: #664d03;
+}
+
+.bg-info {
+  background: rgba(13, 202, 240, 0.12) !important;
+  color: #055160;
+}
+
+.bg-secondary {
+  background: rgba(108, 117, 125, 0.12) !important;
+  color: #41464b;
+}
+
+/* ============================================
+   ALERTS - Glass Notifications
+   ============================================ */
+.alert {
+  background: var(--glass-bg);
+  backdrop-filter: blur(12px);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-lg);
+  padding: 1rem 1.25rem;
+}
+
+.alert-primary {
+  background: rgba(30, 58, 95, 0.08);
+  border-color: rgba(30, 58, 95, 0.15);
+  color: var(--alco-primary);
+}
+
+.alert-success {
+  background: rgba(25, 135, 84, 0.08);
+  border-color: rgba(25, 135, 84, 0.15);
+  color: #0f5132;
+}
+
+.alert-danger {
+  background: rgba(220, 53, 69, 0.08);
+  border-color: rgba(220, 53, 69, 0.15);
+  color: #842029;
+}
+
+.alert-info {
+  background: rgba(13, 202, 240, 0.08);
+  border-color: rgba(13, 202, 240, 0.15);
+  color: #055160;
+}
+
+/* ============================================
+   MODALS - Floating Glass Dialogs
+   ============================================ */
+.modal-content {
+  background: rgba(255, 255, 255, 0.9);
+  backdrop-filter: blur(24px) saturate(200%);
+  -webkit-backdrop-filter: blur(24px) saturate(200%);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-xl);
+}
+
+.modal-header {
+  border-bottom: 1px solid var(--glass-border-subtle);
+  padding: 1.25rem 1.5rem;
+}
+
+.modal-body {
+  padding: 1.5rem;
+}
+
+.modal-footer {
+  border-top: 1px solid var(--glass-border-subtle);
+  padding: 1.25rem 1.5rem;
+}
+
+.modal-backdrop {
+  background: rgba(30, 58, 95, 0.35);
+  backdrop-filter: blur(4px);
+}
+
+/* ============================================
+   PAGINATION - Clean Navigation
+   ============================================ */
+.pagination {
+  gap: 0.375rem;
+}
+
+.page-link {
+  background: rgba(255, 255, 255, 0.5);
+  border: 1px solid rgba(30, 58, 95, 0.1);
+  color: var(--alco-primary);
+  border-radius: var(--radius-md);
+  padding: 0.5rem 0.875rem;
+  font-weight: 500;
+  transition: all var(--transition-fast);
+}
+
+.page-link:hover {
+  background: rgba(255, 255, 255, 0.8);
+  border-color: rgba(30, 58, 95, 0.2);
+  color: var(--alco-primary);
+}
+
+.page-item.active .page-link {
+  background: rgba(30, 58, 95, 0.12);
+  border-color: rgba(30, 58, 95, 0.25);
+  color: var(--alco-primary);
+}
+
+.page-item.disabled .page-link {
+  background: rgba(255, 255, 255, 0.3);
+  color: rgba(30, 58, 95, 0.4);
+}
+
+/* ============================================
+   TABS - Glass Tab Navigation
+   ============================================ */
+.nav-tabs {
+  border-bottom: 1px solid var(--glass-border-subtle);
+  gap: 0.25rem;
+}
+
+.nav-tabs .nav-link {
+  border: none;
+  border-radius: var(--radius-md) var(--radius-md) 0 0;
+  margin-bottom: -1px;
+  background: transparent;
+}
+
+.nav-tabs .nav-link.active {
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  border-bottom-color: transparent;
+}
+
+.tab-content {
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  border-top: none;
+  border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+  padding: 1.5rem;
+}
+
+/* ============================================
+   FLOATING ORBS - Laboratory Ambient
+   ============================================ */
+.orb {
+  position: fixed;
+  border-radius: 50%;
+  filter: blur(80px);
+  opacity: 0.35;
+  z-index: -1;
+  animation: float 25s ease-in-out infinite;
+  pointer-events: none;
+}
+
+.orb-1 {
+  width: 500px;
+  height: 500px;
+  background: linear-gradient(135deg, rgba(74, 144, 217, 0.2), rgba(30, 58, 95, 0.1));
+  top: -150px;
+  right: -100px;
+  animation-delay: 0s;
+}
+
+.orb-2 {
+  width: 400px;
+  height: 400px;
+  background: linear-gradient(135deg, rgba(192, 192, 192, 0.15), rgba(30, 58, 95, 0.08));
+  bottom: -100px;
+  left: -100px;
+  animation-delay: -8s;
+}
+
+.orb-3 {
+  width: 300px;
+  height: 300px;
+  background: linear-gradient(135deg, rgba(30, 58, 95, 0.1), rgba(74, 144, 217, 0.15));
+  top: 50%;
+  right: 10%;
+  animation-delay: -16s;
+}
+
+@keyframes float {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33% { transform: translate(30px, -30px) scale(1.05); }
+  66% { transform: translate(-20px, 20px) scale(0.95); }
+}
+
+/* ============================================
+   ANIMATIONS
+   ============================================ */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(15px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(25px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes scaleIn {
+  from { opacity: 0; transform: scale(0.95); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.5s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+.animate-slide-up {
+  animation: slideUp 0.6s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+.animate-scale-in {
+  animation: scaleIn 0.4s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+.stagger-1 { animation-delay: 0.05s; }
+.stagger-2 { animation-delay: 0.1s; }
+.stagger-3 { animation-delay: 0.15s; }
+.stagger-4 { animation-delay: 0.2s; }
+.stagger-5 { animation-delay: 0.25s; }
+
+/* ============================================
+   SCROLLBAR - Chrome Style
+   ============================================ */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(30, 58, 95, 0.2);
+  border-radius: var(--radius-full);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(30, 58, 95, 0.35);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+/* ============================================
+   SELECTION
+   ============================================ */
+::selection {
+  background: rgba(30, 58, 95, 0.15);
+  color: var(--alco-primary);
+}
+
+/* ============================================
+   UTILITY CLASSES
+   ============================================ */
+.glass {
+  background: var(--glass-bg);
+  backdrop-filter: blur(20px) saturate(180%);
+  border: 1px solid var(--glass-border);
+}
+
+.glass-hover:hover {
+  background: var(--glass-bg-hover);
+}
+
+.text-gradient {
+  background: linear-gradient(135deg, var(--alco-primary), var(--alco-accent));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Laboratory-specific utilities */
+.lab-card {
+  border-left: 3px solid var(--alco-accent);
+}
+
+.chrome-border {
+  border: 1px solid var(--chrome-border);
+  box-shadow: 
+    inset 0 1px 0 rgba(255, 255, 255, 0.5),
+    0 2px 4px rgba(30, 58, 95, 0.05);
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .card {
+    border-radius: var(--radius-md);
+  }
+  
+  .navbar {
+    padding: 0.625rem 1rem;
+  }
+  
+  .dropdown-menu {
+    backdrop-filter: blur(16px);
+  }
+}

@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>登录 - ALCOEN ERP</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.2/font/bootstrap-icons.css" rel="stylesheet">
+    <!-- Theme Preferences CSS -->
+    <link href="{{ url_for('static', filename='css/theme-preferences.css') }}" rel="stylesheet">
+    <style>
+        :root {
+            --alco-primary: #1e3a5f;
+            --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+        }
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: var(--font-sans);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+        }
+        
+        /* 视频背景 */
+        .video-background {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: -2;
+            overflow: hidden;
+        }
+        
+        .video-background video {
+            min-width: 100%;
+            min-height: 100%;
+            width: auto;
+            height: auto;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            object-fit: cover;
+        }
+        
+        /* 图片背景 */
+        .image-background {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: -2;
+            background-size: cover;
+            background-position: center;
+            background-attachment: fixed;
+            background-repeat: no-repeat;
+        }
+        
+        .image-background::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.3);
+            pointer-events: none;
+        }
+        
+        /* 纯色背景 */
+        .solid-background {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: -2;
+            background: linear-gradient(135deg, #e8f4f8 0%, #d4e9f2 50%, #c5e0ec 100%);
+        }
+        
+        /* 磨砂玻璃效果层 */
+        body::before {
+            content: '';
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: linear-gradient(135deg, rgba(245, 247, 250, 0.1) 0%, rgba(235, 238, 242, 0.08) 50%, rgba(240, 242, 245, 0.1) 100%);
+            backdrop-filter: blur(2px) saturate(105%);
+            -webkit-backdrop-filter: blur(2px) saturate(105%);
+            z-index: -1;
+            pointer-events: none;
+        }
+        
+        .login-container {
+            width: 100%;
+            max-width: 420px;
+            padding: 20px;
+            position: relative;
+            z-index: 1;
+        }
+        
+        /* 玻璃态登录卡片 */
+        .login-card {
+            background: rgba(255, 255, 255, 0.55);
+            backdrop-filter: blur(24px) saturate(200%) brightness(1.05);
+            -webkit-backdrop-filter: blur(24px) saturate(200%) brightness(1.05);
+            border: 1px solid rgba(255, 255, 255, 0.7);
+            border-radius: 16px;
+            box-shadow: 
+                0 8px 32px rgba(30, 58, 95, 0.12),
+                inset 0 1px 0 rgba(255, 255, 255, 0.6),
+                inset 0 -1px 0 rgba(255, 255, 255, 0.2);
+            padding: 40px;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        /* 卡片顶部光泽 */
+        .login-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 50%;
+            background: linear-gradient(180deg, rgba(255, 255, 255, 0.5) 0%, rgba(255, 255, 255, 0.2) 40%, transparent 100%);
+            pointer-events: none;
+            z-index: 0;
+        }
+        
+        .login-card > * {
+            position: relative;
+            z-index: 1;
+        }
+        
+        /* 视频/图片背景时的卡片样式调整 */
+        body.has-video-bg .login-card,
+        body.has-image-bg .login-card {
+            background: rgba(255, 255, 255, 0.85);
+            border: 1px solid rgba(255, 255, 255, 0.9);
+            backdrop-filter: blur(20px) saturate(180%);
+            -webkit-backdrop-filter: blur(20px) saturate(180%);
+        }
+        
+        .login-header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        
+        .login-header img {
+            height: 50px;
+            margin-bottom: 15px;
+        }
+        
+        .login-header h1 {
+            font-size: 28px;
+            font-weight: 700;
+            color: var(--alco-primary);
+            margin-bottom: 8px;
+        }
+        
+        .login-header p {
+            color: rgba(30, 58, 95, 0.6);
+            font-size: 14px;
+        }
+        
+        /* 玻璃态输入框 */
+        .form-floating {
+            margin-bottom: 16px;
+        }
+        
+        .form-floating > .form-control {
+            background: rgba(255, 255, 255, 0.6);
+            border: 1px solid rgba(30, 58, 95, 0.12);
+            border-radius: 12px;
+            backdrop-filter: blur(4px);
+        }
+        
+        .form-floating > .form-control:focus {
+            background: rgba(255, 255, 255, 0.9);
+            border-color: rgba(30, 58, 95, 0.25);
+            box-shadow: 0 0 0 4px rgba(30, 58, 95, 0.06);
+        }
+        
+        .form-floating > label {
+            color: rgba(30, 58, 95, 0.7);
+        }
+        
+        /* 玻璃态按钮 */
+        .btn-login {
+            width: 100%;
+            padding: 14px;
+            border-radius: 12px;
+            background: linear-gradient(135deg, rgba(30, 58, 95, 0.9) 0%, rgba(42, 80, 128, 0.95) 100%);
+            border: none;
+            font-weight: 600;
+            font-size: 16px;
+            margin-top: 10px;
+            box-shadow: 0 4px 12px rgba(30, 58, 95, 0.2);
+            transition: all 0.2s ease;
+        }
+        
+        .btn-login:hover {
+            background: linear-gradient(135deg, rgba(42, 80, 128, 0.95) 0%, rgba(30, 58, 95, 0.95) 100%);
+            transform: translateY(-1px);
+            box-shadow: 0 6px 16px rgba(30, 58, 95, 0.25);
+        }
+        
+        .btn-register {
+            width: 100%;
+            padding: 12px;
+            border-radius: 12px;
+            background: rgba(255, 255, 255, 0.5);
+            border: 1px solid rgba(30, 58, 95, 0.2);
+            color: var(--alco-primary);
+            font-weight: 600;
+            margin-top: 12px;
+            backdrop-filter: blur(4px);
+            transition: all 0.2s ease;
+        }
+        
+        .btn-register:hover {
+            background: rgba(255, 255, 255, 0.7);
+            border-color: rgba(30, 58, 95, 0.3);
+        }
+        
+        body.has-video-bg .btn-register,
+        body.has-image-bg .btn-register {
+            background: rgba(255, 255, 255, 0.65);
+        }
+        
+        .divider {
+            text-align: center;
+            margin: 20px 0;
+            position: relative;
+        }
+        
+        .divider::before {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 0;
+            right: 0;
+            height: 1px;
+            background: rgba(30, 58, 95, 0.15);
+        }
+        
+        .divider span {
+            background: transparent;
+            padding: 0 15px;
+            color: rgba(30, 58, 95, 0.5);
+            font-size: 14px;
+            position: relative;
+        }
+        
+        .form-check {
+            margin-top: 10px;
+        }
+        
+        .form-check-input:checked {
+            background-color: var(--alco-primary);
+            border-color: var(--alco-primary);
+        }
+        
+        .alert {
+            background: rgba(255, 255, 255, 0.7);
+            backdrop-filter: blur(8px);
+            border: 1px solid rgba(255, 255, 255, 0.5);
+            border-radius: 12px;
+        }
+        
+        body.has-video-bg .alert,
+        body.has-image-bg .alert {
+            background: rgba(255, 255, 255, 0.85);
+        }
+        
+        .footer {
+            text-align: center;
+            margin-top: 30px;
+            color: rgba(30, 58, 95, 0.7);
+            font-size: 13px;
+        }
+        
+        /* 玻璃球动画 */
+        .orb {
+            position: fixed;
+            border-radius: 50%;
+            filter: blur(60px);
+            opacity: 0.4;
+            pointer-events: none;
+            z-index: -1;
+        }
+        
+        .orb-1 {
+            width: 400px;
+            height: 400px;
+            background: radial-gradient(circle, rgba(74, 144, 217, 0.5) 0%, rgba(74, 144, 217, 0) 70%);
+            top: -100px;
+            right: -100px;
+        }
+        
+        .orb-2 {
+            width: 300px;
+            height: 300px;
+            background: radial-gradient(circle, rgba(192, 192, 192, 0.4) 0%, rgba(192, 192, 192, 0) 70%);
+            bottom: -50px;
+            left: -50px;
+        }
+        
+        .orb-3 {
+            width: 250px;
+            height: 250px;
+            background: radial-gradient(circle, rgba(30, 58, 95, 0.3) 0%, rgba(30, 58, 95, 0) 70%);
+            top: 50%;
+            left: 30%;
+        }
+    </style>
+</head>
+<body class="{% if bg_type == 'video' %}has-video-bg{% elif bg_type == 'image' %}has-image-bg{% endif %}">
+    <!-- 背景层 -->
+    {% if bg_type == 'video' %}
+    <!-- 视频背景 (登录页) -->
+    <div class="video-background">
+        <video autoplay muted loop playsinline>
+            <source src="{{ url_for('static', filename='video/video_login.mp4') }}" type="video/mp4">
+        </video>
+    </div>
+    {% elif bg_type == 'image' %}
+    <!-- 图片背景 -->
+    <div class="image-background" style="background-image: url('{{ url_for('static', filename='img/backgrounds/' + bg_image) }}')"></div>
+    {% else %}
+    <!-- 纯色背景 -->
+    <div class="solid-background"></div>
+    
+    <!-- iOS Glass Orbs (仅纯色背景时显示) -->
+    <div class="orb orb-1"></div>
+    <div class="orb orb-2"></div>
+    <div class="orb orb-3"></div>
+    {% endif %}
+    
+    <div class="login-container">
+        <div class="login-card">
+            <div class="login-header">
+                <img src="{{ url_for('static', filename='img/logo.png') }}" alt="ALCOEN">
+                <p>企业资源计划管理系统</p>
+            </div>
+            
+            {% with messages = get_flashed_messages(with_categories=true) %}
+                {% if messages %}
+                    {% for category, message in messages %}
+                        <div class="alert alert-{{ 'danger' if category == 'error' else category }} alert-dismissible fade show" role="alert">
+                            {{ message }}
+                            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                        </div>
+                    {% endfor %}
+                {% endif %}
+            {% endwith %}
+            
+            <form method="POST" action="">
+                <div class="form-floating">
+                    <input type="text" class="form-control" id="username" name="username" placeholder="用户名" required>
+                    <label for="username"><i class="bi bi-person"></i> 用户名</label>
+                </div>
+                
+                <div class="form-floating">
+                    <input type="password" class="form-control" id="password" name="password" placeholder="密码" required>
+                    <label for="password"><i class="bi bi-lock"></i> 密码</label>
+                </div>
+                
+                <div class="form-check">
+                    <input class="form-check-input" type="checkbox" id="remember" name="remember">
+                    <label class="form-check-label" for="remember">
+                        记住我（30天）
+                    </label>
+                </div>
+                
+                <button type="submit" class="btn btn-primary btn-login">
+                    <i class="bi bi-box-arrow-in-right"></i> 登 录
+                </button>
+            </form>
+            
+            <div class="divider">
+                <span>或</span>
+            </div>
+            
+            <a href="{{ url_for('auth.register') }}" class="btn btn-register">
+                <i class="bi bi-person-plus"></i> 注册新账号
+            </a>
+        </div>
+        
+        <div class="footer">
+            <p>&copy; 2024 ALCOEN. All rights reserved.</p>
+        </div>
+    </div>
+    
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

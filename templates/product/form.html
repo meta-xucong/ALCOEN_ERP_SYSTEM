@@ -1,0 +1,102 @@
+{% extends 'base.html' %}
+
+{% block title %}{{ title }} - ALCOEN ERP{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-lg-8">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="bi bi-{{ 'pencil' if product else 'plus-circle' }}"></i>
+                    {{ title }}
+                </h5>
+            </div>
+            <div class="card-body">
+                <form method="POST" action="" enctype="multipart/form-data">
+                    {{ form.hidden_tag() }}
+                    
+                    <!-- 产品编码 -->
+                    <div class="mb-3">
+                        {{ form.product_code.label(class="form-label") }}
+                        {{ form.product_code(class="form-control" + (" is-invalid" if form.product_code.errors else "")) }}
+                        {% if form.product_code.errors %}
+                        <div class="invalid-feedback">
+                            {% for error in form.product_code.errors %}
+                            {{ error }}
+                            {% endfor %}
+                        </div>
+                        {% endif %}
+                        <div class="form-text">产品编码是唯一标识，不能重复</div>
+                    </div>
+                    
+                    <div class="row">
+                        <!-- 产品名称 -->
+                        <div class="col-md-6 mb-3">
+                            {{ form.product_name.label(class="form-label") }}
+                            {{ form.product_name(class="form-control") }}
+                        </div>
+                        
+                        <!-- 产品型号 -->
+                        <div class="col-md-6 mb-3">
+                            {{ form.product_model.label(class="form-label") }}
+                            {{ form.product_model(class="form-control") }}
+                        </div>
+                    </div>
+                    
+                    <div class="row">
+                        <!-- 产品类型 -->
+                        <div class="col-md-6 mb-3">
+                            {{ form.product_type.label(class="form-label") }}
+                            {{ form.product_type(class="form-control") }}
+                        </div>
+                        
+                        <!-- 默认单价 -->
+                        <div class="col-md-6 mb-3">
+                            {{ form.default_price.label(class="form-label") }}
+                            {% if current_user.can_view_financial() %}
+                            <div class="input-group">
+                                {{ form.default_price(class="form-control") }}
+                                <span class="input-group-text">元</span>
+                            </div>
+                            {% else %}
+                            <div class="input-group">
+                                <input type="text" class="form-control" value="***" disabled>
+                                <span class="input-group-text">元</span>
+                            </div>
+                            {% endif %}
+                        </div>
+                    </div>
+                    
+                    <!-- 产品图片 -->
+                    <div class="mb-3">
+                        {{ form.image.label(class="form-label") }}
+                        {{ form.image(class="form-control") }}
+                        {% if product and product.image_path %}
+                        <div class="mt-2">
+                            <img src="{{ url_for('static', filename='uploads/products/' + product.image_path) }}" 
+                                 style="max-height: 100px;" class="rounded border">
+                            <div class="form-text">上传新图片将替换现有图片</div>
+                        </div>
+                        {% endif %}
+                    </div>
+                    
+                    <!-- 备注 -->
+                    <div class="mb-3">
+                        {{ form.remark.label(class="form-label") }}
+                        {{ form.remark(class="form-control") }}
+                    </div>
+                    
+                    <!-- 按钮 -->
+                    <div class="d-flex justify-content-between">
+                        <a href="{{ url_for('product.list_products') }}" class="btn btn-secondary">
+                            <i class="bi bi-arrow-left"></i> 返回
+                        </a>
+                        {{ form.submit(class="btn btn-primary") }}
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

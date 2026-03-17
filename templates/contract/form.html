@@ -1,0 +1,1660 @@
+{% extends 'base.html' %}
+
+{% block title %}{% if is_new %}新增合同{% else %}编辑合同{% endif %} - ALCOEN ERP{% endblock %}
+
+{% set is_logistics = current_user and current_user.is_logistics_manager() %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-12">
+        <h1 class="d-flex align-items-center gap-3 mb-0">
+            <i class="bi bi-file-earmark-plus text-gradient" style="font-size: 2rem;"></i>
+            <span class="text-gradient" style="font-weight: 700; font-size: 2rem;">
+                {% if is_new %}新增合同{% else %}编辑合同{% endif %}
+            </span>
+            {% if is_logistics %}
+            <span class="badge bg-info ms-2">物流经理模式</span>
+            {% endif %}
+        </h1>
+    </div>
+</div>
+
+<form method="POST" action="" id="contractForm" enctype="multipart/form-data">
+    {{ form.hidden_tag() }}
+    
+    <!-- 合同基本信息 -->
+    <div class="card mb-4">
+        <div class="card-header bg-primary text-white">
+            <h5 class="mb-0"><i class="bi bi-file-text"></i> 合同信息</h5>
+        </div>
+        <div class="card-body">
+            <div class="row">
+                <div class="col-md-4">
+                    {{ form.contract_no.label(class="form-label") }}
+                    {% if is_logistics %}
+                    <input type="text" class="form-control" value="{{ contract.contract_no if contract else '' }}" disabled>
+                    {{ form.contract_no(type="hidden") }}
+                    {% else %}
+                    {{ form.contract_no(class="form-control" + (" is-invalid" if form.contract_no.errors else "")) }}
+                    {% if form.contract_no.errors %}
+                    <div class="invalid-feedback">{{ form.contract_no.errors[0] }}</div>
+                    {% endif %}
+                    {% endif %}
+                </div>
+                <div class="col-md-4">
+                    {{ form.company_name.label(class="form-label") }}
+                    {% if is_logistics %}
+                    <input type="text" class="form-control" value="{{ contract.company_name if contract else '' }}" disabled>
+                    {{ form.company_name(type="hidden") }}
+                    {% else %}
+                    {{ form.company_name(class="form-control" + (" is-invalid" if form.company_name.errors else ""), list="company-list") }}
+                    <datalist id="company-list">
+                        {% for company in companies %}
+                        <option value="{{ company }}">
+                        {% endfor %}
+                    </datalist>
+                    {% endif %}
+                </div>
+                <!-- [v1.3] 所属部门和负责人放在同一行 -->
+                <!-- [v1.4] 根据角色自动匹配部门和负责人 -->
+                {% set is_sales_manager = current_user and current_user.is_sales_manager() %}
+                {% set is_pm = current_user and current_user.is_department_pm() %}
+                {% set is_gm_or_admin = current_user and (current_user.role.code == 'general_manager' or current_user.is_superadmin) %}
+                
+                <div class="col-md-3">
+                    <label class="form-label">所属部门</label>
+                    {% if is_logistics %}
+                    <input type="text" class="form-control" value="{{ contract.department if contract else '未设置' }}" disabled>
+                    <input type="hidden" name="department" value="{{ contract.department if contract else '' }}">
+                    {% elif is_sales_manager or is_pm %}
+                    {# 部门销售经理和PM：部门自动匹配，不可改 #}
+                    <input type="text" class="form-control" value="{{ current_user_dept }}" disabled>
+                    <input type="hidden" name="department" value="{{ current_user_dept }}">
+                    <div class="form-text text-success"><i class="bi bi-check-circle"></i> 自动匹配您的部门</div>
+                    {% else %}
+                    {# 总经理和超级管理员：保持原有逻辑 #}
+                    <div class="input-group input-group-sm">
+                        <select class="form-select" id="department-select" style="display: block;"
+                                onchange="onDepartmentSelect(this)">
+                            <option value="">-- 选择 --</option>
+                            {% for dept in departments %}
+                            <option value="{{ dept.name }}">{{ dept.name }}</option>
+                            {% endfor %}
+                        </select>
+                        <input type="text" class="form-control" id="department-input" name="department"
+                               value="{{ contract.department if contract else '' }}"
+                               placeholder="输入新部门" style="display: none;"
+                               onchange="onDepartmentInput(this)">
+                        <button type="button" class="btn btn-outline-secondary" 
+                                onclick="toggleDepartmentInput(this)" title="切换手动输入">
+                            <i class="bi bi-keyboard"></i>
+                        </button>
+                    </div>
+                    <div class="form-text" id="department-status" style="font-size: 11px;"></div>
+                    {% endif %}
+                </div>
+                <!-- [v1.3] 负责人 -->
+                <div class="col-md-3">
+                    <label class="form-label">负责人</label>
+                    {% if is_logistics %}
+                    <input type="text" class="form-control" value="{{ contract.manager if contract else '未设置' }}" disabled>
+                    <input type="hidden" name="manager" value="{{ contract.manager if contract else '' }}">
+                    {% elif is_sales_manager %}
+                    {# 部门销售经理：负责人自动匹配，不可改 #}
+                    <input type="text" class="form-control" value="{{ current_user_manager }}" disabled>
+                    <input type="hidden" name="manager" value="{{ current_user_manager }}">
+                    <div class="form-text text-success"><i class="bi bi-check-circle"></i> 自动匹配您的姓名</div>
+                    {% elif is_pm %}
+                    {# 部门PM：负责人自动匹配，但允许下拉选择 #}
+                    <div class="input-group input-group-sm">
+                        <select class="form-select" id="manager-select" style="display: block;"
+                                onchange="onManagerSelect(this)">
+                            <option value="{{ current_user_manager }}" selected>{{ current_user_manager }}（本人）</option>
+                            {% for mgr in managers %}
+                            <option value="{{ mgr }}">{{ mgr }}</option>
+                            {% endfor %}
+                        </select>
+                        <input type="text" class="form-control" id="manager-input" name="manager"
+                               value="{{ current_user_manager }}"
+                               placeholder="输入新负责人" style="display: none;"
+                               onchange="onManagerInput(this)">
+                        <button type="button" class="btn btn-outline-secondary"
+                                onclick="toggleManagerInput(this)" title="切换手动输入">
+                            <i class="bi bi-keyboard"></i>
+                        </button>
+                    </div>
+                    <div class="form-text text-success" style="font-size: 11px;">
+                        <i class="bi bi-check-circle"></i> 默认本人，可选择其他
+                    </div>
+                    {% else %}
+                    {# 总经理和超级管理员：保持原有逻辑 #}
+                    <div class="input-group input-group-sm">
+                        <select class="form-select" id="manager-select" style="display: block;"
+                                onchange="onManagerSelect(this)">
+                            <option value="">-- 选择 --</option>
+                        </select>
+                        <input type="text" class="form-control" id="manager-input" name="manager"
+                               value="{{ contract.manager if contract else '' }}"
+                               placeholder="输入新负责人" style="display: none;"
+                               onchange="onManagerInput(this)">
+                        <button type="button" class="btn btn-outline-secondary"
+                                onclick="toggleManagerInput(this)" title="切换手动输入">
+                            <i class="bi bi-keyboard"></i>
+                        </button>
+                    </div>
+                    <div class="form-text" id="manager-status" style="font-size: 11px;"></div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 发货产品计划 [v1.3] 优化排版 -->
+    <div class="card mb-4">
+        <div class="card-header bg-success text-white d-flex justify-content-between align-items-center">
+            <h5 class="mb-0"><i class="bi bi-box-seam"></i> 发货产品计划</h5>
+            {% if not is_logistics %}
+            <button type="button" class="btn btn-light btn-sm" onclick="addProductRow()">
+                <i class="bi bi-plus"></i> 添加产品
+            </button>
+            {% endif %}
+        </div>
+        <div class="card-body">
+            <div id="products-container">
+                <!-- 产品行将通过JS动态添加 -->
+            </div>
+            <input type="hidden" name="product_count" id="product_count" value="0">
+        </div>
+        {% if is_logistics %}
+        <div class="card-footer text-muted">
+            <i class="bi bi-info-circle"></i> 物流经理只能查看产品计划，不能修改
+        </div>
+        {% endif %}
+    </div>
+    
+    <!-- 发货记录 [v1.3] -->
+    <div class="card mb-4">
+        <div class="card-header bg-info text-white d-flex justify-content-between align-items-center">
+            <h5 class="mb-0"><i class="bi bi-truck"></i> 发货记录</h5>
+            <button type="button" class="btn btn-light btn-sm" onclick="addTransactionRow()">
+                <i class="bi bi-plus"></i> 添加记录
+            </button>
+        </div>
+        <div class="card-body">
+            <div id="transactions-container">
+                <!-- 发货记录行将通过JS动态添加 -->
+            </div>
+            <input type="hidden" name="transaction_count" id="transaction_count" value="0">
+        </div>
+    </div>
+    
+    <!-- 回款记录 [v1.3] 新增 -->
+    {% if not is_logistics %}
+    <div class="card mb-4">
+        <div class="card-header bg-warning text-dark d-flex justify-content-between align-items-center">
+            <h5 class="mb-0"><i class="bi bi-cash"></i> 回款记录</h5>
+            <button type="button" class="btn btn-light btn-sm" onclick="addPaymentRow()">
+                <i class="bi bi-plus"></i> 添加回款
+            </button>
+        </div>
+        <div class="card-body">
+            <div id="payments-container">
+                <!-- 回款记录行将通过JS动态添加 -->
+            </div>
+            <input type="hidden" name="payment_count" id="payment_count" value="0">
+        </div>
+    </div>
+    {% endif %}
+    
+    <!-- 统计信息 -->
+    <div class="card mb-4" id="stats-card" style="display: none;">
+        <div class="card-header bg-secondary">
+            <h5 class="mb-0"><i class="bi bi-bar-chart"></i> 统计信息</h5>
+        </div>
+        <div class="card-body">
+            <div id="stats-content"></div>
+        </div>
+    </div>
+    
+    <!-- [v1.4] 附件和合同文件上传 - 并排显示 -->
+    <div class="row mb-4">
+        <!-- 附件上传（图片） -->
+        <div class="col-md-6">
+            <div class="card h-100">
+                <div class="card-header bg-primary text-white">
+                    <h5 class="mb-0"><i class="bi bi-images"></i> 附件上传</h5>
+                </div>
+                <div class="card-body">
+                    <div class="mb-3">
+                        <label class="form-label">上传发票、发货单等图片</label>
+                        <div class="input-group">
+                            <input type="file" class="form-control" id="contract-images" 
+                                   multiple accept="image/*" onchange="handleImageSelect(this)">
+                            <button type="button" class="btn btn-outline-secondary" onclick="clearNewImages()">
+                                <i class="bi bi-trash"></i>
+                            </button>
+                        </div>
+                        <div class="form-text">支持 jpg, png, gif 格式</div>
+                    </div>
+                    
+                    <!-- 已有图片显示（编辑模式） -->
+                    {% if contract and contract.images %}
+                    <div class="mb-3">
+                        <label class="form-label">已上传的图片 <span class="badge bg-secondary">{{ contract.images|length }}张</span></label>
+                        <div class="d-flex flex-wrap gap-2" id="existing-images">
+                            {% for img in contract.images %}
+                            <div class="position-relative" id="existing-img-{{ img.id }}">
+                                <img src="{{ url_for('static', filename=img.filepath) }}" 
+                                     class="img-thumbnail" style="width: 80px; height: 80px; object-fit: cover; cursor: pointer;"
+                                     onclick="openImageModal('{{ url_for('static', filename=img.filepath) }}')"
+                                     title="{{ img.filename }}">
+                                <button type="button" class="btn btn-danger btn-sm position-absolute top-0 end-0" 
+                                        onclick="deleteExistingImage({{ img.id }})" style="padding: 0 3px; font-size: 10px;">
+                                    <i class="bi bi-x"></i>
+                                </button>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                    {% endif %}
+                    
+                    <!-- 新图片预览 -->
+                    <div id="new-images-section" style="display: none;">
+                        <label class="form-label">待上传的新图片 <span class="badge bg-primary" id="new-image-count">0张</span></label>
+                        <div id="image-preview-container" class="d-flex flex-wrap gap-2"></div>
+                    </div>
+                    
+                    <!-- 存储新选择文件的容器 -->
+                    <div id="new-files-container"></div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- [v1.4] 上传合同文件（物流经理无权限） -->
+        {% if not is_logistics %}
+        <div class="col-md-6">
+            <div class="card h-100">
+                <div class="card-header bg-success text-white">
+                    <h5 class="mb-0"><i class="bi bi-file-earmark-text"></i> 上传合同</h5>
+                </div>
+                <div class="card-body">
+                    <div class="mb-3">
+                        <label class="form-label">上传合同 PDF/文档</label>
+                        <div class="input-group">
+                            <input type="file" class="form-control" id="contract-documents" name="contract_documents"
+                                   multiple accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png" onchange="handleDocumentSelect(this)">
+                            <button type="button" class="btn btn-outline-secondary" onclick="clearNewDocuments()">
+                                <i class="bi bi-trash"></i>
+                            </button>
+                        </div>
+                        <div class="form-text">支持 PDF、DOC、XLS、图片等格式</div>
+                    </div>
+                    
+                    <!-- 已有合同文件显示（编辑模式） -->
+                    {% if contract and contract.contract_files %}
+                    <div class="mb-3">
+                        <label class="form-label">已上传的合同文件 <span class="badge bg-secondary">{{ contract.contract_files|length }}个</span></label>
+                        <div class="list-group" id="existing-documents">
+                            {% for doc in contract.contract_files %}
+                            <div class="list-group-item list-group-item-action d-flex justify-content-between align-items-center" id="existing-doc-{{ doc.id }}">
+                                <div>
+                                    <i class="bi {% if doc.is_pdf %}bi-file-earmark-pdf text-danger{% elif doc.is_image %}bi-file-earmark-image text-success{% else %}bi-file-earmark-text text-primary{% endif %}"></i>
+                                    <a href="{{ url_for('contract.download_contract_file', contract_id=contract.id, file_id=doc.id) }}" target="_blank">
+                                        {{ doc.filename }}
+                                    </a>
+                                    <small class="text-muted">
+                                        {% if doc.file_size < 1024 %}
+                                            {{ doc.file_size }} B
+                                        {% elif doc.file_size < 1024 * 1024 %}
+                                            {{ (doc.file_size / 1024)|int }} KB
+                                        {% else %}
+                                            {{ (doc.file_size / (1024 * 1024))|round(1) }} MB
+                                        {% endif %}
+                                    </small>
+                                </div>
+                                <button type="button" class="btn btn-sm btn-outline-danger" onclick="deleteExistingDocument({{ doc.id }})">
+                                    <i class="bi bi-trash"></i>
+                                </button>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                    {% endif %}
+                    
+                    <!-- 新文件预览 -->
+                    <div id="new-documents-section" style="display: none;">
+                        <label class="form-label">待上传的新文件 <span class="badge bg-success" id="new-document-count">0个</span></label>
+                        <div id="document-preview-container" class="list-group"></div>
+                    </div>
+                    
+                    <!-- 存储新选择文件的容器 -->
+                    <div id="new-document-files-container"></div>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+    
+    <!-- 备注 -->
+    <div class="card mb-4">
+        <div class="card-header">
+            <h5 class="mb-0"><i class="bi bi-journal-text"></i> 备注日志</h5>
+        </div>
+        <div class="card-body">
+            {% if is_logistics %}
+            <textarea name="remark" class="form-control" rows="4">{{ contract.remark if contract else '' }}</textarea>
+            <div class="form-text">物流经理可以添加发货相关备注</div>
+            {% else %}
+            {{ form.remark(class="form-control", rows=4) }}
+            <div class="form-text">备注会自动记录修改时间</div>
+            {% endif %}
+        </div>
+    </div>
+    
+    <!-- 按钮 -->
+    <div class="d-flex justify-content-between mb-4">
+        <a href="{{ url_for('contract.list_contracts') }}" class="btn btn-secondary">
+            <i class="bi bi-arrow-left"></i> 返回
+        </a>
+        <button type="submit" class="btn btn-primary btn-lg">
+            <i class="bi bi-save"></i> {% if is_logistics %}保存发货记录和附件{% else %}保存合同{% endif %}
+        </button>
+    </div>
+</form>
+
+<!-- 产品行模板 - 支持下拉选择和手动输入 [v1.3] 优化排版 -->
+<template id="product-row-template">
+    <div class="product-row border rounded p-3 mb-3" data-index="{index}">
+        <div class="d-flex justify-content-between mb-2 align-items-center">
+            <div class="d-flex align-items-center gap-2">
+                <strong>产品 #{index}</strong>
+                <span class="form-text product-match-status" style="font-size: 12px;"></span>
+            </div>
+            <button type="button" class="btn btn-sm btn-outline-danger" onclick="removeProductRow(this)">
+                <i class="bi bi-trash"></i>
+            </button>
+        </div>
+        <!-- 第一行：产品基本信息 -->
+        <div class="row align-items-end">
+            <!-- 产品编码 - 下拉选择+手动输入切换 -->
+            <div class="col-md-2">
+                <label class="form-label">产品编码 *</label>
+                <div class="input-group">
+                    <select class="form-select product-code-select" 
+                            name="product_{index}_code_select"
+                            onchange="onProductCodeSelect(this)"
+                            style="display: block;">
+                        <option value="">-- 选择 --</option>
+                        {% for product in products %}
+                        <option value="{{ product.product_code }}" 
+                                data-name="{{ product.product_name or '' }}"
+                                data-model="{{ product.product_model or '' }}"
+                                data-type="{{ product.product_type or '' }}"
+                                data-unit="{{ product.unit or '个' }}"
+                                data-price="{{ product.default_price or 0 }}">
+                            {{ product.product_code }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                    <input type="text" class="form-control product-code-input" 
+                           name="product_{index}_code"
+                           placeholder="输入编码"
+                           onchange="onProductCodeInput(this)"
+                           style="display: none;">
+                    <button type="button" class="btn btn-outline-secondary btn-toggle-input" 
+                            onclick="toggleProductCodeInput(this)" title="切换">
+                        <i class="bi bi-keyboard"></i>
+                    </button>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">产品名称</label>
+                <input type="text" class="form-control product-name-input" name="product_{index}_name">
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">型号</label>
+                <input type="text" class="form-control product-model-input" name="product_{index}_model">
+            </div>
+            <div class="col-md-1">
+                <label class="form-label">数量 *</label>
+                <input type="number" class="form-control product-qty" name="product_{index}_quantity" 
+                       step="1" min="0" pattern="\d*" inputmode="numeric"
+                       required onchange="calculateProductTotal(this)">
+            </div>
+            <div class="col-md-1">
+                <label class="form-label">单位</label>
+                <input type="text" class="form-control product-unit-input" name="product_{index}_unit" value="个">
+            </div>
+            <div class="col-md-2">
+                <label class="form-label">单价 *</label>
+                <input type="number" class="form-control product-price-input" name="product_{index}_price" 
+                       step="0.01" min="0" required onchange="calculateProductTotal(this)">
+            </div>
+            <div class="col-md-2">
+                <label class="form-label">总价</label>
+                <input type="number" class="form-control product-total" name="product_{index}_total" 
+                       readonly step="0.01">
+            </div>
+            <div class="col-md-4">
+                <label class="form-label">备注</label>
+                <input type="text" class="form-control product-remark" name="product_{index}_remark" maxlength="100">
+            </div>
+        </div>
+    </div>
+</template>
+
+<!-- 发货记录行模板 [v1.3] 优化排版 -->
+<template id="transaction-row-template">
+    <div class="transaction-row border rounded p-3 mb-3" data-index="{index}">
+        <div class="d-flex justify-content-between mb-2">
+            <strong>发货记录 #{index}</strong>
+            <div>
+                <button type="button" class="btn btn-sm btn-outline-secondary" onclick="toggleTransactionRow(this)">
+                    <i class="bi bi-chevron-up"></i>
+                </button>
+                <button type="button" class="btn btn-sm btn-outline-danger ms-1" onclick="removeTransactionRow(this)">
+                    <i class="bi bi-trash"></i>
+                </button>
+            </div>
+        </div>
+        <div class="transaction-content">
+            <!-- 第一行：产品信息 -->
+            <div class="row align-items-end">
+                <div class="col-md-3">
+                    <label class="form-label">选择产品 *</label>
+                    <select class="form-select" name="transaction_{index}_contract_product_id" required onchange="onTransactionProductSelect(this)">
+                        <option value="">-- 选择产品 --</option>
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">产品名称</label>
+                    <input type="text" class="form-control trans-product-name" readonly>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">型号</label>
+                    <input type="text" class="form-control trans-product-model" readonly>
+                </div>
+                <div class="col-md-1">
+                    <label class="form-label">数量 *</label>
+                    <input type="number" class="form-control trans-qty" name="transaction_{index}_quantity" 
+                           step="1" min="0" pattern="\d*" inputmode="numeric"
+                           required onchange="calculateTransactionTotal(this)">
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label">单位</label>
+                    <input type="text" class="form-control trans-unit" name="transaction_{index}_unit" readonly>
+                </div>
+            </div>
+            <!-- 第二行：发货信息 -->
+            <div class="row mt-3 align-items-end">
+                <!-- [v1.3] 隐藏含税单价字段，自动从产品计划获取 -->
+                <input type="hidden" class="form-control trans-price" name="transaction_{index}_price" value="0">
+                <div class="col-md-3">
+                    <label class="form-label">发货日期 *</label>
+                    <input type="date" class="form-control" name="transaction_{index}_delivery_date" required>
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label">经手人 *</label>
+                    <input type="text" class="form-control" name="transaction_{index}_handler" 
+                           required maxlength="50" placeholder="必填">
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label">备注</label>
+                    <input type="text" class="form-control" name="transaction_{index}_remark" maxlength="100">
+                </div>
+            </div>
+        </div>
+    </div>
+</template>
+
+<!-- 回款记录行模板 [v1.3] 新增 - 开票日期移到此处，经手人必填，添加对应发货记录 -->
+<template id="payment-row-template">
+    <div class="payment-row border rounded p-3 mb-3" data-index="{index}">
+        <div class="d-flex justify-content-between mb-2">
+            <strong>回款记录 #{index}</strong>
+            <button type="button" class="btn btn-sm btn-outline-danger" onclick="removePaymentRow(this)">
+                <i class="bi bi-trash"></i>
+            </button>
+        </div>
+        <div class="row align-items-end">
+            <div class="col-md-2">
+                <label class="form-label">回款金额 *</label>
+                <input type="number" class="form-control" name="payment_{index}_amount" 
+                       step="0.01" min="0" required placeholder="0.00">
+            </div>
+            <div class="col-md-2">
+                <label class="form-label">回款日期 *</label>
+                <input type="date" class="form-control" name="payment_{index}_date" required>
+            </div>
+            <!-- [v1.3] 开票日期移到回款记录 -->
+            <div class="col-md-2">
+                <label class="form-label">开票日期</label>
+                <input type="date" class="form-control" name="payment_{index}_invoice_date">
+            </div>
+            <div class="col-md-2">
+                <label class="form-label">经手人 *</label>
+                <input type="text" class="form-control" name="payment_{index}_handler" maxlength="50" required value="{{ current_user.real_name or current_user.username }}">
+            </div>
+            <!-- [v1.3] 对应产品下拉框 - 从产品计划中选择 -->
+            <div class="col-md-2">
+                <label class="form-label">对应产品</label>
+                <select class="form-select" name="payment_{index}_contract_product_id">
+                    <option value="">-- 选择产品 --</option>
+                </select>
+            </div>
+            <div class="col-md-2">
+                <label class="form-label">备注</label>
+                <input type="text" class="form-control" name="payment_{index}_remark" maxlength="50">
+            </div>
+        </div>
+    </div>
+</template>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// 产品管理
+let productCount = 0;
+let transactionCount = 0;
+let paymentCount = 0;
+
+function addProductRow() {
+    const template = document.getElementById('product-row-template').innerHTML;
+    const html = template.replace(/{index}/g, productCount);
+    const container = document.getElementById('products-container');
+    const tempDiv = document.createElement('div');
+    tempDiv.innerHTML = html;
+    container.appendChild(tempDiv.firstElementChild);
+    productCount++;
+    document.getElementById('product_count').value = productCount;
+    updateTransactionProductOptions();
+}
+
+function removeProductRow(btn) {
+    const row = btn.closest('.product-row');
+    row.remove();
+    reindexProducts();
+    updateTransactionProductOptions();
+}
+
+function reindexProducts() {
+    const rows = document.querySelectorAll('.product-row');
+    rows.forEach((row, index) => {
+        row.dataset.index = index;
+        row.querySelector('strong').textContent = `产品 #${index + 1}`;
+        row.querySelectorAll('input, select').forEach(input => {
+            const name = input.name.replace(/product_\d+_/, `product_${index}_`);
+            input.name = name;
+        });
+    });
+    productCount = rows.length;
+    document.getElementById('product_count').value = productCount;
+    updateTransactionProductOptions();
+}
+
+function calculateProductTotal(input) {
+    const row = input.closest('.product-row');
+    const qty = parseFloat(row.querySelector('.product-qty').value) || 0;
+    const price = parseFloat(row.querySelector('.product-price-input').value) || 0;
+    row.querySelector('.product-total').value = (qty * price).toFixed(2);
+}
+
+// 发货记录管理
+function addTransactionRow() {
+    if (productCount === 0) {
+        alert('请先添加产品计划');
+        return;
+    }
+    
+    const template = document.getElementById('transaction-row-template').innerHTML;
+    const html = template.replace(/{index}/g, transactionCount);
+    const container = document.getElementById('transactions-container');
+    const tempDiv = document.createElement('div');
+    tempDiv.innerHTML = html;
+    container.appendChild(tempDiv.firstElementChild);
+    
+    updateTransactionProductOptions(transactionCount);
+    
+    const dateInput = document.querySelector(`[name="transaction_${transactionCount}_delivery_date"]`);
+    if (dateInput) {
+        dateInput.value = new Date().toISOString().split('T')[0];
+    }
+    
+    transactionCount++;
+    document.getElementById('transaction_count').value = transactionCount;
+    
+    // [v1.3] 更新所有回款记录中的对应产品下拉列表
+    updateAllPaymentProductOptions();
+}
+
+function toggleTransactionRow(btn) {
+    const row = btn.closest('.transaction-row');
+    const content = row.querySelector('.transaction-content');
+    const icon = btn.querySelector('i');
+    
+    if (content.style.display === 'none') {
+        content.style.display = 'block';
+        icon.classList.remove('bi-chevron-down');
+        icon.classList.add('bi-chevron-up');
+    } else {
+        content.style.display = 'none';
+        icon.classList.remove('bi-chevron-up');
+        icon.classList.add('bi-chevron-down');
+    }
+}
+
+function removeTransactionRow(btn) {
+    if (confirm('确定要删除这条发货记录吗？')) {
+        const row = btn.closest('.transaction-row');
+        row.remove();
+        reindexTransactions();
+        // [v1.3] 更新所有回款记录中的对应产品下拉列表
+        updateAllPaymentProductOptions();
+    }
+}
+
+function reindexTransactions() {
+    const rows = document.querySelectorAll('.transaction-row');
+    rows.forEach((row, index) => {
+        row.dataset.index = index;
+        row.querySelector('strong').textContent = `发货记录 #${index + 1}`;
+        row.querySelectorAll('input, select').forEach(input => {
+            const name = input.name.replace(/transaction_\d+_/, `transaction_${index}_`);
+            input.name = name;
+        });
+    });
+    transactionCount = rows.length;
+    document.getElementById('transaction_count').value = transactionCount;
+}
+
+function updateTransactionProductOptions(specificIndex = null) {
+    const products = [];
+    document.querySelectorAll('.product-row').forEach(row => {
+        const index = row.dataset.index;
+        let code = '';
+        
+        const selectInput = row.querySelector('.product-code-select');
+        const textInput = row.querySelector('.product-code-input');
+        
+        if (selectInput && selectInput.style.display !== 'none' && selectInput.value) {
+            code = selectInput.value;
+        } else if (textInput && textInput.style.display !== 'none' && textInput.value) {
+            code = textInput.value;
+        } else {
+            const codeInput = row.querySelector(`[name="product_${index}_code"], [name="product_${index}_code_select"]`);
+            code = codeInput?.value || '';
+        }
+        
+        const name = row.querySelector('.product-name-input')?.value || '';
+        const model = row.querySelector('.product-model-input')?.value || '';
+        const unit = row.querySelector('.product-unit-input')?.value || '个';
+        const price = row.querySelector('.product-price-input')?.value || 0;
+        
+        if (code) {
+            products.push({ index, code, name, model, unit, price });
+        }
+    });
+    
+    const selects = specificIndex !== null 
+        ? [document.querySelector(`[name="transaction_${specificIndex}_contract_product_id"]`)]
+        : document.querySelectorAll('[name^="transaction_"][name$="_contract_product_id"]');
+    
+    selects.forEach(select => {
+        if (!select) return;
+        const currentValue = select.value;
+        const selectedOption = select.selectedOptions[0];
+        const currentProductIndex = selectedOption?.dataset?.productIndex;
+        
+        select.innerHTML = '<option value="">-- 选择 --</option>';
+        products.forEach(p => {
+            const option = document.createElement('option');
+            option.value = p.code;
+            option.textContent = `${p.code}`;
+            option.dataset.productIndex = p.index;
+            option.dataset.name = p.name;
+            option.dataset.model = p.model;
+            option.dataset.unit = p.unit;
+            option.dataset.price = p.price;
+            select.appendChild(option);
+        });
+        
+        if (currentValue) {
+            select.value = currentValue;
+        }
+        
+        if (currentProductIndex) {
+            const productRow = document.querySelector(`.product-row[data-index="${currentProductIndex}"]`);
+            if (productRow) {
+                const transRow = select.closest('.transaction-row');
+                transRow.querySelector('.trans-unit').value = productRow.querySelector('.product-unit-input').value;
+                transRow.querySelector('.trans-price').value = productRow.querySelector('.product-price-input').value;
+                transRow.querySelector('.trans-product-name').value = productRow.querySelector('.product-name-input').value;
+                transRow.querySelector('.trans-product-model').value = productRow.querySelector('.product-model-input').value;
+            }
+        }
+    });
+}
+
+function onTransactionProductSelect(select) {
+    const option = select.selectedOptions[0];
+    if (!option || !option.dataset.productIndex) return;
+    
+    const productIndex = option.dataset.productIndex;
+    const transRow = select.closest('.transaction-row');
+    
+    const productRow = document.querySelector(`.product-row[data-index="${productIndex}"]`);
+    if (productRow) {
+        const unit = productRow.querySelector('.product-unit-input').value;
+        const price = productRow.querySelector('.product-price-input').value;
+        const name = productRow.querySelector('.product-name-input').value;
+        const model = productRow.querySelector('.product-model-input').value;
+        
+        // 更新隐藏字段
+        transRow.querySelector('.trans-unit').value = unit;
+        transRow.querySelector('.trans-price').value = price;
+        // 更新显示字段
+        transRow.querySelector('.trans-product-name').value = name || '-';
+        transRow.querySelector('.trans-product-model').value = model || '-';
+        // 更新单位显示（第二行的单位显示框）
+        const unitDisplay = transRow.querySelector('.trans-unit-display');
+        if (unitDisplay) unitDisplay.value = unit;
+        
+        const qtyInput = transRow.querySelector('.trans-qty');
+        if (!qtyInput.value || qtyInput.value == '0') {
+            qtyInput.value = '1';
+        }
+    }
+}
+
+function calculateTransactionTotal(input) {
+    // [v1.3] 不再自动计算
+}
+
+// 切换产品编码输入模式
+function toggleProductCodeInput(btn) {
+    const container = btn.closest('.input-group');
+    const select = container.querySelector('.product-code-select');
+    const input = container.querySelector('.product-code-input');
+    const icon = btn.querySelector('i');
+    const row = btn.closest('.product-row');
+    const statusDiv = row.querySelector('.product-match-status');
+    
+    if (select.style.display !== 'none') {
+        select.style.display = 'none';
+        input.style.display = 'block';
+        input.name = select.name.replace('_select', '');
+        select.name = select.name + '_temp';
+        input.required = true;
+        select.required = false;
+        icon.classList.remove('bi-keyboard');
+        icon.classList.add('bi-list');
+        btn.title = '切换下拉选择';
+        statusDiv.innerHTML = '<span class="text-muted"><i class="bi bi-pencil"></i> 手动输入</span>';
+    } else {
+        select.style.display = 'block';
+        input.style.display = 'none';
+        select.name = input.name.replace('_temp', '').replace('_select', '_select');
+        input.name = input.name.replace('_temp', '') + '_temp';
+        select.required = true;
+        input.required = false;
+        icon.classList.remove('bi-list');
+        icon.classList.add('bi-keyboard');
+        btn.title = '切换手动输入';
+        statusDiv.innerHTML = '';
+    }
+}
+
+function onProductCodeSelect(select) {
+    const option = select.selectedOptions[0];
+    if (!option || !option.value) return;
+    
+    const row = select.closest('.product-row');
+    const statusDiv = row.querySelector('.product-match-status');
+    
+    row.querySelector('.product-name-input').value = option.dataset.name || '';
+    row.querySelector('.product-model-input').value = option.dataset.model || '';
+    row.querySelector('.product-unit-input').value = option.dataset.unit || '个';
+    row.querySelector('.product-price-input').value = option.dataset.price || 0;
+    
+    statusDiv.innerHTML = '<span class="text-success"><i class="bi bi-check-circle"></i> 已匹配</span>';
+    row.dataset.productMatched = 'true';
+    
+    calculateProductTotal(select);
+    updateTransactionProductOptions();
+}
+
+function onProductCodeInput(input) {
+    const code = input.value.trim();
+    if (!code) return;
+    
+    const row = input.closest('.product-row');
+    const statusDiv = row.querySelector('.product-match-status');
+    
+    const select = row.querySelector('.product-code-select');
+    let matchedOption = null;
+    
+    for (let opt of select.options) {
+        if (opt.value === code) {
+            matchedOption = opt;
+            break;
+        }
+    }
+    
+    if (matchedOption) {
+        row.querySelector('.product-name-input').value = matchedOption.dataset.name || '';
+        row.querySelector('.product-model-input').value = matchedOption.dataset.model || '';
+        row.querySelector('.product-unit-input').value = matchedOption.dataset.unit || '个';
+        row.querySelector('.product-price-input').value = matchedOption.dataset.price || 0;
+        statusDiv.innerHTML = '<span class="text-success"><i class="bi bi-check-circle"></i> 已匹配</span>';
+        row.dataset.productMatched = 'true';
+    } else {
+        statusDiv.innerHTML = '<span class="text-warning"><i class="bi bi-info-circle"></i> 新产品</span>';
+        row.dataset.productMatched = 'false';
+    }
+    
+    calculateProductTotal(input);
+    updateTransactionProductOptions();
+}
+
+// 回款记录管理 [v1.3] 新增
+function addPaymentRow() {
+    const template = document.getElementById('payment-row-template').innerHTML;
+    const html = template.replace(/{index}/g, paymentCount);
+    const container = document.getElementById('payments-container');
+    const tempDiv = document.createElement('div');
+    tempDiv.innerHTML = html;
+    container.appendChild(tempDiv.firstElementChild);
+    
+    const dateInput = document.querySelector(`[name="payment_${paymentCount}_date"]`);
+    if (dateInput) {
+        dateInput.value = new Date().toISOString().split('T')[0];
+    }
+    
+    // 填充对应发货记录下拉列表
+    updatePaymentProductOptions(paymentCount);
+    
+    paymentCount++;
+    document.getElementById('payment_count').value = paymentCount;
+}
+
+// [v1.3] 更新回款记录中的对应产品下拉列表 - 从产品计划中选择
+function updatePaymentProductOptions(paymentIndex) {
+    const select = document.querySelector(`[name="payment_${paymentIndex}_contract_product_id"]`);
+    if (!select) return;
+    
+    // 收集所有产品计划
+    const products = [];
+    document.querySelectorAll('.product-row').forEach((row, index) => {
+        const productCodeInput = row.querySelector('.product-code-input');
+        const productCodeSelect = row.querySelector('.product-code-select');
+        const productName = row.querySelector('.product-name-input')?.value || '';
+        const productModel = row.querySelector('.product-model-input')?.value || '';
+        
+        // 获取产品编码（优先从输入框，其次从选择框）
+        let productCode = '';
+        if (productCodeInput && productCodeInput.style.display !== 'none') {
+            productCode = productCodeInput.value;
+        } else if (productCodeSelect) {
+            productCode = productCodeSelect.value;
+        }
+        
+        if (productCode) {
+            products.push({
+                index: index,
+                productCode: productCode,
+                productName: productName,
+                productModel: productModel
+            });
+        }
+    });
+    
+    // 更新下拉选项
+    let html = '<option value="">-- 选择产品 --</option>';
+    products.forEach((p, idx) => {
+        const label = p.productName ? `产品 #${p.index} - ${p.productCode} ${p.productName}` : `产品 #${p.index} - ${p.productCode}`;
+        html += `<option value="${p.productCode}">${label}</option>`;
+    });
+    select.innerHTML = html;
+}
+
+// [v1.3] 更新所有回款记录中的对应产品下拉列表
+function updateAllPaymentProductOptions() {
+    document.querySelectorAll('.payment-row').forEach((row, index) => {
+        const currentValue = row.querySelector(`[name="payment_${index}_contract_product_id"]`)?.value;
+        updatePaymentProductOptions(index);
+        // 尝试恢复之前的选择（如果选项仍然存在）
+        const select = row.querySelector(`[name="payment_${index}_contract_product_id"]`);
+        if (select && currentValue) {
+            for (let opt of select.options) {
+                if (opt.value === currentValue) {
+                    select.value = currentValue;
+                    break;
+                }
+            }
+        }
+    });
+}
+
+function removePaymentRow(btn) {
+    if (confirm('确定要删除这条回款记录吗？')) {
+        const row = btn.closest('.payment-row');
+        row.remove();
+        reindexPayments();
+    }
+}
+
+function reindexPayments() {
+    const rows = document.querySelectorAll('.payment-row');
+    rows.forEach((row, index) => {
+        row.dataset.index = index;
+        row.querySelector('strong').textContent = `回款记录 #${index + 1}`;
+        row.querySelectorAll('input, select').forEach(input => {
+            const name = input.name.replace(/payment_\d+_/, `payment_${index}_`);
+            input.name = name;
+        });
+    });
+    paymentCount = rows.length;
+    document.getElementById('payment_count').value = paymentCount;
+}
+
+// 部门/负责人二级联动管理 [v1.3]
+// 部门与负责人映射数据
+const departmentManagers = {
+    {% for dept in departments %}
+    '{{ dept.name }}': [
+        {% for mgr in managers %}
+        {% if mgr.startswith(dept.name + ' - ') %}
+        '{{ mgr.split(' - ')[1] }}'{% if not loop.last %},{% endif %}
+        {% endif %}
+        {% endfor %}
+    ]{% if not loop.last %},{% endif %}
+    {% endfor %}
+};
+
+function toggleDepartmentInput(btn) {
+    const container = btn.closest('.input-group');
+    const select = container.querySelector('#department-select');
+    const input = container.querySelector('#department-input');
+    const icon = btn.querySelector('i');
+    const statusDiv = document.getElementById('department-status');
+    
+    if (select.style.display !== 'none') {
+        // 切换到手动输入
+        select.style.display = 'none';
+        input.style.display = 'block';
+        input.focus();
+        icon.classList.remove('bi-keyboard');
+        icon.classList.add('bi-list');
+        btn.title = '切换下拉选择';
+        statusDiv.innerHTML = '<span class="text-muted"><i class="bi bi-pencil"></i> 手动输入模式</span>';
+        // 清空负责人选择
+        document.getElementById('manager-select').innerHTML = '<option value="">-- 选择负责人 --</option>';
+    } else {
+        // 切换到下拉选择
+        select.style.display = 'block';
+        input.style.display = 'none';
+        icon.classList.remove('bi-list');
+        icon.classList.add('bi-keyboard');
+        btn.title = '切换手动输入';
+        statusDiv.innerHTML = '';
+    }
+}
+
+function toggleManagerInput(btn) {
+    const container = btn.closest('.input-group');
+    const select = container.querySelector('#manager-select');
+    const input = container.querySelector('#manager-input');
+    const icon = btn.querySelector('i');
+    const statusDiv = document.getElementById('manager-status');
+    
+    if (select.style.display !== 'none') {
+        // 切换到手动输入
+        select.style.display = 'none';
+        input.style.display = 'block';
+        input.focus();
+        icon.classList.remove('bi-keyboard');
+        icon.classList.add('bi-list');
+        btn.title = '切换下拉选择';
+        statusDiv.innerHTML = '<span class="text-muted"><i class="bi bi-pencil"></i> 手动输入模式</span>';
+    } else {
+        // 切换到下拉选择
+        select.style.display = 'block';
+        input.style.display = 'none';
+        icon.classList.remove('bi-list');
+        icon.classList.add('bi-keyboard');
+        btn.title = '切换手动输入';
+        statusDiv.innerHTML = '';
+    }
+}
+
+function onDepartmentSelect(select) {
+    const deptName = select.value;
+    const input = document.getElementById('department-input');
+    const statusDiv = document.getElementById('department-status');
+    const managerSelect = document.getElementById('manager-select');
+    
+    if (!deptName) {
+        managerSelect.innerHTML = '<option value="">-- 选择负责人 --</option>';
+        return;
+    }
+    
+    input.value = deptName;
+    statusDiv.innerHTML = '<span class="text-success"><i class="bi bi-check-circle"></i> 已选择</span>';
+    
+    // 更新负责人下拉列表
+    const managers = departmentManagers[deptName] || [];
+    let html = '<option value="">-- 选择负责人 --</option>';
+    managers.forEach(mgr => {
+        html += `<option value="${mgr}">${mgr}</option>`;
+    });
+    managerSelect.innerHTML = html;
+}
+
+function onDepartmentInput(input) {
+    const deptName = input.value.trim();
+    const statusDiv = document.getElementById('department-status');
+    const select = document.getElementById('department-select');
+    const managerSelect = document.getElementById('manager-select');
+    
+    if (!deptName) return;
+    
+    // 检查是否匹配现有部门
+    let matched = false;
+    for (let opt of select.options) {
+        if (opt.value === deptName) {
+            matched = true;
+            break;
+        }
+    }
+    
+    if (matched) {
+        statusDiv.innerHTML = '<span class="text-success"><i class="bi bi-check-circle"></i> 已匹配现有部门</span>';
+        // 更新负责人列表
+        const managers = departmentManagers[deptName] || [];
+        let html = '<option value="">-- 选择负责人 --</option>';
+        managers.forEach(mgr => {
+            html += `<option value="${mgr}">${mgr}</option>`;
+        });
+        managerSelect.innerHTML = html;
+    } else {
+        statusDiv.innerHTML = '<span class="text-warning"><i class="bi bi-info-circle"></i> 新部门，请填写负责人</span>';
+        // 清空负责人列表
+        managerSelect.innerHTML = '<option value="">-- 选择负责人 --</option>';
+    }
+}
+
+function onManagerSelect(select) {
+    const mgrName = select.value;
+    const input = document.getElementById('manager-input');
+    const statusDiv = document.getElementById('manager-status');
+    
+    if (!mgrName) return;
+    
+    input.value = mgrName;
+    statusDiv.innerHTML = '<span class="text-success"><i class="bi bi-check-circle"></i> 已选择</span>';
+}
+
+function onManagerInput(input) {
+    const mgrName = input.value.trim();
+    const statusDiv = document.getElementById('manager-status');
+    
+    if (!mgrName) return;
+    
+    statusDiv.innerHTML = '<span class="text-muted"><i class="bi bi-pencil"></i> 手动输入</span>';
+}
+
+// 图片上传管理 [v1.3] 支持多次添加
+let selectedFiles = [];
+let fileIdCounter = 0;
+
+function handleImageSelect(input) {
+    if (!input.files || input.files.length === 0) return;
+    
+    if (selectedFiles.length + input.files.length > 10) {
+        alert('总共最多只能上传10张图片，当前已选择' + selectedFiles.length + '张');
+        input.value = '';
+        return;
+    }
+    
+    Array.from(input.files).forEach(file => {
+        if (!file.type.startsWith('image/')) return;
+        
+        fileIdCounter++;
+        const fileId = fileIdCounter;
+        selectedFiles.push({ id: fileId, file: file });
+        
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            addImagePreview(fileId, e.target.result);
+        };
+        reader.readAsDataURL(file);
+    });
+    
+    updateImageSection();
+    input.value = ''; // 清空input，允许再次选择
+}
+
+function addImagePreview(fileId, src) {
+    const container = document.getElementById('image-preview-container');
+    const div = document.createElement('div');
+    div.className = 'position-relative';
+    div.id = `new-img-${fileId}`;
+    div.innerHTML = `
+        <img src="${src}" class="img-thumbnail" 
+             style="width: 120px; height: 120px; object-fit: cover; cursor: pointer;"
+             onclick="openImageModal('${src}')">
+        <button type="button" class="btn btn-danger btn-sm position-absolute top-0 end-0" 
+                onclick="removeNewImage(${fileId})" style="padding: 0 4px; font-size: 12px;">
+            <i class="bi bi-x"></i>
+        </button>
+    `;
+    container.appendChild(div);
+}
+
+function removeNewImage(fileId) {
+    selectedFiles = selectedFiles.filter(f => f.id !== fileId);
+    const div = document.getElementById(`new-img-${fileId}`);
+    if (div) div.remove();
+    updateImageSection();
+}
+
+function clearNewImages() {
+    if (selectedFiles.length === 0) return;
+    if (!confirm('确定要清空所有待上传的新图片吗？')) return;
+    
+    selectedFiles = [];
+    document.getElementById('image-preview-container').innerHTML = '';
+    updateImageSection();
+}
+
+function updateImageSection() {
+    const section = document.getElementById('new-images-section');
+    const countBadge = document.getElementById('new-image-count');
+    const filesContainer = document.getElementById('new-files-container');
+    
+    if (selectedFiles.length > 0) {
+        section.style.display = 'block';
+        countBadge.textContent = selectedFiles.length + '张';
+        
+        // 更新隐藏的文件输入
+        filesContainer.innerHTML = '';
+        selectedFiles.forEach((item, index) => {
+            const dt = new DataTransfer();
+            dt.items.add(item.file);
+            const input = document.createElement('input');
+            input.type = 'file';
+            input.name = 'images';
+            input.style.display = 'none';
+            input.files = dt.files;
+            filesContainer.appendChild(input);
+        });
+    } else {
+        section.style.display = 'none';
+        filesContainer.innerHTML = '';
+    }
+}
+
+function deleteExistingImage(imageId) {
+    if (!confirm('确定要删除这张已上传的图片吗？')) return;
+    
+    fetch(`/contract/api/delete-image/${imageId}`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            const div = document.getElementById(`existing-img-${imageId}`);
+            if (div) div.remove();
+        } else {
+            alert('删除失败：' + data.error);
+        }
+    })
+    .catch(error => {
+        alert('删除失败：' + error);
+    });
+}
+
+// 图片放大查看
+function openImageModal(imageSrc) {
+    // 创建模态框
+    let modal = document.getElementById('imageModal');
+    if (!modal) {
+        modal = document.createElement('div');
+        modal.id = 'imageModal';
+        modal.className = 'modal fade';
+        modal.tabIndex = -1;
+        modal.innerHTML = `
+            <div class="modal-dialog modal-lg modal-dialog-centered">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">图片预览</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body text-center">
+                        <img id="modalImage" src="" class="img-fluid" style="max-height: 80vh;">
+                    </div>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(modal);
+    }
+    
+    document.getElementById('modalImage').src = imageSrc;
+    const bsModal = new bootstrap.Modal(modal);
+    bsModal.show();
+}
+
+// 页面加载时初始化
+window.onload = function() {
+    {% if is_new %}
+    addProductRow();
+    {% else %}
+    loadExistingData();
+    // 初始化部门负责人联动
+    initDepartmentManager();
+    {% endif %}
+};
+
+{% if not is_new %}
+// 初始化部门负责人显示
+function initDepartmentManager() {
+    const dept = '{{ contract.department if contract and contract.department else '' }}';
+    const mgr = '{{ contract.manager if contract and contract.manager else '' }}';
+    
+    if (dept && dept !== 'None') {
+        const deptSelect = document.getElementById('department-select');
+        const deptInput = document.getElementById('department-input');
+        
+        // 检查部门是否在下拉列表中
+        let deptInList = false;
+        for (let opt of deptSelect.options) {
+            if (opt.value === dept) {
+                deptInList = true;
+                break;
+            }
+        }
+        
+        if (deptInList) {
+            deptSelect.value = dept;
+            onDepartmentSelect(deptSelect);
+        } else {
+            // 切换到手动输入模式
+            toggleDepartmentInput(deptSelect.closest('.input-group').querySelector('button'));
+            deptInput.value = dept;
+        }
+        
+        // 设置负责人
+        if (mgr && mgr !== 'None') {
+            const mgrSelect = document.getElementById('manager-select');
+            const mgrInput = document.getElementById('manager-input');
+            
+            // 检查负责人是否在下拉列表中
+            let mgrInList = false;
+            for (let opt of mgrSelect.options) {
+                if (opt.value === mgr) {
+                    mgrInList = true;
+                    break;
+                }
+            }
+            
+            if (mgrInList) {
+                mgrSelect.value = mgr;
+                onManagerSelect(mgrSelect);
+            } else {
+                // 切换到手动输入模式
+                toggleManagerInput(mgrSelect.closest('.input-group').querySelector('button'));
+                mgrInput.value = mgr;
+            }
+        }
+    }
+}
+{% endif %}
+
+{% if not is_new %}
+// 加载已有合同数据
+function loadExistingData() {
+    // 加载产品计划
+    const existingProducts = [
+        {% for cp in contract.contract_products %}
+        {
+            product_code: '{{ cp.product_code }}',
+            product_name: '{{ cp.product_name or "" }}',
+            product_model: '{{ cp.product_model or "" }}',
+            product_type: '{{ cp.product_type or "" }}',
+            quantity: {{ cp.quantity }},
+            unit: '{{ cp.unit }}',
+            price: {{ cp.price }},
+            total: {{ cp.total }}
+        }{% if not loop.last %},{% endif %}
+        {% endfor %}
+    ];
+    
+    existingProducts.forEach(p => {
+        addProductRowWithData(p);
+    });
+    
+    // 加载发货记录 [v1.3]
+    const existingTransactions = [
+        {% for trans in contract.transactions %}
+        {
+            id: {{ trans.id }},
+            product_code: '{{ trans.product_code }}',
+            quantity: {{ trans.quantity }},
+            unit: '{{ trans.unit }}',
+            price_with_tax: {{ trans.price_with_tax }},
+            handler: '{{ trans.handler or "" }}',
+            delivery_date: '{{ trans.delivery_date.isoformat() if trans.delivery_date else "" }}',
+            invoice_date: '{{ trans.invoice_date.isoformat() if trans.invoice_date else "" }}',
+            remark: '{{ trans.remark or "" }}'
+        }{% if not loop.last %},{% endif %}
+        {% endfor %}
+    ];
+    
+    existingTransactions.forEach(t => {
+        addTransactionRowWithData(t, true);
+    });
+    
+    // 加载回款记录 [v1.3]
+    const existingPayments = [
+        {% for payment in contract.payment_records %}
+        {
+            id: {{ payment.id }},
+            payment_amount: {{ payment.payment_amount }},
+            payment_date: '{{ payment.payment_date.isoformat() if payment.payment_date else "" }}',
+            handler: '{{ payment.handler or "" }}',
+            remark: '{{ payment.remark or "" }}',
+            contract_product_id: {{ payment.contract_product_id if payment.contract_product_id else 'null' }}
+        }{% if not loop.last %},{% endif %}
+        {% endfor %}
+    ];
+    
+    // 先加载所有发货记录，再加载回款记录（因为回款依赖发货记录）
+    existingPayments.forEach(p => {
+        addPaymentRowWithData(p, true);
+    });
+    
+    updateTransactionProductOptions();
+}
+
+function addProductRowWithData(data) {
+    const template = document.getElementById('product-row-template').innerHTML;
+    const html = template.replace(/{index}/g, productCount);
+    const container = document.getElementById('products-container');
+    const tempDiv = document.createElement('div');
+    tempDiv.innerHTML = html;
+    const row = tempDiv.firstElementChild;
+    container.appendChild(row);
+    
+    const select = row.querySelector('.product-code-select');
+    let matchedInDropdown = false;
+    
+    for (let opt of select.options) {
+        if (opt.value === data.product_code) {
+            matchedInDropdown = true;
+            select.value = data.product_code;
+            onProductCodeSelect(select);
+            break;
+        }
+    }
+    
+    const statusDiv = row.querySelector('.product-match-status');
+    
+    if (!matchedInDropdown) {
+        const toggleBtn = row.querySelector('.btn-toggle-input');
+        toggleProductCodeInput(toggleBtn);
+        const input = row.querySelector('.product-code-input');
+        input.value = data.product_code;
+        statusDiv.innerHTML = '<span class="text-warning"><i class="bi bi-info-circle"></i> 新产品</span>';
+        row.dataset.productMatched = 'false';
+    }
+    
+    if (!matchedInDropdown) {
+        row.querySelector('.product-name-input').value = data.product_name;
+        row.querySelector('.product-model-input').value = data.product_model;
+        row.querySelector('.product-unit-input').value = data.unit;
+        row.querySelector('.product-price-input').value = data.price;
+    }
+    
+    row.querySelector(`[name="product_${productCount}_quantity"]`).value = data.quantity;
+    row.querySelector('.product-total').value = data.total;
+    
+    // 物流经理只能查看产品，不能编辑
+    {% if is_logistics %}
+    row.querySelectorAll('input, select, button').forEach(el => {
+        if (!el.type || el.type !== 'hidden') {
+            el.disabled = true;
+        }
+    });
+    // 隐藏删除按钮
+    const deleteBtn = row.querySelector('.btn-outline-danger');
+    if (deleteBtn) deleteBtn.style.display = 'none';
+    {% endif %}
+    
+    productCount++;
+    document.getElementById('product_count').value = productCount;
+    updateTransactionProductOptions();
+}
+
+function addTransactionRowWithData(data, isExisting = false) {
+    if (productCount === 0) return;
+    
+    const template = document.getElementById('transaction-row-template').innerHTML;
+    const html = template.replace(/{index}/g, transactionCount);
+    const container = document.getElementById('transactions-container');
+    const tempDiv = document.createElement('div');
+    tempDiv.innerHTML = html;
+    const row = tempDiv.firstElementChild;
+    container.appendChild(row);
+    
+    if (isExisting) {
+        row.dataset.existingId = data.id;
+        const idInput = document.createElement('input');
+        idInput.type = 'hidden';
+        idInput.name = `transaction_${transactionCount}_id`;
+        idInput.value = data.id;
+        row.appendChild(idInput);
+    }
+    
+    updateTransactionProductOptions(transactionCount);
+    
+    const productSelect = row.querySelector(`[name="transaction_${transactionCount}_contract_product_id"]`);
+    for (let opt of productSelect.options) {
+        if (opt.value === data.product_code) {
+            productSelect.value = data.product_code;
+            onTransactionProductSelect(productSelect);
+            break;
+        }
+    }
+    
+    row.querySelector(`[name="transaction_${transactionCount}_quantity"]`).value = data.quantity;
+    row.querySelector(`[name="transaction_${transactionCount}_price"]`).value = data.price_with_tax;
+    row.querySelector(`[name="transaction_${transactionCount}_handler"]`).value = data.handler;
+    row.querySelector(`[name="transaction_${transactionCount}_delivery_date"]`).value = data.delivery_date;
+    if (data.invoice_date) {
+        row.querySelector(`[name="transaction_${transactionCount}_invoice_date"]`).value = data.invoice_date;
+    }
+    if (data.remark) {
+        row.querySelector(`[name="transaction_${transactionCount}_remark"]`).value = data.remark;
+    }
+    
+    transactionCount++;
+    document.getElementById('transaction_count').value = transactionCount;
+}
+
+function addPaymentRowWithData(data, isExisting = false) {
+    const template = document.getElementById('payment-row-template').innerHTML;
+    const html = template.replace(/{index}/g, paymentCount);
+    const container = document.getElementById('payments-container');
+    const tempDiv = document.createElement('div');
+    tempDiv.innerHTML = html;
+    const row = tempDiv.firstElementChild;
+    container.appendChild(row);
+    
+    if (isExisting) {
+        row.dataset.existingId = data.id;
+        const idInput = document.createElement('input');
+        idInput.type = 'hidden';
+        idInput.name = `payment_${paymentCount}_id`;
+        idInput.value = data.id;
+        row.appendChild(idInput);
+    }
+    
+    // 填充对应发货记录下拉列表
+    updatePaymentProductOptions(paymentCount);
+    
+    // 恢复对应产品选择（如果存在）
+    if (data.contract_product_id) {
+        const productSelect = document.querySelector(`[name="payment_${paymentCount}_contract_product_id"]`);
+        if (productSelect) {
+            for (let opt of productSelect.options) {
+                if (opt.value === String(data.contract_product_id)) {
+                    productSelect.value = data.contract_product_id;
+                    break;
+                }
+            }
+        }
+    }
+    
+    row.querySelector(`[name="payment_${paymentCount}_amount"]`).value = data.payment_amount;
+    row.querySelector(`[name="payment_${paymentCount}_date"]`).value = data.payment_date;
+    row.querySelector(`[name="payment_${paymentCount}_handler"]`).value = data.handler;
+    row.querySelector(`[name="payment_${paymentCount}_remark"]`).value = data.remark || '';
+    
+    paymentCount++;
+    document.getElementById('payment_count').value = paymentCount;
+}
+{% endif %}
+
+// [v1.4] 合同文件上传管理
+let selectedDocuments = [];
+let documentIdCounter = 0;
+
+function handleDocumentSelect(input) {
+    if (!input.files || input.files.length === 0) return;
+    
+    if (selectedDocuments.length + input.files.length > 5) {
+        alert('总共最多只能上传5个文件，当前已选择' + selectedDocuments.length + '个');
+        input.value = '';
+        return;
+    }
+    
+    const allowedTypes = ['.pdf', '.doc', '.docx', '.xls', '.xlsx', '.jpg', '.jpeg', '.png', '.gif'];
+    
+    Array.from(input.files).forEach(file => {
+        const ext = '.' + file.name.split('.').pop().toLowerCase();
+        if (!allowedTypes.includes(ext)) return;
+        
+        documentIdCounter++;
+        const docId = documentIdCounter;
+        selectedDocuments.push({ id: docId, file: file });
+        
+        addDocumentPreview(docId, file);
+    });
+    
+    updateDocumentSection();
+    input.value = '';
+}
+
+function addDocumentPreview(docId, file) {
+    const container = document.getElementById('document-preview-container');
+    const div = document.createElement('div');
+    div.className = 'list-group-item d-flex justify-content-between align-items-center';
+    div.id = `new-doc-${docId}`;
+    
+    let iconClass = 'bi-file-earmark-text text-primary';
+    const ext = '.' + file.name.split('.').pop().toLowerCase();
+    if (ext === '.pdf') iconClass = 'bi-file-earmark-pdf text-danger';
+    else if (['.jpg', '.jpeg', '.png', '.gif'].includes(ext)) iconClass = 'bi-file-earmark-image text-success';
+    else if (['.doc', '.docx'].includes(ext)) iconClass = 'bi-file-earmark-word text-primary';
+    else if (['.xls', '.xlsx'].includes(ext)) iconClass = 'bi-file-earmark-excel text-success';
+    
+    let sizeText = '';
+    if (file.size < 1024) sizeText = file.size + ' B';
+    else if (file.size < 1024 * 1024) sizeText = (file.size / 1024).toFixed(1) + ' KB';
+    else sizeText = (file.size / (1024 * 1024)).toFixed(1) + ' MB';
+    
+    div.innerHTML = `
+        <div>
+            <i class="bi ${iconClass}"></i>
+            <span>${file.name}</span>
+            <small class="text-muted">(${sizeText})</small>
+        </div>
+        <button type="button" class="btn btn-sm btn-outline-danger" onclick="removeNewDocument(${docId})">
+            <i class="bi bi-trash"></i>
+        </button>
+    `;
+    container.appendChild(div);
+}
+
+function removeNewDocument(docId) {
+    selectedDocuments = selectedDocuments.filter(d => d.id !== docId);
+    const div = document.getElementById(`new-doc-${docId}`);
+    if (div) div.remove();
+    updateDocumentSection();
+}
+
+function clearNewDocuments() {
+    if (selectedDocuments.length === 0) return;
+    if (!confirm('确定要清空所有待上传的文件吗？')) return;
+    
+    selectedDocuments = [];
+    document.getElementById('document-preview-container').innerHTML = '';
+    updateDocumentSection();
+}
+
+function updateDocumentSection() {
+    const section = document.getElementById('new-documents-section');
+    const countBadge = document.getElementById('new-document-count');
+    const filesContainer = document.getElementById('new-document-files-container');
+    
+    if (selectedDocuments.length > 0) {
+        section.style.display = 'block';
+        countBadge.textContent = selectedDocuments.length + '个';
+        
+        filesContainer.innerHTML = '';
+        selectedDocuments.forEach((item, index) => {
+            const dt = new DataTransfer();
+            dt.items.add(item.file);
+            const input = document.createElement('input');
+            input.type = 'file';
+            input.name = 'contract_documents';
+            input.style.display = 'none';
+            input.files = dt.files;
+            filesContainer.appendChild(input);
+        });
+    } else {
+        section.style.display = 'none';
+        filesContainer.innerHTML = '';
+    }
+}
+
+function deleteExistingDocument(docId) {
+    if (!confirm('确定要删除这个已上传的合同文件吗？')) return;
+    
+    const contractId = '{{ contract.id if contract else 0 }}';
+    if (!contractId) return;
+    
+    fetch(`/contract/${contractId}/file/${docId}/delete`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        }
+    })
+    .then(response => {
+        if (response.redirected) {
+            window.location.reload();
+        } else {
+            const div = document.getElementById(`existing-doc-${docId}`);
+            if (div) div.remove();
+        }
+    })
+    .catch(error => {
+        alert('删除失败：' + error);
+    });
+}
+</script>
+{% endblock %}

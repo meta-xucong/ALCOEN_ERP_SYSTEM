@@ -1,0 +1,190 @@
+{% extends 'base.html' %}
+
+{% block title %}部门管理 - ALCOEN ERP{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h1><i class="bi bi-building"></i> 部门管理</h1>
+</div>
+
+<!-- 新增部门表单 -->
+<div class="card mb-4">
+    <div class="card-header">
+        <h5 class="mb-0"><i class="bi bi-plus-circle"></i> 新增部门</h5>
+    </div>
+    <div class="card-body">
+        <form method="POST" action="{{ url_for('department.new_department') }}" class="row g-3">
+            <div class="col-md-6">
+                <input type="text" name="name" class="form-control" placeholder="输入部门名称" required>
+            </div>
+            <div class="col-md-3">
+                <button type="submit" class="btn btn-primary">
+                    <i class="bi bi-plus"></i> 创建部门
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- 部门列表 -->
+<div class="card">
+    <div class="card-header">
+        <h5 class="mb-0"><i class="bi bi-list"></i> 部门列表</h5>
+    </div>
+    <div class="card-body p-0">
+        {% if departments %}
+        <div class="table-responsive">
+            <table class="table table-hover mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>部门名称</th>
+                        <th class="text-center">合同数</th>
+                        <th class="text-center">负责人数</th>
+                        <th>部门成员</th>
+                        <th class="text-center">操作</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for dept in departments %}
+                    <tr>
+                        <td>
+                            <strong>{{ dept.name }}</strong>
+                        </td>
+                        <td class="text-center">
+                            <span class="badge bg-info">{{ dept_stats[dept.id]['contract_count'] }}</span>
+                        </td>
+                        <td class="text-center">
+                            <span class="badge bg-secondary">{{ dept_stats[dept.id]['manager_count'] }}</span>
+                        </td>
+                        <td>
+                            {% if dept_stats[dept.id]['users'] %}
+                                {% for user in dept_stats[dept.id]['users'] %}
+                                <span class="badge bg-light text-dark border">
+                                    {{ user.real_name or user.username }} ({{ user.role.name }})
+                                </span>
+                                {% endfor %}
+                            {% else %}
+                                <span class="text-muted">暂无成员</span>
+                            {% endif %}
+                        </td>
+                        <td class="text-center">
+                            <!-- 编辑按钮 -->
+                            <button type="button" class="btn btn-sm btn-outline-primary" 
+                                    data-bs-toggle="modal" data-bs-target="#editModal{{ dept.id }}">
+                                <i class="bi bi-pencil"></i> 编辑
+                            </button>
+                            
+                            <!-- 管理负责人按钮 -->
+                            <button type="button" class="btn btn-sm btn-outline-info"
+                                    data-bs-toggle="modal" data-bs-target="#managersModal{{ dept.id }}">
+                                <i class="bi bi-people"></i> 负责人
+                            </button>
+                            
+                            <!-- 删除按钮 -->
+                            <form method="POST" action="{{ url_for('department.delete_department', dept_id=dept.id) }}" 
+                                  class="d-inline"
+                                  onsubmit="return confirm('确定要删除部门 "{{ dept.name }}" 吗？此操作不可恢复！');">
+                                <button type="submit" class="btn btn-sm btn-outline-danger">
+                                    <i class="bi bi-trash"></i>
+                                </button>
+                            </form>
+                        </td>
+                    </tr>
+                    
+                    <!-- 编辑部门名称模态框 -->
+                    <div class="modal fade" id="editModal{{ dept.id }}" tabindex="-1">
+                        <div class="modal-dialog">
+                            <div class="modal-content">
+                                <div class="modal-header">
+                                    <h5 class="modal-title">编辑部门名称</h5>
+                                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                                </div>
+                                <form method="POST" action="{{ url_for('department.edit_department', dept_id=dept.id) }}">
+                                    <div class="modal-body">
+                                        <div class="mb-3">
+                                            <label class="form-label">部门名称</label>
+                                            <input type="text" name="name" class="form-control" 
+                                                   value="{{ dept.name }}" required>
+                                        </div>
+                                    </div>
+                                    <div class="modal-footer">
+                                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                                        <button type="submit" class="btn btn-primary">保存</button>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- 管理负责人模态框 -->
+                    <div class="modal fade" id="managersModal{{ dept.id }}" tabindex="-1">
+                        <div class="modal-dialog">
+                            <div class="modal-content">
+                                <div class="modal-header">
+                                    <h5 class="modal-title">管理负责人 - {{ dept.name }}</h5>
+                                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                                </div>
+                                <div class="modal-body">
+                                    <!-- 现有负责人列表 -->
+                                    <h6 class="mb-3">现有负责人</h6>
+                                    {% if dept.managers %}
+                                    <ul class="list-group mb-4">
+                                        {% for manager in dept.managers %}
+                                        <li class="list-group-item d-flex justify-content-between align-items-center">
+                                            {{ manager.name }}
+                                            <form method="POST" 
+                                                  action="{{ url_for('department.delete_manager', manager_id=manager.id) }}"
+                                                  class="d-inline">
+                                                <button type="submit" class="btn btn-sm btn-outline-danger">
+                                                    <i class="bi bi-trash"></i>
+                                                </button>
+                                            </form>
+                                        </li>
+                                        {% endfor %}
+                                    </ul>
+                                    {% else %}
+                                    <p class="text-muted mb-4">暂无负责人</p>
+                                    {% endif %}
+                                    
+                                    <!-- 添加新负责人 -->
+                                    <h6 class="mb-3">添加负责人</h6>
+                                    <form method="POST" 
+                                          action="{{ url_for('department.add_manager', dept_id=dept.id) }}">
+                                        <div class="input-group">
+                                            <input type="text" name="name" class="form-control" 
+                                                   placeholder="输入负责人姓名" required>
+                                            <button type="submit" class="btn btn-primary">
+                                                <i class="bi bi-plus"></i> 添加
+                                            </button>
+                                        </div>
+                                    </form>
+                                </div>
+                                <div class="modal-footer">
+                                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="text-center py-5 text-muted">
+            <i class="bi bi-inbox fs-1"></i>
+            <p class="mt-3">暂无部门，请添加</p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<div class="alert alert-info mt-4">
+    <h6><i class="bi bi-info-circle"></i> 说明</h6>
+    <ul class="mb-0">
+        <li>部门名称修改后会自动同步到所有相关合同</li>
+        <li>删除部门前需要先移除部门下的所有用户</li>
+        <li>负责人用于合同中的"负责人"字段选择</li>
+        <li>部门成员显示已关联的部门PM和销售经理账号</li>
+    </ul>
+</div>
+{% endblock %}
