@@ -1,0 +1,301 @@
+{% extends 'base.html' %}
+
+{% block title %}界面风格设置 - ALCOEN ERP{% endblock %}
+
+{% block content %}
+<div class="container py-5">
+    <div class="row justify-content-center">
+        <div class="col-md-10">
+            <div class="card">
+                <div class="card-header">
+                    <h4 class="mb-0">
+                        <i class="bi bi-palette"></i> 界面风格设置
+                    </h4>
+                </div>
+                <div class="card-body">
+                    <form method="POST" action="{{ url_for('theme.settings') }}">
+                        
+                        <!-- 背景类型 -->
+                        <div class="mb-4">
+                            <label class="form-label fw-bold">
+                                <i class="bi bi-image"></i> 背景类型
+                            </label>
+                            <div class="row g-3">
+                                {% for option in background_type_options %}
+                                <div class="col-md-4">
+                                    <div class="form-check card h-100 theme-option-card {% if current_theme.bg_type == option.value %}selected{% endif %}">
+                                        <div class="card-body">
+                                            <input class="form-check-input bg-type-radio" type="radio" name="bg_type" 
+                                                   id="bg_type_{{ option.value }}" value="{{ option.value }}"
+                                                   {% if current_theme.bg_type == option.value %}checked{% endif %}>
+                                            <label class="form-check-label" for="bg_type_{{ option.value }}">
+                                                <strong>{{ option.name }}</strong>
+                                                <p class="text-muted small mb-0">{{ option.description }}</p>
+                                            </label>
+                                        </div>
+                                    </div>
+                                </div>
+                                {% endfor %}
+                            </div>
+                        </div>
+                        
+                        <!-- 图片选择 (仅在选择图片背景时显示) -->
+                        <div id="image-selector" class="mb-4 {% if current_theme.bg_type != 'image' %}d-none{% endif %}">
+                            <label class="form-label fw-bold">
+                                <i class="bi bi-images"></i> 选择背景图片
+                            </label>
+                            <div class="image-grid">
+                                {% for img in background_images %}
+                                <div class="image-option {% if current_theme.bg_image == img.filename %}selected{% endif %}" 
+                                     data-filename="{{ img.filename }}"
+                                     title="{{ img.name }}">
+                                    <div class="image-thumb" style="background-image: url('{{ url_for('static', filename=img.path) }}')"></div>
+                                    <div class="image-overlay">
+                                        <i class="bi bi-check-circle-fill"></i>
+                                    </div>
+                                    <input type="radio" name="bg_image" value="{{ img.filename }}" 
+                                           {% if current_theme.bg_image == img.filename %}checked{% endif %}>
+                                </div>
+                                {% endfor %}
+                            </div>
+                        </div>
+                        
+                        <hr>
+                        
+                        <!-- 主题模式 -->
+                        <div class="mb-4">
+                            <label class="form-label fw-bold">
+                                <i class="bi bi-brightness-high"></i> 主题模式
+                            </label>
+                            <div class="row g-3">
+                                {% for option in theme_options %}
+                                <div class="col-md-6">
+                                    <div class="form-check card h-100 theme-option-card {% if current_theme.theme == option.value %}selected{% endif %}">
+                                        <div class="card-body">
+                                            <input class="form-check-input" type="radio" name="theme" 
+                                                   id="theme_{{ option.value }}" value="{{ option.value }}"
+                                                   {% if current_theme.theme == option.value %}checked{% endif %}>
+                                            <label class="form-check-label" for="theme_{{ option.value }}">
+                                                <strong>{{ option.name }}</strong>
+                                                <p class="text-muted small mb-0">{{ option.description }}</p>
+                                            </label>
+                                        </div>
+                                    </div>
+                                </div>
+                                {% endfor %}
+                            </div>
+                        </div>
+                        
+                        <hr>
+                        
+                        <!-- 界面风格 -->
+                        <div class="mb-4">
+                            <label class="form-label fw-bold">
+                                <i class="bi bi-layout-text-window"></i> 界面风格
+                            </label>
+                            <div class="row g-3">
+                                {% for option in style_options %}
+                                <div class="col-md-4">
+                                    <div class="form-check card h-100 theme-option-card {% if current_theme.style == option.value %}selected{% endif %}">
+                                        <div class="card-body">
+                                            <input class="form-check-input" type="radio" name="style" 
+                                                   id="style_{{ option.value }}" value="{{ option.value }}"
+                                                   {% if current_theme.style == option.value %}checked{% endif %}>
+                                            <label class="form-check-label" for="style_{{ option.value }}">
+                                                <strong>{{ option.name }}</strong>
+                                                <p class="text-muted small mb-0">{{ option.description }}</p>
+                                            </label>
+                                        </div>
+                                    </div>
+                                </div>
+                                {% endfor %}
+                            </div>
+                        </div>
+                        
+                        <div class="d-flex justify-content-between align-items-center mt-4">
+                            <a href="{{ url_for('user.user_profile') }}" class="btn btn-secondary">
+                                <i class="bi bi-arrow-left"></i> 返回个人资料
+                            </a>
+                            <button type="submit" class="btn btn-primary">
+                                <i class="bi bi-check-lg"></i> 保存设置
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+.theme-option-card {
+    cursor: pointer;
+    transition: all 0.2s ease;
+    border: 2px solid transparent;
+}
+
+.theme-option-card:hover {
+    border-color: #0d6efd;
+    transform: translateY(-2px);
+}
+
+.theme-option-card.selected {
+    border-color: #0d6efd;
+    background-color: rgba(13, 110, 253, 0.1);
+}
+
+.theme-option-card .form-check-input {
+    margin-top: 0.3rem;
+}
+
+.theme-option-card .form-check-label {
+    cursor: pointer;
+    display: block;
+    padding-left: 1.5rem;
+}
+
+/* 图片选择样式 */
+.image-grid {
+    max-height: 400px;
+    overflow-y: auto;
+    padding: 10px;
+    background: rgba(0,0,0,0.03);
+    border-radius: 8px;
+}
+
+.image-option {
+    position: relative;
+    cursor: pointer;
+    border-radius: 8px;
+    overflow: hidden;
+    border: 3px solid transparent;
+    transition: all 0.2s ease;
+    aspect-ratio: 16/10;
+}
+
+.image-option img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.image-option:hover {
+    border-color: #0d6efd;
+    transform: scale(1.02);
+}
+
+.image-option.selected {
+    border-color: #0d6efd;
+    box-shadow: 0 0 0 3px rgba(13, 110, 253, 0.3);
+}
+
+.image-option input[type="radio"] {
+    display: none;
+}
+
+.image-overlay {
+    position: absolute;
+    top: 5px;
+    right: 5px;
+    display: none;
+    background: white;
+    border-radius: 50%;
+    width: 24px;
+    height: 24px;
+    align-items: center;
+    justify-content: center;
+}
+
+.image-option.selected .image-overlay {
+    display: flex;
+}
+
+.image-overlay i {
+    color: #0d6efd;
+    font-size: 1.2rem;
+}
+
+/* 暗色模式 */
+body.theme-dark .theme-option-card {
+    background-color: rgba(33, 37, 41, 0.8);
+    border-color: rgba(255, 255, 255, 0.1);
+}
+
+body.theme-dark .theme-option-card.selected {
+    background-color: rgba(13, 110, 253, 0.3);
+    border-color: #0d6efd;
+}
+
+body.theme-dark .image-grid {
+    background: rgba(255,255,255,0.05);
+}
+
+body.theme-dark .image-overlay {
+    background: #212529;
+}
+</style>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // 点击卡片选择选项
+    document.querySelectorAll('.theme-option-card').forEach(function(card) {
+        card.addEventListener('click', function(e) {
+            if (e.target.tagName !== 'INPUT') {
+                const radio = this.querySelector('input[type="radio"]');
+                if (radio) {
+                    radio.checked = true;
+                    
+                    // 移除同组的所有选中状态
+                    const name = radio.name;
+                    document.querySelectorAll('input[type="radio"][name="' + name + '"]').forEach(function(r) {
+                        r.closest('.theme-option-card')?.classList.remove('selected');
+                    });
+                    
+                    // 添加当前选中状态
+                    this.classList.add('selected');
+                    
+                    // 如果是背景类型选择，显示/隐藏图片选择器
+                    if (name === 'bg_type') {
+                        toggleImageSelector(radio.value);
+                    }
+                }
+            }
+        });
+    });
+    
+    // 图片选择
+    document.querySelectorAll('.image-option').forEach(function(option) {
+        option.addEventListener('click', function() {
+            const radio = this.querySelector('input[type="radio"]');
+            radio.checked = true;
+            
+            // 移除所有图片选中状态
+            document.querySelectorAll('.image-option').forEach(function(opt) {
+                opt.classList.remove('selected');
+            });
+            
+            // 添加当前选中状态
+            this.classList.add('selected');
+        });
+    });
+    
+    // 初始化状态
+    document.querySelectorAll('input[type="radio"]:checked').forEach(function(radio) {
+        const card = radio.closest('.theme-option-card');
+        if (card) card.classList.add('selected');
+        const imgOption = radio.closest('.image-option');
+        if (imgOption) imgOption.classList.add('selected');
+    });
+    
+    // 切换图片选择器显示
+    function toggleImageSelector(bgType) {
+        const selector = document.getElementById('image-selector');
+        if (bgType === 'image') {
+            selector.classList.remove('d-none');
+        } else {
+            selector.classList.add('d-none');
+        }
+    }
+});
+</script>
+{% endblock %}

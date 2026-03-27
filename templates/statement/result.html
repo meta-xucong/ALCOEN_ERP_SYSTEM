@@ -1,0 +1,543 @@
+{% extends 'base.html' %}
+
+{% block title %}对账单结果 - {{ statement.statement_no }}{% endblock %}
+
+{% block extra_css %}
+<style>
+    /* 打印样式 - 纯表格风格，类似Excel */
+    @media print {
+        @page {
+            size: A4 landscape;
+            margin: 10mm;
+        }
+        
+        /* 隐藏web元素 */
+        .navbar, .btn, .no-print {
+            display: none !important;
+        }
+        
+        /* 重置所有样式为基础格式 */
+        * {
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+            box-sizing: border-box;
+        }
+        
+        body {
+            background: white !important;
+            color: black !important;
+            font-family: "Microsoft YaHei", "SimHei", sans-serif !important;
+            font-size: 10pt;
+            line-height: 1.4;
+            margin: 0;
+            padding: 0;
+        }
+        
+        .container {
+            padding: 0 !important;
+            max-width: 100% !important;
+        }
+        
+        /* 移除所有渐变和特效 */
+        .text-gradient {
+            background: none !important;
+            color: #000 !important;
+        }
+        
+        /* 标题样式 */
+        h1 {
+            font-size: 16pt !important;
+            font-weight: bold !important;
+            color: #000 !important;
+            margin: 0 0 10px 0 !important;
+            padding: 0 !important;
+            text-align: center;
+            border: none !important;
+        }
+        
+        /* Logo区域 */
+        .text-center.mb-3 {
+            margin-bottom: 8px !important;
+            text-align: center;
+        }
+        
+        .text-center.mb-3 img {
+            height: 35px !important;
+        }
+        
+        /* 卡片变为普通区块 */
+        .card {
+            border: none !important;
+            box-shadow: none !important;
+            background: white !important;
+            margin-bottom: 8px !important;
+            page-break-inside: avoid;
+        }
+        
+        .card-header {
+            background: #f2f2f2 !important;
+            border: 1px solid #333 !important;
+            border-bottom: none !important;
+            color: #000 !important;
+            padding: 6px 10px !important;
+            font-size: 11pt !important;
+            font-weight: bold;
+        }
+        
+        .card-body {
+            border: 1px solid #333 !important;
+            border-top: none !important;
+            padding: 8px !important;
+        }
+        
+        /* 对账单信息标签 */
+        .card-body .row {
+            margin: 0 !important;
+        }
+        
+        .card-body .row > div {
+            padding: 2px 5px !important;
+        }
+        
+        .card-body p {
+            margin: 0 !important;
+            font-size: 10pt;
+        }
+        
+        .card-body strong {
+            font-weight: bold;
+            color: #333;
+        }
+        
+        .card-body .fs-5 {
+            font-size: 10pt !important;
+        }
+        
+        .row.mt-2 {
+            margin-top: 3px !important;
+        }
+        
+        code {
+            font-family: monospace;
+            background: #f5f5f5;
+            padding: 1px 3px;
+            border: 1px solid #ddd;
+        }
+        
+        /* 表格样式 - 纯Excel风格 */
+        .table {
+            width: 100% !important;
+            border-collapse: collapse !important;
+            font-size: 9pt;
+            margin-bottom: 0 !important;
+        }
+        
+        .table th,
+        .table td {
+            border: 1px solid #000 !important;
+            padding: 4px 6px !important;
+            text-align: left;
+            vertical-align: middle !important;
+        }
+        
+        /* 表头样式 */
+        .table thead th {
+            background-color: #d9d9d9 !important;
+            font-weight: bold;
+            text-align: center;
+            border: 1px solid #000 !important;
+        }
+        
+        /* 合同分组行 */
+        tr.bg-primary {
+            background-color: #4a4a4a !important;
+        }
+        
+        tr.bg-primary th {
+            background-color: #4a4a4a !important;
+            color: white !important;
+            text-align: left !important;
+            font-weight: bold;
+            border: 1px solid #000 !important;
+        }
+        
+        tr.bg-primary small {
+            color: white !important;
+            font-weight: normal;
+        }
+        
+        tr.bg-primary .badge {
+            background-color: #666 !important;
+            color: white !important;
+            font-size: 8pt;
+            padding: 1px 4px;
+            border-radius: 2px;
+        }
+        
+        /* 数据行样式 */
+        tbody tr {
+            background-color: white !important;
+        }
+        
+        tbody tr:nth-child(even) {
+            background-color: #fafafa !important;
+        }
+        
+        /* 小计行 - 浅蓝色 */
+        tr.table-info {
+            background-color: #e6f3ff !important;
+        }
+        
+        tr.table-info td {
+            background-color: #e6f3ff !important;
+            font-weight: bold;
+            border: 1px solid #000 !important;
+        }
+        
+        /* 合计行 - 深蓝色 */
+        tr.table-primary {
+            background-color: #b8d4f0 !important;
+        }
+        
+        tr.table-primary td {
+            background-color: #b8d4f0 !important;
+            font-weight: bold;
+            font-size: 10pt;
+            border: 1px solid #000 !important;
+        }
+        
+        /* 对齐方式 */
+        .text-center {
+            text-align: center !important;
+        }
+        
+        .text-end {
+            text-align: right !important;
+        }
+        
+        /* 表格分页设置 */
+        .table-responsive {
+            overflow: visible !important;
+        }
+        
+        thead {
+            display: table-header-group;
+        }
+        
+        tbody tr {
+            page-break-inside: avoid;
+        }
+        
+        /* 统计卡片变为简单框 */
+        .row.mt-4.mb-4 {
+            margin: 10px 0 !important;
+            display: flex;
+            flex-direction: row;
+        }
+        
+        .row.mt-4.mb-4 .col-md-4 {
+            width: 33.33% !important;
+            padding: 0 5px !important;
+        }
+        
+        .row.mt-4.mb-4 .card {
+            border: 1px solid #333 !important;
+            margin-bottom: 0 !important;
+        }
+        
+        .row.mt-4.mb-4 .card-header {
+            display: none !important; /* 隐藏卡片头 */
+        }
+        
+        .row.mt-4.mb-4 .card-body {
+            border: 1px solid #333 !important;
+            padding: 8px !important;
+            text-align: center;
+        }
+        
+        .bg-light {
+            background: white !important;
+        }
+        
+        .bg-light .text-muted.small {
+            font-size: 9pt !important;
+            color: #666 !important;
+            margin-bottom: 3px !important;
+        }
+        
+        .bg-light .fs-4.fw-bold {
+            font-size: 12pt !important;
+            color: #000 !important;
+        }
+        
+        .text-primary {
+            color: #0066cc !important;
+        }
+        
+        /* 备注说明 */
+        .mt-4.px-3.pb-3 {
+            margin-top: 10px !important;
+            padding: 0 5px 5px 5px !important;
+        }
+        
+        .mt-4.px-3.pb-3 .fw-bold {
+            font-size: 10pt !important;
+            margin-bottom: 5px !important;
+        }
+        
+        ol.small {
+            padding-left: 20px !important;
+            margin: 0 !important;
+        }
+        
+        ol.small li {
+            font-size: 9pt;
+            margin-bottom: 2px !important;
+            color: #333 !important;
+        }
+        
+        /* 签章区域 */
+        .row.mt-5.pt-4 {
+            margin-top: 30px !important;
+            padding-top: 15px !important;
+            border-top: 1px solid #333;
+            display: flex;
+            flex-direction: row;
+        }
+        
+        .row.mt-5.pt-4 .col-md-6 {
+            width: 50% !important;
+            padding: 0 15px !important;
+        }
+        
+        .row.mt-5.pt-4 p {
+            margin: 0 0 3px 0 !important;
+            font-size: 10pt;
+        }
+        
+        .row.mt-5.pt-4 .mt-5 {
+            margin-top: 40px !important;
+        }
+        
+        /* 隐藏打印按钮 */
+        button[onclick="window.print()"] {
+            display: none !important;
+        }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<!-- 标题区域 -->
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div class="d-flex align-items-center gap-3">
+        <i class="bi bi-file-text text-gradient" style="font-size: 2rem;"></i>
+        <h1 class="mb-0 text-gradient" style="font-weight: 700; font-size: 2rem;">对账单详情</h1>
+    </div>
+    <div class="d-flex gap-2 no-print">
+        <button type="button" class="btn btn-primary" onclick="window.print()">
+            <i class="bi bi-printer"></i> 打印
+        </button>
+        <a href="{{ url_for('statement.export_statement', statement_no=statement.statement_no) }}" class="btn btn-success">
+            <i class="bi bi-download"></i> 导出Excel
+        </a>
+        <a href="{{ url_for('statement.list_statements') }}" class="btn btn-secondary">
+            <i class="bi bi-arrow-left"></i> 返回
+        </a>
+    </div>
+</div>
+
+<!-- 对账单Logo -->
+<div class="text-center mb-3">
+    <img src="{{ url_for('static', filename='img/logo.png') }}" alt="ALCOEN" height="50">
+</div>
+
+<!-- 对账单信息 -->
+<div class="card mb-4">
+    <div class="card-header bg-primary text-white">
+        <h5 class="mb-0"><i class="bi bi-info-circle"></i> 对账单信息</h5>
+    </div>
+    <div class="card-body">
+        <div class="row">
+            <div class="col-md-3">
+                <p class="mb-1"><strong>对账单号：</strong></p>
+                <p class="fs-5 text-primary">{{ statement.statement_no }}</p>
+            </div>
+            <div class="col-md-3">
+                <p class="mb-1"><strong>客户名称：</strong></p>
+                <p class="fs-5">{{ statement.company_name }}</p>
+            </div>
+            <div class="col-md-3">
+                <p class="mb-1"><strong>时间范围：</strong></p>
+                <p>
+                    {% if statement.filter_start_date and statement.filter_end_date %}
+                        {{ statement.filter_start_date|format_date }} 至 {{ statement.filter_end_date|format_date }}
+                    {% else %}
+                        <span class="text-muted">不限</span>
+                    {% endif %}
+                </p>
+            </div>
+            <div class="col-md-3">
+                <p class="mb-1"><strong>生成时间：</strong></p>
+                <p>{{ statement.created_at.strftime('%Y-%m-%d %H:%M') }}</p>
+            </div>
+        </div>
+        <div class="row mt-2">
+            <div class="col-md-3">
+                <p class="mb-1"><strong>发起人：</strong></p>
+                <p>
+                    {% if statement.created_by %}
+                        {{ statement.created_by.real_name or statement.created_by.username }}
+                        {% if statement.department %}
+                            <span class="badge bg-info">{{ statement.department }}</span>
+                        {% endif %}
+                    {% else %}
+                        <span class="text-muted">-</span>
+                    {% endif %}
+                </p>
+            </div>
+        </div>
+        {% if statement.filter_products %}
+        <div class="row mt-2">
+            <div class="col-12">
+                <p class="mb-1"><strong>产品筛选：</strong></p>
+                <p><code>{{ statement.filter_products }}</code></p>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- 对账单明细 [v1.3] 按合同分组显示 -->
+<div class="card">
+    <div class="card-header">
+        <h5 class="mb-0"><i class="bi bi-list-ol"></i> 对账单明细（按合同分组）</h5>
+    </div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            {% set global_index = namespace(value=0) %}
+            {% for contract_no, contract_group in transactions|groupby('contract.contract_no' if transactions else '') %}
+            <!-- 合同分组表头 -->
+            <table class="table table-hover table-striped mb-0">
+                <thead class="table-dark">
+                    <tr class="bg-primary">
+                        <th colspan="9" class="text-white">
+                            <i class="bi bi-file-earmark-text"></i> 
+                            合同编号：{{ contract_no or '无合同关联' }}
+                            {% if contract_group[0].contract %}
+                                <small class="ms-2">| {{ contract_group[0].contract.company_name or '未知客户' }}</small>
+                                <small class="ms-3">
+                                    <span class="badge bg-info">{{ contract_group[0].contract.department or '无部门' }}</span>
+                                    <span class="badge bg-secondary">{{ contract_group[0].contract.manager or '无负责人' }}</span>
+                                </small>
+                            {% endif %}
+                        </th>
+                    </tr>
+                    <tr>
+                        <th class="text-center" style="width: 5%">序号</th>
+                        <th style="width: 12%">产品编码</th>
+                        <th style="width: 15%">产品名称</th>
+                        <th style="width: 10%">规格</th>
+                        <th class="text-center" style="width: 8%">单位</th>
+                        <th class="text-end" style="width: 10%">数量</th>
+                        <th class="text-end" style="width: 10%">单价</th>
+                        <th class="text-end" style="width: 10%">发货日期</th>
+                        <th class="text-end" style="width: 10%">金额</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for tx in contract_group %}
+                    {% set global_index.value = global_index.value + 1 %}
+                    <tr>
+                        <td class="text-center">{{ global_index.value }}</td>
+                        <td>{{ tx.product_code }}</td>
+                        <td>{{ tx.product_name or '-' }}</td>
+                        <td>{{ tx.product_model or '-' }}</td>
+                        <td class="text-center">{{ tx.unit or '件' }}</td>
+                        <td class="text-end">{{ tx.quantity|format_money }}</td>
+                        <td class="text-end">{{ tx.price_with_tax|format_money }}</td>
+                        <td class="text-end">{{ tx.delivery_date|format_date }}</td>
+                        <td class="text-end">{{ tx.total_price_with_tax|format_money }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+                {% set contract_total = namespace(value=0) %}
+                {% for tx in contract_group %}
+                    {% set contract_total.value = contract_total.value + tx.total_price_with_tax %}
+                {% endfor %}
+                <tfoot class="table-group-divider">
+                    <tr class="table-info">
+                        <td colspan="8" class="text-end"><strong>合同小计：</strong></td>
+                        <td class="text-end">
+                            <strong>{{ contract_total.value|format_money }}</strong>
+                        </td>
+                    </tr>
+                </tfoot>
+            </table>
+            {% endfor %}
+            
+            <!-- 总计 -->
+            <table class="table table-hover mb-0">
+                <tfoot class="table-group-divider">
+                    <tr class="table-primary">
+                        <td colspan="8" class="text-end fs-5"><strong>合计：</strong></td>
+                        <td class="text-end fs-5">
+                            <strong>{{ statement.statement_total|format_money }}</strong>
+                        </td>
+                    </tr>
+                </tfoot>
+            </table>
+        </div>
+        
+        <!-- 统计摘要 -->
+        <div class="row mt-4 mb-4 px-3">
+            <div class="col-md-4">
+                <div class="card bg-light">
+                    <div class="card-body text-center py-2">
+                        <div class="text-muted small">交易笔数</div>
+                        <div class="fs-4 fw-bold">{{ statement.record_count }}</div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card bg-light">
+                    <div class="card-body text-center py-2">
+                        <div class="text-muted small">总金额</div>
+                        <div class="fs-4 fw-bold text-primary">{{ statement.statement_total|format_money }}</div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card bg-light">
+                    <div class="card-body text-center py-2">
+                        <div class="text-muted small">生成时间</div>
+                        <div class="fs-4 fw-bold">{{ statement.created_at.strftime('%Y-%m-%d %H:%M') }}</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 备注说明 -->
+        <div class="mt-4 px-3 pb-3">
+            <p class="mb-1 fw-bold">备注说明：</p>
+            <ol class="small text-muted">
+                <li>本对账单数据来源于系统发货记录，如有疑问请及时联系核对。</li>
+                <li>请在收到对账单后7个工作日内确认并回执。</li>
+                <li>对账单仅包含发货信息，回款信息请查看合同详情。</li>
+            </ol>
+        </div>
+        
+        <!-- 签章区域 -->
+        <div class="row mt-5 pt-4 px-3 pb-4">
+            <div class="col-md-6">
+                <p class="fw-bold">供方（盖章）：</p>
+                <p class="mt-5">日期：</p>
+            </div>
+            <div class="col-md-6">
+                <p class="fw-bold">需方（确认）：</p>
+                <p class="mt-5">日期：</p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

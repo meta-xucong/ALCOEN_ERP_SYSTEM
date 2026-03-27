@@ -1,0 +1,108 @@
+{% extends 'base.html' %}
+
+{% block title %}{% if user %}编辑用户{% else %}新增用户{% endif %} - ALCOEN ERP{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-8 col-lg-6">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="bi bi-person-gear"></i> 
+                    {% if user %}编辑用户 - {{ user.username }}{% else %}新增用户{% endif %}
+                </h5>
+            </div>
+            <div class="card-body">
+                <form method="POST" action="" id="userForm">
+                    <div class="mb-3">
+                        <label class="form-label">用户名</label>
+                        <input type="text" class="form-control" value="{{ user.username if user else '' }}" disabled>
+                        <div class="form-text">用户名不可修改</div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="real_name" class="form-label">真实姓名</label>
+                        <input type="text" class="form-control" id="real_name" name="real_name" 
+                               value="{{ user.real_name if user else '' }}" required>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="role_id" class="form-label">角色</label>
+                        <select class="form-select" id="role_id" name="role_id" required onchange="toggleDepartment()">
+                            {% for r in roles %}
+                            <option value="{{ r.id }}" data-code="{{ r.code }}"
+                                    {% if user and user.role_id == r.id %}selected{% endif %}>
+                                {{ r.name }}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    
+                    <div class="mb-3" id="departmentField">
+                        <label for="department_id" class="form-label" id="deptLabel">所属部门</label>
+                        <select class="form-select" id="department_id" name="department_id">
+                            <option value="">-- 请选择部门 --</option>
+                            {% for dept in departments %}
+                            <option value="{{ dept.id }}" 
+                                    {% if user and user.department_id == dept.id %}selected{% endif %}>
+                                {{ dept.name }}
+                            </option>
+                            {% endfor %}
+                        </select>
+                        <small class="text-muted" id="deptHint" style="display: none;">物流经理无需选择部门</small>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="email" class="form-label">邮箱</label>
+                        <input type="email" class="form-control" id="email" name="email" 
+                               value="{{ user.email if user else '' }}">
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="phone" class="form-label">电话</label>
+                        <input type="tel" class="form-control" id="phone" name="phone" 
+                               value="{{ user.phone if user else '' }}">
+                    </div>
+                    
+                    <div class="d-flex gap-2">
+                        <button type="submit" class="btn btn-primary">
+                            <i class="bi bi-check-circle"></i> 保存
+                        </button>
+                        <a href="{{ url_for('user.list_users') }}" class="btn btn-outline-secondary">
+                            <i class="bi bi-x-circle"></i> 取消
+                        </a>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+function toggleDepartment() {
+    const roleSelect = document.getElementById('role_id');
+    const deptSelect = document.getElementById('department_id');
+    const deptLabel = document.getElementById('deptLabel');
+    const deptHint = document.getElementById('deptHint');
+    
+    const selectedOption = roleSelect.options[roleSelect.selectedIndex];
+    const roleCode = selectedOption.getAttribute('data-code');
+    
+    if (roleCode === 'logistics_manager') {
+        // 物流经理不需要选择部门
+        deptSelect.removeAttribute('required');
+        deptSelect.value = '';
+        deptLabel.classList.remove('required');
+        deptHint.style.display = 'inline';
+    } else {
+        // 其他角色需要选择部门
+        deptSelect.setAttribute('required', 'required');
+        deptLabel.classList.add('required');
+        deptHint.style.display = 'none';
+    }
+}
+
+// 初始化
+toggleDepartment();
+</script>
+{% endblock %}

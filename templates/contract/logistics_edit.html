@@ -1,0 +1,559 @@
+{% extends 'base.html' %}
+
+{% block title %}编辑发货记录 - {{ contract.contract_no }} - ALCOEN ERP{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <h1 class="mb-4">
+            <i class="bi bi-truck"></i>
+            编辑发货记录 - {{ contract.contract_no }}
+            <span class="badge bg-info ms-2">物流经理模式</span>
+        </h1>
+    </div>
+</div>
+
+<!-- 合同基本信息（只读） -->
+<div class="card mb-4">
+    <div class="card-header bg-secondary text-white">
+        <h5 class="mb-0"><i class="bi bi-file-text"></i> 合同信息（只读）</h5>
+    </div>
+    <div class="card-body">
+        <div class="row">
+            <div class="col-md-3">
+                <p><strong>合同编号：</strong>{{ contract.contract_no }}</p>
+                <p><strong>客户名称：</strong>{{ contract.company_name }}</p>
+            </div>
+            <div class="col-md-3">
+                <p><strong>所属部门：</strong>
+                    {% if contract.department %}
+                        <span class="badge bg-info">{{ contract.department }}</span>
+                    {% else %}
+                        <span class="text-muted">未设置</span>
+                    {% endif %}
+                </p>
+                <p><strong>负责人：</strong>
+                    {% if contract.manager %}
+                        <span class="badge bg-secondary">{{ contract.manager }}</span>
+                    {% else %}
+                        <span class="text-muted">未设置</span>
+                    {% endif %}
+                </p>
+            </div>
+            <div class="col-md-3">
+                <p><strong>合同总价：</strong><span class="text-muted">***</span></p>
+                <p><strong>创建时间：</strong>{{ contract.created_at.strftime('%Y-%m-%d') }}</p>
+            </div>
+            <div class="col-md-3">
+                <p><strong>发货记录：</strong>{{ contract.transactions|length }} 条</p>
+                <p><strong>回款记录：</strong>{{ contract.payment_records|length }} 条</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 发货产品计划（只读展示） -->
+<div class="card mb-4">
+    <div class="card-header bg-success text-white">
+        <h5 class="mb-0"><i class="bi bi-box-seam"></i> 发货产品计划（只读）</h5>
+    </div>
+    <div class="card-body p-0">
+        <table class="table table-hover mb-0">
+            <thead class="table-light">
+                <tr>
+                    <th>产品编码</th>
+                    <th>产品名称</th>
+                    <th>型号</th>
+                    <th class="text-center">计划数量</th>
+                    <th class="text-center">已发数量</th>
+                    <th class="text-center">未发数量</th>
+                    <th class="text-end">计划货值</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for cp in contract.contract_products %}
+                <tr>
+                    <td><code>{{ cp.product_code }}</code></td>
+                    <td>{{ cp.product_name or '-' }}</td>
+                    <td>{{ cp.product_model or '-' }}</td>
+                    <td class="text-center">{{ cp.quantity|int }}</td>
+                    <td class="text-center">{{ cp.get_delivered_quantity()|int }}</td>
+                    <td class="text-center {% if cp.get_remaining_quantity() == 0 %}text-success{% else %}text-warning{% endif %}">
+                        {{ cp.get_remaining_quantity()|int }}
+                    </td>
+                    <td class="text-end">***</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<form method="POST" action="" id="logisticsForm" enctype="multipart/form-data">
+    <!-- 发货记录（可编辑） -->
+    <div class="card mb-4 border-info">
+        <div class="card-header bg-info text-white d-flex justify-content-between align-items-center">
+            <h5 class="mb-0"><i class="bi bi-truck"></i> 发货记录（可编辑）</h5>
+            <button type="button" class="btn btn-light btn-sm" onclick="addTransactionRow()">
+                <i class="bi bi-plus"></i> 添加发货记录
+            </button>
+        </div>
+        <div class="card-body">
+            <div id="transactions-container">
+                <!-- 发货记录行将通过JS动态添加 -->
+            </div>
+            <input type="hidden" name="transaction_count" id="transaction_count" value="0">
+        </div>
+    </div>
+    
+    <!-- 回款记录（只读展示） -->
+    <div class="card mb-4">
+        <div class="card-header bg-warning text-dark">
+            <h5 class="mb-0"><i class="bi bi-cash"></i> 回款记录（只读）</h5>
+        </div>
+        <div class="card-body p-0">
+            {% if contract.payment_records %}
+            <table class="table table-hover mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>回款日期</th>
+                        <th class="text-end">回款金额</th>
+                        <th>经手人</th>
+                        <th>备注</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for payment in contract.payment_records %}
+                    <tr>
+                        <td>{{ payment.payment_date|format_date }}</td>
+                        <td class="text-end">***</td>
+                        <td>{{ payment.handler or '-' }}</td>
+                        <td><small class="text-muted">{{ payment.remark or '-' }}</small></td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <div class="text-center py-4 text-muted">
+                <p>暂无回款记录</p>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+    
+    <!-- 附件图片（可编辑） -->
+    <div class="card mb-4 border-primary">
+        <div class="card-header bg-primary text-white">
+            <h5 class="mb-0"><i class="bi bi-images"></i> 附件上传（可编辑）</h5>
+        </div>
+        <div class="card-body">
+            <div class="mb-3">
+                <label class="form-label">上传发货单、签收单等图片</label>
+                <div class="input-group">
+                    <input type="file" class="form-control" id="contract-images" 
+                           multiple accept="image/*" onchange="handleImageSelect(this)">
+                    <button type="button" class="btn btn-outline-secondary" onclick="clearNewImages()">
+                        <i class="bi bi-trash"></i> 清空待上传
+                    </button>
+                </div>
+                <div class="form-text">支持 jpg, png, gif 格式，每次最多添加 10 张图片</div>
+            </div>
+            
+            <!-- 已有图片显示 -->
+            {% if contract.images %}
+            <div class="mb-3">
+                <label class="form-label">已上传的图片 <span class="badge bg-secondary">{{ contract.images|length }}张</span></label>
+                <div class="d-flex flex-wrap gap-2" id="existing-images">
+                    {% for img in contract.images %}
+                    <div class="position-relative" id="existing-img-{{ img.id }}">
+                        <img src="{{ url_for('static', filename=img.filepath) }}" 
+                             class="img-thumbnail" style="width: 120px; height: 120px; object-fit: cover; cursor: pointer;"
+                             onclick="openImageModal({{ url_for('static', filename=img.filepath)|tojson }})"
+                             title="{{ img.filename }}">
+                        <button type="button" class="btn btn-danger btn-sm position-absolute top-0 end-0" 
+                                onclick="deleteExistingImage({{ img.id }})" style="padding: 0 4px; font-size: 12px;">
+                            <i class="bi bi-x"></i>
+                        </button>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
+            
+            <!-- 新图片预览 -->
+            <div id="new-images-section" style="display: none;">
+                <label class="form-label">待上传的新图片 <span class="badge bg-primary" id="new-image-count">0张</span></label>
+                <div id="image-preview-container" class="d-flex flex-wrap gap-2"></div>
+            </div>
+            
+            <!-- 存储新选择文件的容器 -->
+            <div id="new-files-container"></div>
+        </div>
+    </div>
+    
+    <!-- 按钮 -->
+    <div class="d-flex justify-content-between mb-4">
+        <a href="{{ url_for('contract.view_contract', id=contract.id) }}" class="btn btn-secondary">
+            <i class="bi bi-arrow-left"></i> 返回
+        </a>
+        <button type="submit" class="btn btn-primary btn-lg">
+            <i class="bi bi-save"></i> 保存发货记录和附件
+        </button>
+    </div>
+</form>
+
+<!-- 发货记录行模板 -->
+<template id="transaction-row-template">
+    <div class="transaction-row border rounded p-3 mb-3" data-index="{index}">
+        <div class="d-flex justify-content-between mb-2">
+            <strong>发货记录 #{index}</strong>
+            <div>
+                <button type="button" class="btn btn-sm btn-outline-secondary" onclick="toggleTransactionRow(this)">
+                    <i class="bi bi-chevron-up"></i>
+                </button>
+                <button type="button" class="btn btn-sm btn-outline-danger ms-1" onclick="removeTransactionRow(this)">
+                    <i class="bi bi-trash"></i>
+                </button>
+            </div>
+        </div>
+        <div class="transaction-content">
+            <div class="row align-items-end">
+                <div class="col-md-3">
+                    <label class="form-label">选择产品 *</label>
+                    <select class="form-select" name="transaction_{index}_contract_product_id" required onchange="onTransactionProductSelect(this)">
+                        <option value="">-- 选择产品 --</option>
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">产品名称</label>
+                    <input type="text" class="form-control trans-product-name" readonly>
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label">型号</label>
+                    <input type="text" class="form-control trans-product-model" readonly>
+                </div>
+                <div class="col-md-1">
+                    <label class="form-label">数量 *</label>
+                    <input type="number" class="form-control trans-qty" name="transaction_{index}_quantity" 
+                           step="1" min="0" required>
+                </div>
+                <div class="col-md-1">
+                    <label class="form-label">单位</label>
+                    <input type="text" class="form-control trans-unit" name="transaction_{index}_unit" readonly>
+                </div>
+            </div>
+            <div class="row mt-3 align-items-end">
+                <input type="hidden" class="form-control trans-price" name="transaction_{index}_price" value="0">
+                <div class="col-md-3">
+                    <label class="form-label">发货日期 *</label>
+                    <input type="date" class="form-control" name="transaction_{index}_delivery_date" required>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">经手人 *</label>
+                    <input type="text" class="form-control" name="transaction_{index}_handler" 
+                           value="{{ current_user.real_name or current_user.username }}" required>
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label">备注</label>
+                    <input type="text" class="form-control" name="transaction_{index}_remark" maxlength="100">
+                </div>
+            </div>
+        </div>
+    </div>
+</template>
+
+<!-- 图片放大模态框 -->
+<div class="modal fade" id="imageModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">图片预览</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body text-center">
+                <img id="modalImage" src="" class="img-fluid" style="max-height: 80vh;">
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// 产品数据（从合同产品计划获取）
+const contractProducts = [
+    {% for cp in contract.contract_products %}
+    {
+        code: '{{ cp.product_code }}',
+        name: '{{ cp.product_name or "" }}',
+        model: '{{ cp.product_model or "" }}',
+        unit: '{{ cp.unit }}',
+        price: {{ cp.price }}
+    }{% if not loop.last %},{% endif %}
+    {% endfor %}
+];
+
+// 发货记录管理
+let transactionCount = 0;
+
+function addTransactionRow() {
+    if (contractProducts.length === 0) {
+        alert('没有可用的产品计划');
+        return;
+    }
+    
+    const template = document.getElementById('transaction-row-template').innerHTML;
+    const html = template.replace(/{index}/g, transactionCount);
+    const container = document.getElementById('transactions-container');
+    const tempDiv = document.createElement('div');
+    tempDiv.innerHTML = html;
+    container.appendChild(tempDiv.firstElementChild);
+    
+    // 填充产品选择下拉框
+    const productSelect = document.querySelector(`[name="transaction_${transactionCount}_contract_product_id"]`);
+    contractProducts.forEach(p => {
+        const option = document.createElement('option');
+        option.value = p.code;
+        option.textContent = p.code;
+        option.dataset.name = p.name;
+        option.dataset.model = p.model;
+        option.dataset.unit = p.unit;
+        option.dataset.price = p.price;
+        productSelect.appendChild(option);
+    });
+    
+    // 设置默认日期为今天
+    const dateInput = document.querySelector(`[name="transaction_${transactionCount}_delivery_date"]`);
+    if (dateInput) {
+        dateInput.value = new Date().toISOString().split('T')[0];
+    }
+    
+    transactionCount++;
+    document.getElementById('transaction_count').value = transactionCount;
+}
+
+function toggleTransactionRow(btn) {
+    const row = btn.closest('.transaction-row');
+    const content = row.querySelector('.transaction-content');
+    const icon = btn.querySelector('i');
+    
+    if (content.style.display === 'none') {
+        content.style.display = 'block';
+        icon.classList.remove('bi-chevron-down');
+        icon.classList.add('bi-chevron-up');
+    } else {
+        content.style.display = 'none';
+        icon.classList.remove('bi-chevron-up');
+        icon.classList.add('bi-chevron-down');
+    }
+}
+
+function removeTransactionRow(btn) {
+    if (confirm('确定要删除这条发货记录吗？')) {
+        const row = btn.closest('.transaction-row');
+        row.remove();
+        reindexTransactions();
+    }
+}
+
+function reindexTransactions() {
+    const rows = document.querySelectorAll('.transaction-row');
+    rows.forEach((row, index) => {
+        row.dataset.index = index;
+        row.querySelector('strong').textContent = `发货记录 #${index + 1}`;
+        row.querySelectorAll('input, select').forEach(input => {
+            const name = input.name.replace(/transaction_\d+_/, `transaction_${index}_`);
+            input.name = name;
+        });
+    });
+    transactionCount = rows.length;
+    document.getElementById('transaction_count').value = transactionCount;
+}
+
+function onTransactionProductSelect(select) {
+    const option = select.selectedOptions[0];
+    if (!option || !option.dataset.name) return;
+    
+    const row = select.closest('.transaction-row');
+    row.querySelector('.trans-product-name').value = option.dataset.name || '-';
+    row.querySelector('.trans-product-model').value = option.dataset.model || '-';
+    row.querySelector('.trans-unit').value = option.dataset.unit || '个';
+    row.querySelector('.trans-price').value = option.dataset.price || 0;
+}
+
+// 图片上传管理
+let selectedFiles = [];
+let fileIdCounter = 0;
+
+function handleImageSelect(input) {
+    if (!input.files || input.files.length === 0) return;
+    
+    if (selectedFiles.length + input.files.length > 10) {
+        alert('总共最多只能上传10张图片，当前已选择' + selectedFiles.length + '张');
+        input.value = '';
+        return;
+    }
+    
+    Array.from(input.files).forEach(file => {
+        if (!file.type.startsWith('image/')) return;
+        
+        fileIdCounter++;
+        const fileId = fileIdCounter;
+        selectedFiles.push({ id: fileId, file: file });
+        
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            addImagePreview(fileId, e.target.result);
+        };
+        reader.readAsDataURL(file);
+    });
+    
+    updateImageSection();
+    input.value = '';
+}
+
+function addImagePreview(fileId, src) {
+    const container = document.getElementById('image-preview-container');
+    const div = document.createElement('div');
+    div.className = 'position-relative';
+    div.id = `new-img-${fileId}`;
+    div.innerHTML = `
+        <img src="${src}" class="img-thumbnail" 
+             style="width: 120px; height: 120px; object-fit: cover; cursor: pointer;"
+             onclick="openImageModal('${src}')">
+        <button type="button" class="btn btn-danger btn-sm position-absolute top-0 end-0" 
+                onclick="removeNewImage(${fileId})" style="padding: 0 4px; font-size: 12px;">
+            <i class="bi bi-x"></i>
+        </button>
+    `;
+    container.appendChild(div);
+}
+
+function removeNewImage(fileId) {
+    const index = selectedFiles.findIndex(f => f.id === fileId);
+    if (index > -1) {
+        selectedFiles.splice(index, 1);
+        document.getElementById(`new-img-${fileId}`).remove();
+        updateImageSection();
+    }
+}
+
+function updateImageSection() {
+    const section = document.getElementById('new-images-section');
+    const count = document.getElementById('new-image-count');
+    
+    if (selectedFiles.length > 0) {
+        section.style.display = 'block';
+        count.textContent = selectedFiles.length + '张';
+    } else {
+        section.style.display = 'none';
+    }
+    
+    // 更新隐藏的文件输入
+    const container = document.getElementById('new-files-container');
+    container.innerHTML = '';
+    selectedFiles.forEach((sf, index) => {
+        const dt = new DataTransfer();
+        dt.items.add(sf.file);
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.name = `images`;
+        input.files = dt.files;
+        input.style.display = 'none';
+        container.appendChild(input);
+    });
+}
+
+function clearNewImages() {
+    if (selectedFiles.length === 0) return;
+    if (!confirm('确定要清空所有待上传的新图片吗？')) return;
+    
+    selectedFiles = [];
+    document.getElementById('image-preview-container').innerHTML = '';
+    updateImageSection();
+}
+
+function deleteExistingImage(imageId) {
+    if (!confirm('确定要删除这张已上传的图片吗？')) return;
+    
+    fetch(`/contract/api/delete-image/${imageId}`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            document.getElementById(`existing-img-${imageId}`).remove();
+        } else {
+            alert('删除失败：' + (data.error || '未知错误'));
+        }
+    })
+    .catch(error => {
+        alert('删除失败：' + error);
+    });
+}
+
+function openImageModal(src) {
+    const modalImage = document.getElementById('modalImage');
+    modalImage.src = src;
+    new bootstrap.Modal(document.getElementById('imageModal')).show();
+}
+
+// 加载已有发货记录
+{% if contract.transactions %}
+const existingTransactions = [
+    {% for trans in contract.transactions %}
+    {
+        id: {{ trans.id }},
+        product_code: '{{ trans.product_code }}',
+        quantity: {{ trans.quantity }},
+        unit: '{{ trans.unit }}',
+        price_with_tax: {{ trans.price_with_tax }},
+        handler: '{{ trans.handler or "" }}',
+        delivery_date: '{{ trans.delivery_date.isoformat() if trans.delivery_date else "" }}',
+        remark: '{{ trans.remark or "" }}'
+    }{% if not loop.last %},{% endif %}
+    {% endfor %}
+];
+
+existingTransactions.forEach(t => {
+    addTransactionRowWithData(t);
+});
+{% endif %}
+
+function addTransactionRowWithData(data) {
+    addTransactionRow();
+    const index = transactionCount - 1;
+    
+    // 设置产品选择
+    const productSelect = document.querySelector(`[name="transaction_${index}_contract_product_id"]`);
+    for (let opt of productSelect.options) {
+        if (opt.value === data.product_code) {
+            productSelect.value = data.product_code;
+            onTransactionProductSelect(productSelect);
+            break;
+        }
+    }
+    
+    // 设置其他字段
+    document.querySelector(`[name="transaction_${index}_quantity"]`).value = data.quantity;
+    document.querySelector(`[name="transaction_${index}_price"]`).value = data.price_with_tax;
+    document.querySelector(`[name="transaction_${index}_handler"]`).value = data.handler;
+    document.querySelector(`[name="transaction_${index}_delivery_date"]`).value = data.delivery_date;
+    if (data.remark) {
+        document.querySelector(`[name="transaction_${index}_remark"]`).value = data.remark;
+    }
+    
+    // 添加隐藏字段标记为已有记录
+    const row = document.querySelector(`.transaction-row[data-index="${index}"]`);
+    const idInput = document.createElement('input');
+    idInput.type = 'hidden';
+    idInput.name = `transaction_${index}_id`;
+    idInput.value = data.id;
+    row.appendChild(idInput);
+}
+</script>
+{% endblock %}

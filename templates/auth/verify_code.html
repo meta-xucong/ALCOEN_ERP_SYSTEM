@@ -1,0 +1,639 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>安全验证 - ALCOEN ERP</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.2/font/bootstrap-icons.css" rel="stylesheet">
+    <style>
+        :root {
+            --alco-primary: #1e3a5f;
+        }
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+        }
+        
+        /* 视频背景 */
+        .video-background {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: -2;
+            overflow: hidden;
+        }
+        
+        .video-background video {
+            min-width: 100%;
+            min-height: 100%;
+            width: auto;
+            height: auto;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            object-fit: cover;
+        }
+        
+        /* 图片背景 */
+        .image-background {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: -2;
+            background-size: cover;
+            background-position: center;
+            background-attachment: fixed;
+            background-repeat: no-repeat;
+        }
+        
+        .image-background::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.3);
+            pointer-events: none;
+        }
+        
+        /* 纯色背景 */
+        .solid-background {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: -2;
+            background: linear-gradient(135deg, #e8f4f8 0%, #d4e9f2 50%, #c5e0ec 100%);
+        }
+        
+        /* 磨砂玻璃效果层 */
+        body::before {
+            content: '';
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: linear-gradient(135deg, rgba(245, 247, 250, 0.1) 0%, rgba(235, 238, 242, 0.08) 50%, rgba(240, 242, 245, 0.1) 100%);
+            backdrop-filter: blur(2px) saturate(105%);
+            -webkit-backdrop-filter: blur(2px) saturate(105%);
+            z-index: -1;
+            pointer-events: none;
+        }
+        
+        .verify-container {
+            width: 100%;
+            max-width: 440px;
+            padding: 20px;
+            position: relative;
+            z-index: 1;
+        }
+        
+        .verify-card {
+            background: rgba(255, 255, 255, 0.55);
+            backdrop-filter: blur(24px) saturate(200%) brightness(1.05);
+            -webkit-backdrop-filter: blur(24px) saturate(200%) brightness(1.05);
+            border: 1px solid rgba(255, 255, 255, 0.7);
+            border-radius: 16px;
+            box-shadow: 
+                0 8px 32px rgba(30, 58, 95, 0.12),
+                inset 0 1px 0 rgba(255, 255, 255, 0.6),
+                inset 0 -1px 0 rgba(255, 255, 255, 0.2);
+            padding: 40px;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        body.has-video-bg .verify-card,
+        body.has-image-bg .verify-card {
+            background: rgba(255, 255, 255, 0.85);
+            border: 1px solid rgba(255, 255, 255, 0.9);
+        }
+        
+        .verify-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 50%;
+            background: linear-gradient(180deg, rgba(255, 255, 255, 0.5) 0%, rgba(255, 255, 255, 0.2) 40%, transparent 100%);
+            pointer-events: none;
+            z-index: 0;
+        }
+        
+        .verify-card > * {
+            position: relative;
+            z-index: 1;
+        }
+        
+        .verify-header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        
+        .verify-header .icon {
+            width: 70px;
+            height: 70px;
+            background: linear-gradient(135deg, rgba(30, 58, 95, 0.9) 0%, rgba(42, 80, 128, 0.95) 100%);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 20px;
+            box-shadow: 0 4px 15px rgba(30, 58, 95, 0.3);
+        }
+        
+        .verify-header .icon i {
+            font-size: 32px;
+            color: white;
+        }
+        
+        .verify-header h1 {
+            font-size: 24px;
+            font-weight: 700;
+            color: var(--alco-primary);
+            margin-bottom: 10px;
+        }
+        
+        .verify-header p {
+            color: rgba(30, 58, 95, 0.7);
+            font-size: 14px;
+            margin-bottom: 5px;
+        }
+        
+        .email-display {
+            background: rgba(30, 58, 95, 0.08);
+            border-radius: 8px;
+            padding: 10px 15px;
+            font-weight: 600;
+            color: var(--alco-primary);
+            display: inline-block;
+            margin-top: 5px;
+        }
+        
+        .code-inputs {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            margin: 30px 0;
+        }
+        
+        .code-input {
+            width: 60px;
+            height: 70px;
+            border: 2px solid rgba(30, 58, 95, 0.15);
+            border-radius: 12px;
+            text-align: center;
+            font-size: 28px;
+            font-weight: 700;
+            color: var(--alco-primary);
+            background: rgba(255, 255, 255, 0.6);
+            transition: all 0.2s ease;
+        }
+        
+        .code-input:focus {
+            border-color: rgba(30, 58, 95, 0.4);
+            background: rgba(255, 255, 255, 0.9);
+            box-shadow: 0 0 0 4px rgba(30, 58, 95, 0.08);
+            outline: none;
+        }
+        
+        .code-input.filled {
+            background: rgba(30, 58, 95, 0.1);
+            border-color: rgba(30, 58, 95, 0.3);
+        }
+        
+        .timer {
+            text-align: center;
+            color: rgba(30, 58, 95, 0.6);
+            font-size: 14px;
+            margin-bottom: 20px;
+        }
+        
+        .timer .countdown {
+            color: var(--alco-primary);
+            font-weight: 600;
+        }
+        
+        .timer.expired .countdown {
+            color: #dc3545;
+        }
+        
+        .btn-verify {
+            width: 100%;
+            padding: 14px;
+            border-radius: 12px;
+            background: linear-gradient(135deg, rgba(30, 58, 95, 0.9) 0%, rgba(42, 80, 128, 0.95) 100%);
+            border: none;
+            font-weight: 600;
+            font-size: 16px;
+            box-shadow: 0 4px 12px rgba(30, 58, 95, 0.2);
+            transition: all 0.2s ease;
+        }
+        
+        .btn-verify:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 6px 16px rgba(30, 58, 95, 0.25);
+        }
+        
+        .btn-verify:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+        
+        .resend-link {
+            text-align: center;
+            margin-top: 20px;
+        }
+        
+        .resend-link a {
+            color: var(--alco-primary);
+            text-decoration: none;
+            font-weight: 500;
+            cursor: pointer;
+        }
+        
+        .resend-link a:hover {
+            text-decoration: underline;
+        }
+        
+        .resend-link a.disabled {
+            color: rgba(30, 58, 95, 0.4);
+            cursor: not-allowed;
+            pointer-events: none;
+        }
+        
+        .trust-device {
+            margin: 20px 0;
+            padding: 15px;
+            background: rgba(255, 255, 255, 0.4);
+            border-radius: 10px;
+            border: 1px solid rgba(30, 58, 95, 0.1);
+        }
+        
+        .trust-device .form-check {
+            margin: 0;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .trust-device .form-check-input {
+            width: 20px;
+            height: 20px;
+            margin: 0;
+            border-color: rgba(30, 58, 95, 0.3);
+        }
+        
+        .trust-device .form-check-input:checked {
+            background-color: var(--alco-primary);
+            border-color: var(--alco-primary);
+        }
+        
+        .trust-device .form-check-label {
+            font-size: 14px;
+            color: rgba(30, 58, 95, 0.8);
+            margin: 0;
+        }
+        
+        .trust-device .form-check-label i {
+            color: var(--alco-primary);
+        }
+        
+        .alert {
+            background: rgba(255, 255, 255, 0.7);
+            backdrop-filter: blur(8px);
+            border: 1px solid rgba(255, 255, 255, 0.5);
+            border-radius: 12px;
+        }
+        
+        body.has-video-bg .alert,
+        body.has-image-bg .alert {
+            background: rgba(255, 255, 255, 0.85);
+        }
+        
+        .btn-back {
+            width: 100%;
+            padding: 12px;
+            border-radius: 12px;
+            background: rgba(255, 255, 255, 0.5);
+            border: 1px solid rgba(30, 58, 95, 0.2);
+            color: var(--alco-primary);
+            font-weight: 600;
+            margin-top: 12px;
+            transition: all 0.2s ease;
+        }
+        
+        .btn-back:hover {
+            background: rgba(255, 255, 255, 0.7);
+        }
+        
+        .divider {
+            text-align: center;
+            margin: 20px 0;
+            position: relative;
+        }
+        
+        .divider::before {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 0;
+            right: 0;
+            height: 1px;
+            background: rgba(30, 58, 95, 0.15);
+        }
+        
+        .divider span {
+            background: transparent;
+            padding: 0 15px;
+            color: rgba(30, 58, 95, 0.5);
+            font-size: 14px;
+            position: relative;
+        }
+    </style>
+</head>
+<body class="{% if bg_type == 'video' %}has-video-bg{% elif bg_type == 'image' %}has-image-bg{% endif %}">
+    <!-- 背景层 -->
+    {% if bg_type == 'video' %}
+    <div class="video-background">
+        <video autoplay muted loop playsinline>
+            <source src="{{ url_for('static', filename='video/video_login.mp4') }}" type="video/mp4">
+        </video>
+    </div>
+    {% elif bg_type == 'image' %}
+    <div class="image-background" style="background-image: url('{{ url_for('static', filename='img/backgrounds/' + bg_image) }}')"></div>
+    {% else %}
+    <div class="solid-background"></div>
+    {% endif %}
+    
+    <div class="verify-container">
+        <div class="verify-card">
+            <div class="verify-header">
+                <div class="icon">
+                    <i class="bi bi-shield-lock"></i>
+                </div>
+                <h1>安全验证</h1>
+                <p>为了保护您的账号安全</p>
+                <p>验证码已发送至</p>
+                <div class="email-display">
+                    <i class="bi bi-envelope"></i> {{ user.email }}
+                </div>
+            </div>
+            
+            {% with messages = get_flashed_messages(with_categories=true) %}
+                {% if messages %}
+                    {% for category, message in messages %}
+                        <div class="alert alert-{{ 'danger' if category == 'error' else category }} alert-dismissible fade show" role="alert">
+                            {{ message }}
+                            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                        </div>
+                    {% endfor %}
+                {% endif %}
+            {% endwith %}
+            
+            <form method="POST" action="" id="verifyForm">
+                <div class="code-inputs">
+                    <input type="text" class="code-input" maxlength="1" inputmode="numeric" pattern="[0-9]" required>
+                    <input type="text" class="code-input" maxlength="1" inputmode="numeric" pattern="[0-9]" required>
+                    <input type="text" class="code-input" maxlength="1" inputmode="numeric" pattern="[0-9]" required>
+                    <input type="text" class="code-input" maxlength="1" inputmode="numeric" pattern="[0-9]" required>
+                </div>
+                
+                <input type="hidden" name="code" id="fullCode">
+                
+                <div class="timer" id="timer">
+                    验证码有效期：<span class="countdown">15:00</span>
+                </div>
+                
+                <div class="trust-device">
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="trust_device" name="trust_device">
+                        <label class="form-check-label" for="trust_device">
+                            <i class="bi bi-shield-check"></i> 信任此设备，30天内无需再次验证
+                        </label>
+                    </div>
+                </div>
+                
+                <button type="submit" class="btn btn-primary btn-verify" id="submitBtn">
+                    <i class="bi bi-check-circle"></i> 验 证 登 录
+                </button>
+            </form>
+            
+            <div class="divider">
+                <span>或</span>
+            </div>
+            
+            <div class="resend-link">
+                <a id="resendLink" onclick="resendCode()">
+                    <i class="bi bi-arrow-clockwise"></i> 重新发送验证码
+                </a>
+            </div>
+            
+            <a href="{{ url_for('auth.login') }}" class="btn btn-back">
+                <i class="bi bi-arrow-left"></i> 返回登录
+            </a>
+        </div>
+    </div>
+    
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        const inputs = document.querySelectorAll('.code-input');
+        const fullCodeInput = document.getElementById('fullCode');
+        const form = document.getElementById('verifyForm');
+        const timerEl = document.getElementById('timer');
+        const countdownEl = timerEl.querySelector('.countdown');
+        const resendLink = document.getElementById('resendLink');
+        
+        // 验证码输入自动跳转
+        inputs.forEach((input, index) => {
+            input.addEventListener('input', (e) => {
+                const value = e.target.value;
+                
+                // 只接受数字
+                if (!/^\d*$/.test(value)) {
+                    e.target.value = '';
+                    return;
+                }
+                
+                if (value.length === 1) {
+                    input.classList.add('filled');
+                    if (index < inputs.length - 1) {
+                        inputs[index + 1].focus();
+                    }
+                } else {
+                    input.classList.remove('filled');
+                }
+                
+                updateFullCode();
+            });
+            
+            input.addEventListener('keydown', (e) => {
+                if (e.key === 'Backspace' && !input.value && index > 0) {
+                    inputs[index - 1].focus();
+                }
+            });
+            
+            input.addEventListener('paste', (e) => {
+                e.preventDefault();
+                const pastedData = e.clipboardData.getData('text').replace(/\D/g, '').slice(0, 4);
+                
+                pastedData.split('').forEach((digit, i) => {
+                    if (inputs[i]) {
+                        inputs[i].value = digit;
+                        inputs[i].classList.add('filled');
+                    }
+                });
+                
+                updateFullCode();
+                
+                // 聚焦到下一个空输入框或最后一个
+                const nextEmpty = Array.from(inputs).find(inp => !inp.value);
+                if (nextEmpty) {
+                    nextEmpty.focus();
+                } else {
+                    inputs[inputs.length - 1].focus();
+                }
+            });
+        });
+        
+        function updateFullCode() {
+            const code = Array.from(inputs).map(input => input.value).join('');
+            fullCodeInput.value = code;
+        }
+        
+        // 倒计时
+        let timeLeft = 15 * 60; // 15分钟
+        let countdownInterval;
+        
+        function startCountdown() {
+            clearInterval(countdownInterval);
+            timeLeft = 15 * 60;
+            timerEl.classList.remove('expired');
+            
+            countdownInterval = setInterval(() => {
+                timeLeft--;
+                
+                const minutes = Math.floor(timeLeft / 60);
+                const seconds = timeLeft % 60;
+                countdownEl.textContent = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+                
+                if (timeLeft <= 0) {
+                    clearInterval(countdownInterval);
+                    timerEl.classList.add('expired');
+                    countdownEl.textContent = '已过期';
+                }
+            }, 1000);
+        }
+        
+        startCountdown();
+        
+        // 重新发送验证码
+        function resendCode() {
+            if (resendLink.classList.contains('disabled')) return;
+            
+            resendLink.classList.add('disabled');
+            resendLink.innerHTML = '<i class="bi bi-hourglass-split"></i> 发送中...';
+            
+            fetch('{{ url_for("auth.resend_code") }}', {
+                method: 'POST',
+                headers: {
+                    'X-Requested-With': 'XMLHttpRequest'
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    // 重置倒计时
+                    startCountdown();
+                    
+                    // 显示成功提示
+                    const alertDiv = document.createElement('div');
+                    alertDiv.className = 'alert alert-success alert-dismissible fade show';
+                    alertDiv.innerHTML = `
+                        ${data.message}
+                        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                    `;
+                    form.parentNode.insertBefore(alertDiv, form);
+                    
+                    // 60秒后允许再次发送
+                    setTimeout(() => {
+                        resendLink.classList.remove('disabled');
+                        resendLink.innerHTML = '<i class="bi bi-arrow-clockwise"></i> 重新发送验证码';
+                    }, 60000);
+                } else {
+                    resendLink.classList.remove('disabled');
+                    resendLink.innerHTML = '<i class="bi bi-arrow-clockwise"></i> 重新发送验证码';
+                    
+                    // 显示错误提示
+                    const alertDiv = document.createElement('div');
+                    alertDiv.className = 'alert alert-danger alert-dismissible fade show';
+                    alertDiv.innerHTML = `
+                        ${data.message}
+                        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                    `;
+                    form.parentNode.insertBefore(alertDiv, form);
+                }
+            })
+            .catch(error => {
+                resendLink.classList.remove('disabled');
+                resendLink.innerHTML = '<i class="bi bi-arrow-clockwise"></i> 重新发送验证码';
+                
+                const alertDiv = document.createElement('div');
+                alertDiv.className = 'alert alert-danger alert-dismissible fade show';
+                alertDiv.innerHTML = `
+                    发送失败，请稍后重试
+                    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                `;
+                form.parentNode.insertBefore(alertDiv, form);
+            });
+        }
+        
+        // 表单提交前验证
+        form.addEventListener('submit', (e) => {
+            const code = fullCodeInput.value;
+            if (code.length !== 4) {
+                e.preventDefault();
+                
+                // 震动效果
+                inputs.forEach(input => {
+                    input.style.animation = 'shake 0.5s';
+                    setTimeout(() => {
+                        input.style.animation = '';
+                    }, 500);
+                });
+                
+                return false;
+            }
+        });
+    </script>
+    
+    <style>
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            25% { transform: translateX(-5px); }
+            75% { transform: translateX(5px); }
+        }
+    </style>
+</body>
+</html>

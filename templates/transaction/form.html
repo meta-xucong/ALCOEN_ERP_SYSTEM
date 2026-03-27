@@ -1,0 +1,338 @@
+{% extends 'base.html' %}
+
+{% block title %}{{ title }} - ALCOEN ERP{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-lg-10">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="bi bi-{{ 'pencil' if transaction else 'plus-circle' }}"></i>
+                    {{ title }}
+                </h5>
+            </div>
+            <div class="card-body">
+                <form method="POST" action="" id="transaction_form">
+                    {{ form.hidden_tag() }}
+                    
+                    <!-- 公司名称 -->
+                    <div class="mb-3">
+                        {{ form.company_name.label(class="form-label") }}
+                        {{ form.company_name(class="form-control" + (" is-invalid" if form.company_name.errors else "")) }}
+                        <datalist id="company-list">
+                            {% for company in companies %}
+                            <option value="{{ company }}">
+                            {% endfor %}
+                        </datalist>
+                        {% if form.company_name.errors %}
+                        <div class="invalid-feedback">
+                            {% for error in form.company_name.errors %}
+                            {{ error }}
+                            {% endfor %}
+                        </div>
+                        {% endif %}
+                    </div>
+                    
+                    <!-- 产品选择方式 -->
+                    <div class="mb-3">
+                        <label class="form-label">产品选择方式</label>
+                        <div class="btn-group w-100" role="group">
+                            <input type="radio" class="btn-check" name="product_select_mode" 
+                                   id="mode_existing" value="existing" checked>
+                            <label class="btn btn-outline-primary" for="mode_existing">
+                                <i class="bi bi-collection"></i> 从产品库选择
+                            </label>
+                            
+                            <input type="radio" class="btn-check" name="product_select_mode" 
+                                   id="mode_manual" value="manual">
+                            <label class="btn btn-outline-secondary" for="mode_manual">
+                                <i class="bi bi-pencil"></i> 手动输入
+                            </label>
+                        </div>
+                    </div>
+                    
+                    <!-- 产品库选择（默认显示） -->
+                    <div id="existing_product_section">
+                        <div class="mb-3">
+                            {{ form.product_id.label(class="form-label") }}
+                            {{ form.product_id(class="form-select") }}
+                            <div class="form-text">
+                                <a href="{{ url_for('product.new_product') }}" target="_blank">
+                                    <i class="bi bi-plus-circle"></i> 产品库中没有？点击添加
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- 手动输入（隐藏） -->
+                    <div id="manual_product_section" style="display: none;">
+                        <div class="mb-3">
+                            {{ form.product_code.label(class="form-label") }}
+                            {{ form.product_code(class="form-control", id="manual_product_code") }}
+                            <div class="form-text" id="code_hint"></div>
+                        </div>
+                    </div>
+                    
+                    <!-- 产品信息（自动填充区域） -->
+                    <div class="card mb-3 bg-light border-info">
+                        <div class="card-body">
+                            <h6 class="card-title text-info">
+                                <i class="bi bi-info-circle"></i> 
+                                产品信息（从产品库自动填充，<strong>可修改</strong>）
+                            </h6>
+                            <div class="row">
+                                <!-- 产品编码（只读显示） -->
+                                <div class="col-md-3">
+                                    <label class="form-label">产品编码</label>
+                                    <input type="text" class="form-control bg-light" 
+                                           id="display_product_code" readonly>
+                                </div>
+                                <!-- 产品名称 -->
+                                <div class="col-md-3">
+                                    {{ form.product_name.label(class="form-label") }}
+                                    {{ form.product_name(class="form-control", id="product_name") }}
+                                </div>
+                                <!-- 产品型号 -->
+                                <div class="col-md-3">
+                                    {{ form.product_model.label(class="form-label") }}
+                                    {{ form.product_model(class="form-control", id="product_model") }}
+                                </div>
+                                <!-- 产品类型 -->
+                                <div class="col-md-3">
+                                    {{ form.product_type.label(class="form-label") }}
+                                    {{ form.product_type(class="form-control", id="product_type") }}
+                                </div>
+                            </div>
+                            <div class="alert alert-warning mt-2 mb-0 py-2">
+                                <small>
+                                    <i class="bi bi-exclamation-triangle"></i>
+                                    提示：在此页面修改的产品信息<strong>仅影响当前交易记录</strong>，不会更新产品库。
+                                    如需修改产品库的默认值，请前往<a href="{{ url_for('product.list_products') }}" target="_blank">产品库</a>编辑。
+                                </small>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="row">
+                        <!-- 数量 -->
+                        <div class="col-md-4 mb-3">
+                            {{ form.quantity.label(class="form-label") }}
+                            {{ form.quantity(class="form-control" + (" is-invalid" if form.quantity.errors else "")) }}
+                            {% if form.quantity.errors %}
+                            <div class="invalid-feedback">
+                                {% for error in form.quantity.errors %}
+                                {{ error }}
+                                {% endfor %}
+                            </div>
+                            {% endif %}
+                        </div>
+                        
+                        <!-- 单位 -->
+                        <div class="col-md-4 mb-3">
+                            {{ form.unit.label(class="form-label") }}
+                            {{ form.unit(class="form-control" + (" is-invalid" if form.unit.errors else ""), list="unit-list") }}
+                            <datalist id="unit-list">
+                                <option value="个">
+                                <option value="套">
+                                <option value="克">
+                                <option value="千克">
+                                <option value="件">
+                                <option value="箱">
+                                <option value="支">
+                                <option value="瓶">
+                            </datalist>
+                            {% if form.unit.errors %}
+                            <div class="invalid-feedback">
+                                {% for error in form.unit.errors %}
+                                {{ error }}
+                                {% endfor %}
+                            </div>
+                            {% endif %}
+                        </div>
+                        
+                        <!-- 含税单价 -->
+                        <div class="col-md-4 mb-3">
+                            {{ form.price_with_tax.label(class="form-label") }}
+                            <div class="input-group">
+                                {{ form.price_with_tax(class="form-control" + (" is-invalid" if form.price_with_tax.errors else ""), id="price_input") }}
+                                <span class="input-group-text">元</span>
+                            </div>
+                            {% if form.price_with_tax.errors %}
+                            <div class="invalid-feedback d-block">
+                                {% for error in form.price_with_tax.errors %}
+                                {{ error }}
+                                {% endfor %}
+                            </div>
+                            {% endif %}
+                            <div class="form-text" id="price_hint">
+                                选择产品编码后自动填充默认单价，可直接修改
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="row">
+                        <!-- 发货日期 -->
+                        <div class="col-md-4 mb-3">
+                            {{ form.delivery_date.label(class="form-label") }}
+                            {{ form.delivery_date(class="form-control" + (" is-invalid" if form.delivery_date.errors else "")) }}
+                            {% if form.delivery_date.errors %}
+                            <div class="invalid-feedback">
+                                {% for error in form.delivery_date.errors %}
+                                {{ error }}
+                                {% endfor %}
+                            </div>
+                            {% endif %}
+                        </div>
+                        
+                        <!-- 开票日期 -->
+                        <div class="col-md-4 mb-3">
+                            {{ form.invoice_date.label(class="form-label") }}
+                            {{ form.invoice_date(class="form-control") }}
+                        </div>
+                        
+                        <!-- 回款日期 -->
+                        <div class="col-md-4 mb-3">
+                            {{ form.payment_date.label(class="form-label") }}
+                            {{ form.payment_date(class="form-control") }}
+                        </div>
+                    </div>
+                    
+                    <!-- 合同编号 -->
+                    <div class="mb-3">
+                        {{ form.contract_no.label(class="form-label") }}
+                        {{ form.contract_no(class="form-control") }}
+                    </div>
+                    
+                    <!-- 备注 -->
+                    <div class="mb-3">
+                        {{ form.remark.label(class="form-label") }}
+                        {{ form.remark(class="form-control") }}
+                    </div>
+                    
+                    <!-- 按钮 -->
+                    <div class="d-flex justify-content-between">
+                        <a href="{{ url_for('transaction.list_transactions') }}" class="btn btn-secondary">
+                            <i class="bi bi-arrow-left"></i> 返回
+                        </a>
+                        {{ form.submit(class="btn btn-primary") }}
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// 产品选择方式切换
+document.querySelectorAll('input[name="product_select_mode"]').forEach(radio => {
+    radio.addEventListener('change', function() {
+        if (this.value === 'existing') {
+            document.getElementById('existing_product_section').style.display = 'block';
+            document.getElementById('manual_product_section').style.display = 'none';
+            document.getElementById('product_id').required = true;
+            document.getElementById('manual_product_code').required = false;
+        } else {
+            document.getElementById('existing_product_section').style.display = 'none';
+            document.getElementById('manual_product_section').style.display = 'block';
+            document.getElementById('product_id').required = false;
+            document.getElementById('manual_product_code').required = true;
+        }
+    });
+});
+
+// 选择产品编码后自动填充信息
+document.getElementById('product_id').addEventListener('change', function() {
+    const productId = this.value;
+    if (productId && productId !== '0') {
+        fetch(`/product/api/${productId}`)
+            .then(response => response.json())
+            .then(data => {
+                // 填充产品信息
+                document.getElementById('display_product_code').value = data.product_code || '';
+                document.getElementById('product_name').value = data.product_name || '';
+                document.getElementById('product_model').value = data.product_model || '';
+                document.getElementById('product_type').value = data.product_type || '';
+                
+                // 填充单价（如果存在）
+                if (data.default_price) {
+                    document.getElementById('price_input').value = data.default_price;
+                }
+                
+                // 更新提示
+                document.getElementById('price_hint').innerHTML = 
+                    `<span class="text-success">
+                        <i class="bi bi-check-circle"></i> 
+                        已选择产品编码: ${data.product_code}
+                     </span>
+                     <span class="text-muted ms-2">（可修改上方信息）</span>`;
+            })
+            .catch(error => {
+                console.error('Error:', error);
+            });
+    } else {
+        // 清空
+        document.getElementById('display_product_code').value = '';
+        document.getElementById('product_name').value = '';
+        document.getElementById('product_model').value = '';
+        document.getElementById('product_type').value = '';
+    }
+});
+
+// 手动输入产品编码时，失去焦点后检查是否存在
+let productCodeExists = false;
+document.getElementById('manual_product_code').addEventListener('blur', function() {
+    const code = this.value.trim();
+    if (code) {
+        // 同步到显示区域
+        document.getElementById('display_product_code').value = code;
+        
+        fetch(`/product/api/check-code?code=${encodeURIComponent(code)}`)
+            .then(response => response.json())
+            .then(data => {
+                productCodeExists = data.exists;
+                if (data.exists) {
+                    // 编码已存在，自动填充现有产品信息
+                    document.getElementById('code_hint').innerHTML = 
+                        `<span class="text-info">
+                            <i class="bi bi-info-circle"></i> 
+                            该产品编码已存在，下方信息已自动填充，您可以修改
+                         </span>`;
+                    
+                    // 自动填充现有产品信息
+                    if (data.product) {
+                        document.getElementById('product_name').value = data.product.product_name || '';
+                        document.getElementById('product_model').value = data.product.product_model || '';
+                        document.getElementById('product_type').value = data.product.product_type || '';
+                        if (data.product.default_price) {
+                            document.getElementById('price_input').value = data.product.default_price;
+                        }
+                    }
+                } else {
+                    // 新编码
+                    document.getElementById('code_hint').innerHTML = 
+                        `<span class="text-warning">
+                            <i class="bi bi-plus-circle"></i> 
+                            新产品编码，保存时将自动创建产品
+                         </span>`;
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+            });
+    }
+});
+
+// 手动输入时同步到显示区域
+document.getElementById('manual_product_code').addEventListener('input', function() {
+    document.getElementById('display_product_code').value = this.value;
+});
+
+// 页面加载时初始化
+if (document.getElementById('manual_product_code').value) {
+    document.getElementById('display_product_code').value = document.getElementById('manual_product_code').value;
+}
+</script>
+{% endblock %}

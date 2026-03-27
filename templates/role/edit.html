@@ -1,0 +1,247 @@
+{% extends 'base.html' %}
+
+{% block title %}编辑角色权限 - {{ role.name }} - ALCOEN ERP{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-10 col-lg-8">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="bi bi-shield-lock"></i> 
+                    编辑角色权限: {{ role.name }}
+                </h5>
+            </div>
+            <div class="card-body">
+                <p class="text-muted">{{ role.description }}</p>
+                
+                <form method="POST" action="">
+                    <!-- 合同模块 -->
+                    <div class="mb-4">
+                        <h6 class="border-bottom pb-2">
+                            <i class="bi bi-file-text"></i> 合同管理
+                        </h6>
+                        <div class="row">
+                            <div class="col-md-4">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" name="permissions" value="contract_view" id="perm_contract_view"
+                                           {% if 'contract_view' in current_permissions %}checked{% endif %}>
+                                    <label class="form-check-label" for="perm_contract_view">查看合同</label>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" name="permissions" value="contract_create" id="perm_contract_create"
+                                           {% if 'contract_create' in current_permissions %}checked{% endif %}>
+                                    <label class="form-check-label" for="perm_contract_create">创建合同</label>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" name="permissions" value="contract_edit" id="perm_contract_edit"
+                                           {% if 'contract_edit' in current_permissions %}checked{% endif %}>
+                                    <label class="form-check-label" for="perm_contract_edit">编辑合同</label>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" name="permissions" value="contract_delete" id="perm_contract_delete"
+                                           {% if 'contract_delete' in current_permissions %}checked{% endif %}>
+                                    <label class="form-check-label" for="perm_contract_delete">删除合同</label>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" name="permissions" value="contract_edit_delivery" id="perm_contract_edit_delivery"
+                                           {% if 'contract_edit_delivery' in current_permissions %}checked{% endif %}>
+                                    <label class="form-check-label" for="perm_contract_edit_delivery">编辑发货记录</label>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- 产品模块 -->
+                    <div class="mb-4">
+                        <h6 class="border-bottom pb-2">
+                            <i class="bi bi-box-seam"></i> 产品库
+                        </h6>
+                        <div class="row">
+                            <div class="col-md-3">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" name="permissions" value="product_view" id="perm_product_view"
+                                           {% if 'product_view' in current_permissions %}checked{% endif %}>
+                                    <label class="form-check-label" for="perm_product_view">查看产品</label>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" name="permissions" value="product_create" id="perm_product_create"
+                                           {% if 'product_create' in current_permissions %}checked{% endif %}>
+                                    <label class="form-check-label" for="perm_product_create">创建产品</label>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" name="permissions" value="product_edit" id="perm_product_edit"
+                                           {% if 'product_edit' in current_permissions %}checked{% endif %}>
+                                    <label class="form-check-label" for="perm_product_edit">编辑产品</label>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" name="permissions" value="product_delete" id="perm_product_delete"
+                                           {% if 'product_delete' in current_permissions %}checked{% endif %}>
+                                    <label class="form-check-label" for="perm_product_delete">删除产品</label>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- 对账单模块 -->
+                    <div class="mb-4">
+                        <h6 class="border-bottom pb-2">
+                            <i class="bi bi-file-earmark-text"></i> 对账单
+                        </h6>
+                        <div class="row">
+                            <div class="col-md-3">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" name="permissions" value="statement_view" id="perm_statement_view"
+                                           {% if 'statement_view' in current_permissions %}checked{% endif %}>
+                                    <label class="form-check-label" for="perm_statement_view">查看对账单</label>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" name="permissions" value="statement_create" id="perm_statement_create"
+                                           {% if 'statement_create' in current_permissions %}checked{% endif %}>
+                                    <label class="form-check-label" for="perm_statement_create">生成对账单</label>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" name="permissions" value="statement_export" id="perm_statement_export"
+                                           {% if 'statement_export' in current_permissions %}checked{% endif %}>
+                                    <label class="form-check-label" for="perm_statement_export">导出对账单</label>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" name="permissions" value="statement_delete" id="perm_statement_delete"
+                                           {% if 'statement_delete' in current_permissions %}checked{% endif %}>
+                                    <label class="form-check-label" for="perm_statement_delete">删除对账单</label>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- 交易记录模块 -->
+                    <div class="mb-4">
+                        <h6 class="border-bottom pb-2">
+                            <i class="bi bi-truck"></i> 交易记录（发货）
+                        </h6>
+                        <div class="row">
+                            <div class="col-md-3">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" name="permissions" value="transaction_view" id="perm_transaction_view"
+                                           {% if 'transaction_view' in current_permissions %}checked{% endif %}>
+                                    <label class="form-check-label" for="perm_transaction_view">查看交易</label>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" name="permissions" value="transaction_create" id="perm_transaction_create"
+                                           {% if 'transaction_create' in current_permissions %}checked{% endif %}>
+                                    <label class="form-check-label" for="perm_transaction_create">录入交易</label>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" name="permissions" value="transaction_edit" id="perm_transaction_edit"
+                                           {% if 'transaction_edit' in current_permissions %}checked{% endif %}>
+                                    <label class="form-check-label" for="perm_transaction_edit">编辑交易</label>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" name="permissions" value="transaction_delete" id="perm_transaction_delete"
+                                           {% if 'transaction_delete' in current_permissions %}checked{% endif %}>
+                                    <label class="form-check-label" for="perm_transaction_delete">删除交易</label>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- 回款记录模块 -->
+                    <div class="mb-4">
+                        <h6 class="border-bottom pb-2">
+                            <i class="bi bi-cash-stack"></i> 回款记录
+                        </h6>
+                        <div class="row">
+                            <div class="col-md-4">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" name="permissions" value="payment_view" id="perm_payment_view"
+                                           {% if 'payment_view' in current_permissions %}checked{% endif %}>
+                                    <label class="form-check-label" for="perm_payment_view">查看回款</label>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" name="permissions" value="payment_create" id="perm_payment_create"
+                                           {% if 'payment_create' in current_permissions %}checked{% endif %}>
+                                    <label class="form-check-label" for="perm_payment_create">录入回款</label>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" name="permissions" value="payment_edit" id="perm_payment_edit"
+                                           {% if 'payment_edit' in current_permissions %}checked{% endif %}>
+                                    <label class="form-check-label" for="perm_payment_edit">编辑回款</label>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- 用户管理模块 -->
+                    <div class="mb-4">
+                        <h6 class="border-bottom pb-2">
+                            <i class="bi bi-people"></i> 用户管理
+                        </h6>
+                        <div class="row">
+                            <div class="col-md-4">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" name="permissions" value="user_manage" id="perm_user_manage"
+                                           {% if 'user_manage' in current_permissions %}checked{% endif %}>
+                                    <label class="form-check-label" for="perm_user_manage">管理用户</label>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" name="permissions" value="user_approve" id="perm_user_approve"
+                                           {% if 'user_approve' in current_permissions %}checked{% endif %}>
+                                    <label class="form-check-label" for="perm_user_approve">审核注册用户</label>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" name="permissions" value="role_manage" id="perm_role_manage"
+                                           {% if 'role_manage' in current_permissions %}checked{% endif %}>
+                                    <label class="form-check-label" for="perm_role_manage">管理角色权限</label>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="d-flex gap-2">
+                        <button type="submit" class="btn btn-primary">
+                            <i class="bi bi-check-circle"></i> 保存权限配置
+                        </button>
+                        <a href="{{ url_for('role.list_roles') }}" class="btn btn-outline-secondary">
+                            <i class="bi bi-x-circle"></i> 取消
+                        </a>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,158 @@
+{% extends 'base.html' %}
+
+{% block title %}对账单生成器 - ALCOEN ERP{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center" style="position: relative; z-index: 1;">
+    <div class="col-lg-10">
+        <div class="card" style="position: relative; z-index: 1;">
+            <div class="card-header bg-primary text-white">
+                <h5 class="mb-0">
+                    <i class="bi bi-magic"></i> 对账单生成器
+                    <small class="ms-2">[LOGIC-8] 支持多维度筛选</small>
+                </h5>
+            </div>
+            <div class="card-body">
+                <form method="POST" action="">
+                    {{ form.hidden_tag() }}
+                    
+                    <div class="row">
+                        <!-- 公司名称 -->
+                        <div class="col-md-6 mb-3">
+                            {{ form.company_name.label(class="form-label") }}
+                            {{ form.company_name(class="form-control" + (" is-invalid" if form.company_name.errors else ""), list="company-list") }}
+                            <datalist id="company-list">
+                                {% for company in companies %}
+                                <option value="{{ company }}">
+                                {% endfor %}
+                            </datalist>
+                            {% if form.company_name.errors %}
+                            <div class="invalid-feedback">
+                                {% for error in form.company_name.errors %}
+                                {{ error }}
+                                {% endfor %}
+                            </div>
+                            {% endif %}
+                            <div class="form-text">可选，不选则匹配所有公司</div>
+                        </div>
+                        
+                        <!-- 合同编号 -->
+                        <div class="col-md-6 mb-3">
+                            {{ form.contract_no.label(class="form-label") }}
+                            {{ form.contract_no(class="form-control", placeholder="输入合同编号模糊匹配") }}
+                            <div class="form-text">可选，模糊匹配合同编号</div>
+                        </div>
+                    </div>
+                    
+                    <div class="row">
+                        <!-- 产品编码 -->
+                        <div class="col-md-4 mb-3">
+                            {{ form.product_code_filter.label(class="form-label") }}
+                            {{ form.product_code_filter(class="form-control", placeholder="如: P0001, P0002") }}
+                            <div class="form-text">多个编码用逗号分隔，精确匹配</div>
+                        </div>
+                        
+                        <!-- 产品名称 -->
+                        <div class="col-md-4 mb-3">
+                            {{ form.product_filter.label(class="form-label") }}
+                            {{ form.product_filter(class="form-control", placeholder="如: 产品A, 产品B") }}
+                            <div class="form-text">多个名称用逗号分隔，模糊匹配</div>
+                        </div>
+                        
+                        <!-- [v1.3] 部门和负责人筛选 -->
+                        <div class="col-md-2 mb-3">
+                            {{ form.department.label(class="form-label") }}
+                            {{ form.department(class="form-control", placeholder="选择或输入部门", list="department-list") }}
+                            <datalist id="department-list">
+                                {% for d in departments %}
+                                <option value="{{ d }}">
+                                {% endfor %}
+                            </datalist>
+                            <div class="form-text">可选</div>
+                        </div>
+                        <div class="col-md-2 mb-3">
+                            {{ form.manager.label(class="form-label") }}
+                            {{ form.manager(class="form-control", placeholder="选择或输入负责人", list="manager-list") }}
+                            <datalist id="manager-list">
+                                {% for m in managers %}
+                                <option value="{{ m }}">
+                                {% endfor %}
+                            </datalist>
+                            <div class="form-text">可选</div>
+                        </div>
+                    </div>
+                    
+                    <!-- 时间范围 -->
+                    <div class="mb-4">
+                        <label class="form-label">时间范围 <span class="text-muted">（发货日期）</span></label>
+                        <div class="row">
+                            <div class="col-md-6">
+                                {{ form.start_date(class="form-control", placeholder="起始日期") }}
+                            </div>
+                            <div class="col-md-6">
+                                {{ form.end_date(class="form-control", placeholder="结束日期") }}
+                            </div>
+                        </div>
+                        <div class="form-text">可选，不选则不限时间范围</div>
+                    </div>
+                    
+                    <!-- 提示信息 -->
+                    <div class="alert alert-info">
+                        <i class="bi bi-info-circle"></i>
+                        <strong>筛选规则：</strong>所有条件为 "与" 关系，即同时满足。请至少输入一个筛选条件。
+                    </div>
+                    
+                    <!-- 按钮 -->
+                    <div class="d-grid">
+                        {{ form.submit(class="btn btn-primary btn-lg") }}
+                    </div>
+                </form>
+            </div>
+        </div>
+        
+        <!-- 使用说明 -->
+        <div class="card mt-4">
+            <div class="card-header">
+                <i class="bi bi-info-circle"></i> 使用说明
+            </div>
+            <div class="card-body">
+                <h6>筛选维度（可灵活组合）：</h6>
+                <ul>
+                    <li><strong>公司名称：</strong>筛选特定客户的交易记录</li>
+                    <li><strong>合同编号：</strong>筛选特定合同的交易记录（支持模糊匹配）</li>
+                    <li><strong>产品编码：</strong>精确匹配产品编码，多个用逗号分隔</li>
+                    <li><strong>产品名称：</strong>模糊匹配产品名称，多个用逗号分隔</li>
+                    <li><strong>时间范围：</strong>按发货日期筛选</li>
+                </ul>
+                <h6>使用示例：</h6>
+                <ul class="mb-0">
+                    <li>查询某公司某合同的所有记录：填写公司名 + 合同编号</li>
+                    <li>查询特定产品的所有销售：填写产品编码（如：P0001, P0002）</li>
+                    <li>跨公司查询某产品：只填写产品编码，不填公司</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// 设置默认日期范围为当前月份
+document.addEventListener('DOMContentLoaded', function() {
+    const startDateInput = document.getElementById('start_date');
+    const endDateInput = document.getElementById('end_date');
+    
+    if (!startDateInput.value) {
+        const now = new Date();
+        const firstDay = new Date(now.getFullYear(), now.getMonth(), 1);
+        startDateInput.value = firstDay.toISOString().split('T')[0];
+    }
+    
+    if (!endDateInput.value) {
+        const now = new Date();
+        endDateInput.value = now.toISOString().split('T')[0];
+    }
+});
+</script>
+{% endblock %}

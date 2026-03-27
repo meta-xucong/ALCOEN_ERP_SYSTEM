@@ -1,0 +1,67 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+venv/
+ENV/
+env/
+.venv
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+data/erp.db
+
+# Environment variables
+.env
+.env.local
+
+# Uploads (keep directory but not files)
+static/uploads/products/*
+static/uploads/contracts/*
+static/uploads/contract_documents/*
+!static/uploads/products/.gitkeep
+!static/uploads/contracts/.gitkeep
+!static/uploads/contract_documents/.gitkeep
+
+# Exports
+exports/*.xlsx
+exports/*.csv
+
+# Logs
+*.log
+logs/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Profile data
+profile/*.json
