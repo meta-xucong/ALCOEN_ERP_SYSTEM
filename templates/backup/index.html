@@ -1,0 +1,131 @@
+{% extends 'base.html' %}
+
+{% block title %}数据备份 - ALCOEN ERP{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h1><i class="bi bi-cloud-download"></i> 数据备份</h1>
+</div>
+
+<!-- 备份说明卡片 -->
+<div class="card mb-4">
+    <div class="card-header bg-info text-white">
+        <h5 class="mb-0"><i class="bi bi-info-circle"></i> 备份说明</h5>
+    </div>
+    <div class="card-body">
+        <p class="mb-2">点击"立即备份"按钮，系统会将所有数据打包成一个ZIP文件供您下载。</p>
+        <p class="mb-2">备份文件包含以下内容：</p>
+        <ul class="mb-0">
+            <li><strong>数据库文件</strong> - 包含所有业务数据（合同、产品、用户等）</li>
+            <li><strong>上传文件</strong> - 合同图片、PDF文档、产品图片等</li>
+            <li><strong>导出文件</strong> - 历史导出的Excel文件</li>
+        </ul>
+        <hr>
+        <p class="mb-0 text-muted">
+            <i class="bi bi-exclamation-triangle"></i> 
+            建议定期备份数据，并将备份文件保存在安全的位置。如服务器发生故障，可通过备份文件快速恢复所有数据。
+        </p>
+    </div>
+</div>
+
+<!-- 存储统计 -->
+<div class="row mb-4">
+    <div class="col-md-4">
+        <div class="card h-100">
+            <div class="card-body text-center">
+                <i class="bi bi-database text-primary" style="font-size: 3rem;"></i>
+                <h5 class="mt-3">数据库</h5>
+                <p class="text-muted mb-1">{{ data_files }} 个文件</p>
+                <h4 class="text-primary">{{ data_size }}</h4>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card h-100">
+            <div class="card-body text-center">
+                <i class="bi bi-images text-success" style="font-size: 3rem;"></i>
+                <h5 class="mt-3">上传文件</h5>
+                <p class="text-muted mb-1">{{ uploads_files }} 个文件</p>
+                <h4 class="text-success">{{ uploads_size }}</h4>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card h-100">
+            <div class="card-body text-center">
+                <i class="bi bi-file-earmark-excel text-warning" style="font-size: 3rem;"></i>
+                <h5 class="mt-3">导出文件</h5>
+                <p class="text-muted mb-1">{{ exports_files }} 个文件</p>
+                <h4 class="text-warning">{{ exports_size }}</h4>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 总览卡片 -->
+<div class="card mb-4">
+    <div class="card-header bg-primary text-white">
+        <h5 class="mb-0"><i class="bi bi-hdd"></i> 存储总览</h5>
+    </div>
+    <div class="card-body">
+        <div class="row align-items-center">
+            <div class="col-md-6">
+                <table class="table table-borderless mb-0">
+                    <tr>
+                        <td>文件总数：</td>
+                        <td class="text-end"><strong>{{ total_files }} 个</strong></td>
+                    </tr>
+                    <tr>
+                        <td>总大小：</td>
+                        <td class="text-end"><strong>{{ total_size }}</strong></td>
+                    </tr>
+                </table>
+            </div>
+            <div class="col-md-6 text-center">
+                <a href="{{ url_for('backup.download_backup') }}" class="btn btn-primary btn-lg">
+                    <i class="bi bi-download"></i> 立即备份并下载
+                </a>
+                <p class="text-muted mt-2 mb-0" style="font-size: 0.9rem;">
+                    下载包含所有数据的ZIP文件
+                </p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 清理旧备份 -->
+<div class="card">
+    <div class="card-header">
+        <h5 class="mb-0"><i class="bi bi-trash"></i> 清理旧备份</h5>
+    </div>
+    <div class="card-body">
+        <p class="mb-3">系统会在服务器上临时保存生成的备份文件。点击"清理旧备份"按钮可以删除7天前的备份文件，释放服务器空间。</p>
+        <form method="POST" action="{{ url_for('backup.cleanup_backups') }}" 
+              onsubmit="return confirm('确定要清理7天前的旧备份文件吗？此操作不可恢复。');">
+            <button type="submit" class="btn btn-outline-danger">
+                <i class="bi bi-trash"></i> 清理旧备份
+            </button>
+        </form>
+    </div>
+</div>
+
+<!-- 恢复说明 -->
+<div class="card mt-4">
+    <div class="card-header bg-secondary text-white">
+        <h5 class="mb-0"><i class="bi bi-arrow-counterclockwise"></i> 数据恢复说明</h5>
+    </div>
+    <div class="card-body">
+        <h6>如何从备份恢复数据：</h6>
+        <ol class="mb-0">
+            <li>将下载的备份ZIP文件解压</li>
+            <li>将解压后的 <code>data/</code>、<code>static/uploads/</code>、<code>exports/</code> 目录复制到ERP系统根目录</li>
+            <li>覆盖现有的同名目录</li>
+            <li>重启ERP服务即可恢复所有数据</li>
+        </ol>
+        <div class="alert alert-warning mt-3 mb-0">
+            <i class="bi bi-exclamation-triangle"></i>
+            <strong>注意：</strong>恢复数据前建议先备份当前数据，以防止意外数据丢失！
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -105,18 +105,20 @@
                     <input type="hidden" name="manager" value="{{ current_user_manager }}">
                     <div class="form-text text-success"><i class="bi bi-check-circle"></i> 自动匹配您的姓名</div>
                     {% elif is_pm %}
-                    {# 部门PM：负责人自动匹配，但允许下拉选择 #}
+                    {# [v1.5] 部门PM：负责人默认自己，但可从部门成员中选择 #}
                     <div class="input-group input-group-sm">
-                        <select class="form-select" id="manager-select" style="display: block;"
+                        <select class="form-select" id="manager-select" name="manager" style="display: block;"
                                 onchange="onManagerSelect(this)">
-                            <option value="{{ current_user_manager }}" selected>{{ current_user_manager }}（本人）</option>
-                            {% for mgr in managers %}
-                            <option value="{{ mgr }}">{{ mgr }}</option>
+                            <option value="">-- 选择负责人 --</option>
+                            {% for user_name in department_users %}
+                            <option value="{{ user_name }}" {% if user_name == current_user_manager %}selected{% endif %}>
+                                {{ user_name }}{% if user_name == current_user_manager %}（本人）{% endif %}
+                            </option>
                             {% endfor %}
                         </select>
                         <input type="text" class="form-control" id="manager-input" name="manager"
-                               value="{{ current_user_manager }}"
-                               placeholder="输入新负责人" style="display: none;"
+                               value=""
+                               placeholder="输入其他负责人" style="display: none;"
                                onchange="onManagerInput(this)">
                         <button type="button" class="btn btn-outline-secondary"
                                 onclick="toggleManagerInput(this)" title="切换手动输入">
@@ -124,7 +126,7 @@
                         </button>
                     </div>
                     <div class="form-text text-success" style="font-size: 11px;">
-                        <i class="bi bi-check-circle"></i> 默认本人，可选择其他
+                        <i class="bi bi-check-circle"></i> 默认本人，可选择部门其他成员
                     </div>
                     {% else %}
                     {# 总经理和超级管理员：保持原有逻辑 #}

@@ -490,14 +490,21 @@ class ContractService:
         return [d.name for d in departments]
     
     @staticmethod
-    def get_manager_list(department_name: str = None) -> list:
-        """[v1.3] 获取负责人列表，可选按部门筛选"""
-        from app.models import Manager, Department
-        query = db.session.query(Manager.name, Department.name.label('dept_name')).join(Department)
+    def get_department_users(department_name: str = None) -> list:
+        """[v1.5] 获取部门用户列表，用于PM选择负责人"""
+        from app.models import User, Department
+        query = db.session.query(User.real_name, User.username, Department.name.label('dept_name')).\
+            join(Department, User.department_id == Department.id).\
+            filter(User.is_active == True)
         if department_name:
             query = query.filter(Department.name == department_name)
-        managers = query.order_by(Department.name, Manager.name).all()
-        return [f"{m.dept_name} - {m.name}" for m in managers]
+        users = query.order_by(Department.name, User.real_name, User.username).all()
+        # 返回格式: "部门名 - 姓名" 或 "部门名 - 用户名"（如果没有real_name）
+        result = []
+        for u in users:
+            display_name = u.real_name or u.username
+            result.append(f"{u.dept_name} - {display_name}")
+        return result
     
     @staticmethod
     def get_or_create_department(department_name: str) -> 'Department':
@@ -511,27 +518,31 @@ class ContractService:
         return dept
     
     @staticmethod
-    def get_or_create_manager(department_name: str, manager_name: str) -> 'Manager':
-        """[v1.3] 获取或创建负责人（一个负责人只能归属一个部门）"""
-        from app.models import Manager, Department
+    def validate_manager_for_department(department_name: str, manager_name: str) -> bool:
+        """[v1.5] 验证负责人是否属于该部门（检查是否是部门成员）
         
-        # 先获取或创建部门
-        dept = ContractService.get_or_create_department(department_name)
+        Args:
+            department_name: 部门名称
+            manager_name: 负责人姓名（real_name 或 username）
         
-        # 查找负责人
-        manager = Manager.query.filter_by(name=manager_name).first()
-        if manager:
-            # 如果负责人已存在，更新其部门
-            if manager.department_id != dept.id:
-                manager.department_id = dept.id
-                db.session.flush()
-        else:
-            # 创建新负责人
-            manager = Manager(name=manager_name, department_id=dept.id)
-            db.session.add(manager)
-            db.session.flush()
+        Returns:
+            如果负责人是该部门成员则返回True，否则返回False
+        """
+        from app.models import User, Department
         
-        return manager
+        dept = Department.query.filter_by(name=department_name).first()
+        if not dept:
+            return False
+        
+        # 检查是否是部门成员（通过real_name或username匹配）
+        user = User.query.filter(
+            User.department_id == dept.id,
+            User.is_active == True
+        ).filter(
+            (User.real_name == manager_name) | (User.username == manager_name)
+        ).first()
+        
+        return user is not None
     
     @staticmethod
     def get_contract_list(

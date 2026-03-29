@@ -118,13 +118,14 @@ def new_contract():
                                      transaction_form=transaction_form,
                                      companies=StatementService.get_company_list())
             
-            # 处理部门/负责人 [v1.3]
+            # 处理部门/负责人 [v1.3] [v1.5] 简化逻辑，直接使用表单值
             department = request.form.get('department', '').strip()
             manager = request.form.get('manager', '').strip()
-            if department and manager:
-                ContractService.get_or_create_manager(department, manager)
+            if department:
                 contract_data['department'] = department
+            if manager:
                 contract_data['manager'] = manager
+            if department and manager:
                 contract_data['owner'] = f"{department} - {manager}"
             
             # [v1.4] 记录合同创建人
@@ -201,13 +202,22 @@ def new_contract():
     # [v1.4] 从部门管理模块获取部门列表
     from app.models import Department
     departments = Department.query.order_by(Department.name).all()
-    managers = ContractService.get_manager_list()
     owners = ContractService.get_owner_list()
     
     # [v1.4] 获取当前用户部门（用于自动填充）
     current_user_dept = None
     if g.current_user.department:
         current_user_dept = g.current_user.department.name
+    
+    # [v1.5] 获取部门用户列表（用于PM选择负责人）
+    department_users = []
+    if g.current_user.department:
+        from app.models import User
+        dept_users = User.query.filter_by(
+            department_id=g.current_user.department.id,
+            is_active=True
+        ).all()
+        department_users = [u.real_name or u.username for u in dept_users]
     
     return render_template('contract/form.html',
                          form=form,
@@ -216,7 +226,7 @@ def new_contract():
                          companies=companies,
                          products=products,
                          departments=departments,
-                         managers=managers,
+                         department_users=department_users,
                          owners=owners,
                          is_new=True,
                          current_user_dept=current_user_dept,
@@ -445,16 +455,16 @@ def edit_contract(id):
                 if payment.id not in submitted_payment_ids:
                     db.session.delete(payment)
             
-            # 处理部门/负责人 [v1.3]
+            # 处理部门/负责人 [v1.3] [v1.5] 简化逻辑，直接使用表单值
             department = request.form.get('department', '').strip()
             manager = request.form.get('manager', '').strip()
-            if department and manager:
-                ContractService.get_or_create_manager(department, manager)
-                # 更新合同的部门/负责人字段
+            if department:
                 contract.department = department
+            if manager:
                 contract.manager = manager
+            if department and manager:
                 contract.owner = f"{department} - {manager}"
-                db.session.commit()
+            db.session.commit()
             
             # 处理图片上传 [v1.3]
             images = request.files.getlist('images')
@@ -480,8 +490,17 @@ def edit_contract(id):
     # [v1.4] 从部门管理模块获取部门列表
     from app.models import Department
     departments = Department.query.order_by(Department.name).all()
-    managers = ContractService.get_manager_list()
     owners = ContractService.get_owner_list()
+    
+    # [v1.5] 获取部门用户列表（用于PM选择负责人）
+    department_users = []
+    if g.current_user.department:
+        from app.models import User
+        dept_users = User.query.filter_by(
+            department_id=g.current_user.department.id,
+            is_active=True
+        ).all()
+        department_users = [u.real_name or u.username for u in dept_users]
     
     return render_template('contract/form.html',
                          form=form,
@@ -491,7 +510,7 @@ def edit_contract(id):
                          companies=companies,
                          products=products,
                          departments=departments,
-                         managers=managers,
+                         department_users=department_users,
                          owners=owners,
                          is_new=False)
 

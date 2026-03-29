@@ -58,29 +58,11 @@ class Department(db.Model):
     name: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
     
-    managers: Mapped[list['Manager']] = relationship(back_populates='department', cascade='all, delete-orphan')
+    # [v1.5] 移除 managers 关系，部门不再有预设负责人
+    # 负责人直接在合同中填写，PM默认为自己但可改为部门任意成员
     
     def __repr__(self):
         return f'<Department {self.name}>'
-
-
-class Manager(db.Model):
-    """负责人表 - v1.3（一个负责人只能归属一个部门）"""
-    __tablename__ = 'managers'
-    
-    id: Mapped[int] = mapped_column(primary_key=True)
-    name: Mapped[str] = mapped_column(String(100), nullable=False)
-    department_id: Mapped[int] = mapped_column(ForeignKey('departments.id'), nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
-    
-    department: Mapped['Department'] = relationship(back_populates='managers')
-    
-    def __repr__(self):
-        return f'<Manager {self.name}>'
-    
-    @property
-    def full_name(self):
-        return f"{self.department.name} - {self.name}"
 
 
 class Contract(db.Model):

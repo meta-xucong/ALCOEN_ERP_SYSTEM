@@ -39,7 +39,6 @@
                     <tr>
                         <th>部门名称</th>
                         <th class="text-center">合同数</th>
-                        <th class="text-center">负责人数</th>
                         <th>部门成员</th>
                         <th class="text-center">操作</th>
                     </tr>
@@ -52,9 +51,6 @@
                         </td>
                         <td class="text-center">
                             <span class="badge bg-info">{{ dept_stats[dept.id]['contract_count'] }}</span>
-                        </td>
-                        <td class="text-center">
-                            <span class="badge bg-secondary">{{ dept_stats[dept.id]['manager_count'] }}</span>
                         </td>
                         <td>
                             {% if dept_stats[dept.id]['users'] %}
@@ -72,12 +68,6 @@
                             <button type="button" class="btn btn-sm btn-outline-primary" 
                                     data-bs-toggle="modal" data-bs-target="#editModal{{ dept.id }}">
                                 <i class="bi bi-pencil"></i> 编辑
-                            </button>
-                            
-                            <!-- 管理负责人按钮 -->
-                            <button type="button" class="btn btn-sm btn-outline-info"
-                                    data-bs-toggle="modal" data-bs-target="#managersModal{{ dept.id }}">
-                                <i class="bi bi-people"></i> 负责人
                             </button>
                             
                             <!-- 删除按钮 -->
@@ -115,56 +105,6 @@
                             </div>
                         </div>
                     </div>
-                    
-                    <!-- 管理负责人模态框 -->
-                    <div class="modal fade" id="managersModal{{ dept.id }}" tabindex="-1">
-                        <div class="modal-dialog">
-                            <div class="modal-content">
-                                <div class="modal-header">
-                                    <h5 class="modal-title">管理负责人 - {{ dept.name }}</h5>
-                                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                                </div>
-                                <div class="modal-body">
-                                    <!-- 现有负责人列表 -->
-                                    <h6 class="mb-3">现有负责人</h6>
-                                    {% if dept.managers %}
-                                    <ul class="list-group mb-4">
-                                        {% for manager in dept.managers %}
-                                        <li class="list-group-item d-flex justify-content-between align-items-center">
-                                            {{ manager.name }}
-                                            <form method="POST" 
-                                                  action="{{ url_for('department.delete_manager', manager_id=manager.id) }}"
-                                                  class="d-inline">
-                                                <button type="submit" class="btn btn-sm btn-outline-danger">
-                                                    <i class="bi bi-trash"></i>
-                                                </button>
-                                            </form>
-                                        </li>
-                                        {% endfor %}
-                                    </ul>
-                                    {% else %}
-                                    <p class="text-muted mb-4">暂无负责人</p>
-                                    {% endif %}
-                                    
-                                    <!-- 添加新负责人 -->
-                                    <h6 class="mb-3">添加负责人</h6>
-                                    <form method="POST" 
-                                          action="{{ url_for('department.add_manager', dept_id=dept.id) }}">
-                                        <div class="input-group">
-                                            <input type="text" name="name" class="form-control" 
-                                                   placeholder="输入负责人姓名" required>
-                                            <button type="submit" class="btn btn-primary">
-                                                <i class="bi bi-plus"></i> 添加
-                                            </button>
-                                        </div>
-                                    </form>
-                                </div>
-                                <div class="modal-footer">
-                                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
                     {% endfor %}
                 </tbody>
             </table>
@@ -183,8 +123,8 @@
     <ul class="mb-0">
         <li>部门名称修改后会自动同步到所有相关合同</li>
         <li>删除部门前需要先移除部门下的所有用户</li>
-        <li>负责人用于合同中的"负责人"字段选择</li>
         <li>部门成员显示已关联的部门PM和销售经理账号</li>
+        <li>[v1.5] 负责人不再在部门中预设，由PM在创建合同时指定</li>
     </ul>
 </div>
 {% endblock %}

@@ -39,6 +39,7 @@ def create_app(config_name='default'):
     from app.routes.role import role_bp
     from app.routes.department import department_bp
     from app.routes.theme import theme_bp
+    from app.routes.backup import backup_bp
     app.register_blueprint(main_bp)
     app.register_blueprint(transaction_bp, url_prefix='/transaction')
     app.register_blueprint(statement_bp, url_prefix='/statement')
@@ -49,6 +50,7 @@ def create_app(config_name='default'):
     app.register_blueprint(role_bp)
     app.register_blueprint(department_bp)
     app.register_blueprint(theme_bp)
+    app.register_blueprint(backup_bp)
     
     # 注册模板全局变量
     @app.context_processor

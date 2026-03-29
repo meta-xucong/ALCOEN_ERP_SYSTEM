@@ -17,9 +17,8 @@ def generator():
     """[LOGIC-8] 对账单生成器 - 支持多维度筛选 [v1.3] 部门/负责人筛选替代归属人 [v1.4] 添加权限过滤"""
     form = StatementGeneratorForm()
     companies = StatementService.get_company_list()
-    # [v1.3] 获取部门和负责人列表
+    # [v1.3] 获取部门列表 [v1.5] 移除从Manager表获取负责人列表
     departments = ContractService.get_department_list()
-    managers = ContractService.get_manager_list()
     
     if form.validate_on_submit():
         # 获取所有筛选条件
@@ -91,8 +90,7 @@ def generator():
     return render_template('statement/generator.html',
                          form=form,
                          companies=companies,
-                         departments=departments,
-                         managers=managers)
+                         departments=departments)
 
 
 @statement_bp.route('/<statement_no>')

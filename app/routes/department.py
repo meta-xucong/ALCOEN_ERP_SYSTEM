@@ -3,7 +3,7 @@
 """
 from flask import Blueprint, render_template, request, redirect, url_for, flash, g, jsonify
 from app.services.contract_service import ContractService
-from app.models import Department, Manager, User, Contract
+from app.models import Department, User, Contract
 from app import db
 from app.utils.decorators import admin_required
 
@@ -16,11 +16,10 @@ def list_departments():
     """部门列表"""
     departments = Department.query.order_by(Department.name).all()
     
-    # 统计每个部门的合同数和负责人
+    # 统计每个部门的合同数和成员
     dept_stats = {}
     for dept in departments:
         contract_count = Contract.query.filter_by(department=dept.name).count()
-        manager_count = Manager.query.filter_by(department_id=dept.id).count()
         # 获取部门下的用户（销售经理和PM）
         users = User.query.join(User.role).filter(
             User.department_id == dept.id,
@@ -28,7 +27,6 @@ def list_departments():
         ).all()
         dept_stats[dept.id] = {
             'contract_count': contract_count,
-            'manager_count': manager_count,
             'users': users
         }
     
@@ -117,9 +115,6 @@ def delete_department(dept_id):
         return redirect(url_for('department.list_departments'))
     
     try:
-        # 先删除部门下的负责人
-        Manager.query.filter_by(department_id=dept_id).delete()
-        
         name = dept.name
         db.session.delete(dept)
         db.session.commit()
@@ -131,53 +126,21 @@ def delete_department(dept_id):
     return redirect(url_for('department.list_departments'))
 
 
-@department_bp.route('/<int:dept_id>/managers')
+@department_bp.route('/<int:dept_id>/users')
 @admin_required
-def get_managers(dept_id):
-    """获取部门的负责人列表（API）"""
+def get_department_users(dept_id):
+    """[v1.5] 获取部门用户列表（API）- 用于PM选择负责人"""
     dept = Department.query.get_or_404(dept_id)
-    managers = Manager.query.filter_by(department_id=dept_id).all()
+    users = User.query.filter_by(department_id=dept_id, is_active=True).all()
     return jsonify({
-        'managers': [{'id': m.id, 'name': m.name} for m in managers]
+        'users': [
+            {
+                'id': u.id, 
+                'name': u.real_name or u.username,
+                'username': u.username,
+                'role': u.role.name if u.role else None,
+                'role_code': u.role.code if u.role else None
+            } 
+            for u in users
+        ]
     })
-
-
-@department_bp.route('/<int:dept_id>/managers/add', methods=['POST'])
-@admin_required
-def add_manager(dept_id):
-    """添加负责人"""
-    dept = Department.query.get_or_404(dept_id)
-    name = request.form.get('name', '').strip()
-    
-    if not name:
-        flash('负责人姓名不能为空', 'warning')
-        return redirect(url_for('department.list_departments'))
-    
-    try:
-        manager = Manager(name=name, department_id=dept_id)
-        db.session.add(manager)
-        db.session.commit()
-        flash(f'负责人 "{name}" 已添加', 'success')
-    except Exception as e:
-        db.session.rollback()
-        flash(f'添加失败: {str(e)}', 'error')
-    
-    return redirect(url_for('department.list_departments'))
-
-
-@department_bp.route('/managers/<int:manager_id>/delete', methods=['POST'])
-@admin_required
-def delete_manager(manager_id):
-    """删除负责人"""
-    manager = Manager.query.get_or_404(manager_id)
-    
-    try:
-        name = manager.name
-        db.session.delete(manager)
-        db.session.commit()
-        flash(f'负责人 "{name}" 已删除', 'success')
-    except Exception as e:
-        db.session.rollback()
-        flash(f'删除失败: {str(e)}', 'error')
-    
-    return redirect(url_for('department.list_departments'))
