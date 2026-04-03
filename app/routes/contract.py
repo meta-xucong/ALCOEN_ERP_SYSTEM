@@ -245,6 +245,10 @@ def view_contract(id):
         flash('您没有权限查看此合同', 'error')
         return redirect(url_for('contract.list_contracts'))
     
+    # [v1.5.2] 检查并更新合同完成状态
+    ContractService.check_completion(contract.id)
+    db.session.commit()
+    
     stats = ContractService.get_statistics(id)
     
     return render_template('contract/detail.html',
