@@ -1269,9 +1269,12 @@ function openImageModal(imageSrc) {
 
 // 页面加载时初始化
 window.onload = function() {
+    console.log('[DEBUG] Window loaded, is_new={{ is_new|lower }}');
     {% if is_new %}
+    console.log('[DEBUG] New contract mode - adding product row');
     addProductRow();
     {% else %}
+    console.log('[DEBUG] Edit mode - loading existing data');
     loadExistingData();
     // 初始化部门负责人联动
     initDepartmentManager();
