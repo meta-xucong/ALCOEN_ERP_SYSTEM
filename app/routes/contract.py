@@ -1,7 +1,7 @@
 """
 合同路由 - v1.3 核心（发货/回款分离）
 """
-from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify, send_file, g
+from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify, send_file, g, current_app
 import os
 from datetime import datetime
 from app.forms import ContractForm, ContractProductForm, ContractTransactionForm
@@ -281,6 +281,10 @@ def edit_contract(id):
     
     if form.validate_on_submit():
         try:
+            # [v1.5.2] 导入依赖
+            from app.models import PaymentRecord
+            from datetime import datetime, timezone, timedelta
+            
             # 更新合同基础信息 [问题4] 添加归属人
             contract_data = {
                 'contract_no': form.contract_no.data,
@@ -472,9 +476,6 @@ def edit_contract(id):
                 print(f"[DEBUG-PY] Checking new payment condition: amount={payment_amount}")
                 if payment_amount and float(payment_amount) > 0:
                     try:
-                        from app.models import PaymentRecord
-                        from datetime import datetime, timezone, timedelta
-                        
                         # 处理日期
                         if payment_date:
                             payment_date_obj = datetime.strptime(payment_date, '%Y-%m-%d').date()
