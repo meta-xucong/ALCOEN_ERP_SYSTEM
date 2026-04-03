@@ -476,10 +476,12 @@ def edit_contract(id):
                     current_app.logger.info(f"[DEBUG] Adding new payment record: {payment_data}")
                     if payment_data['payment_date']:
                         try:
-                            ContractService.add_payment_record(id, payment_data)
-                            current_app.logger.info(f"[DEBUG] Payment record added successfully")
+                            result = ContractService.add_payment_record(id, payment_data)
+                            current_app.logger.info(f"[DEBUG] Payment record added successfully: ID={result.id}")
                         except Exception as e:
                             current_app.logger.error(f"[DEBUG] Error adding payment record: {e}")
+                            import traceback
+                            current_app.logger.error(traceback.format_exc())
                             raise
             
             # 删除未被提交的回款记录（已在页面上删除的）
