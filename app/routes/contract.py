@@ -279,7 +279,13 @@ def edit_contract(id):
         for cp in contract.contract_products
     ]
     
+    # DEBUG
+    import sys
+    print(f"[DEBUG-PY] Request method: {request.method}", file=sys.stderr)
+    print(f"[DEBUG-PY] Form data: {dict(request.form)}", file=sys.stderr)
+    
     if form.validate_on_submit():
+        print(f"[DEBUG-PY] Form validated!")
         try:
             # 更新合同基础信息 [问题4] 添加归属人
             contract_data = {
