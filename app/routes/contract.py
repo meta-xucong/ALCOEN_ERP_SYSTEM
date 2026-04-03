@@ -466,31 +466,46 @@ def edit_contract(id):
                                 payment.contract_product_id = int(contract_product_id)
                         continue
                 
-                # 新增回款记录
+                # 新增回款记录 [v1.5.2] 修复：直接创建，不使用Service方法避免重复commit
                 print(f"[DEBUG-PY] Checking new payment condition: amount={payment_amount}")
                 if payment_amount and float(payment_amount) > 0:
-                    payment_data = {
-                        'payment_amount': float(payment_amount),
-                        'payment_date': payment_date,
-                        'handler': request.form.get(f'{prefix}handler', '').strip() or None,
-                        'remark': request.form.get(f'{prefix}remark'),
-                        'contract_product_id': request.form.get(f'{prefix}contract_product_id') or None
-                    }
-                    print(f"[DEBUG-PY] Adding new payment: {payment_data}")
-                    current_app.logger.info(f"[DEBUG] Adding new payment record: {payment_data}")
-                    if payment_data['payment_date']:
-                        try:
-                            result = ContractService.add_payment_record(id, payment_data)
-                            print(f"[DEBUG-PY] Payment added: ID={result.id}")
-                            current_app.logger.info(f"[DEBUG] Payment record added successfully: ID={result.id}")
-                        except Exception as e:
-                            print(f"[DEBUG-PY] Error: {e}")
-                            current_app.logger.error(f"[DEBUG] Error adding payment record: {e}")
-                            import traceback
-                            current_app.logger.error(traceback.format_exc())
-                            raise
-                    else:
-                        print(f"[DEBUG-PY] Skipped: no payment_date")
+                    try:
+                        from app.models import PaymentRecord
+                        from datetime import datetime, timezone, timedelta
+                        
+                        # 处理日期
+                        if payment_date:
+                            payment_date_obj = datetime.strptime(payment_date, '%Y-%m-%d').date()
+                        else:
+                            payment_date_obj = None
+                        
+                        handler = request.form.get(f'{prefix}handler', '').strip() or None
+                        remark = request.form.get(f'{prefix}remark')
+                        contract_product_id = request.form.get(f'{prefix}contract_product_id')
+                        
+                        # 直接创建记录
+                        new_payment = PaymentRecord(
+                            contract_id=id,
+                            contract_product_id=int(contract_product_id) if contract_product_id else None,
+                            company_name=contract.company_name,
+                            payment_amount=float(payment_amount),
+                            payment_date=payment_date_obj,
+                            handler=handler,
+                            remark=remark
+                        )
+                        db.session.add(new_payment)
+                        
+                        # 添加备注
+                        tz = timezone(timedelta(hours=8))
+                        now = datetime.now(tz).strftime('%Y-%m-%d %H:%M:%S')
+                        contract.append_remark(f"添加回款记录: {float(payment_amount):.2f}元")
+                        
+                        print(f"[DEBUG-PY] Created new payment: amount={payment_amount}, date={payment_date}")
+                        current_app.logger.info(f"[DEBUG] Created new payment record")
+                    except Exception as e:
+                        print(f"[DEBUG-PY] Error creating payment: {e}")
+                        current_app.logger.error(f"[DEBUG] Error: {e}")
+                        raise
                 else:
                     print(f"[DEBUG-PY] Skipped: amount condition failed")
             
