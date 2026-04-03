@@ -52,6 +52,15 @@ def create_app(config_name='default'):
     app.register_blueprint(theme_bp)
     app.register_blueprint(backup_bp)
     
+    # [v1.5.2] 禁用缓存，确保合同状态更新后立即显示
+    @app.after_request
+    def disable_caching(response):
+        if 'text/html' in response.content_type:
+            response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+            response.headers['Pragma'] = 'no-cache'
+            response.headers['Expires'] = '0'
+        return response
+    
     # 注册模板全局变量
     @app.context_processor
     def inject_user():
