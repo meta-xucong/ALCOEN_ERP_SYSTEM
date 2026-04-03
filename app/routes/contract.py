@@ -422,12 +422,17 @@ def edit_contract(id):
             
             # 处理回款记录 - 包括更新、新增和删除 [v1.3]
             payment_count = int(request.form.get('payment_count', 0))
+            current_app.logger.info(f"[DEBUG] Processing {payment_count} payment records for contract {id}")
             existing_payment_ids = {p.id for p in contract.payment_records}
             submitted_payment_ids = set()
             
             for i in range(payment_count):
                 prefix = f'payment_{i}_'
                 payment_id = request.form.get(f'{prefix}id')
+                payment_amount = request.form.get(f'{prefix}amount')
+                payment_date = request.form.get(f'{prefix}date')
+                
+                current_app.logger.info(f"[DEBUG] Payment {i}: id={payment_id}, amount={payment_amount}, date={payment_date}")
                 
                 if payment_id:
                     submitted_payment_ids.add(int(payment_id))
@@ -435,11 +440,9 @@ def edit_contract(id):
                     if int(payment_id) in existing_payment_ids:
                         payment = PaymentRecord.query.get(int(payment_id))
                         if payment:
-                            payment_amount = request.form.get(f'{prefix}amount')
                             if payment_amount is not None:
                                 payment.payment_amount = float(payment_amount)
                             
-                            payment_date = request.form.get(f'{prefix}date')
                             if payment_date:
                                 payment.payment_date = datetime.strptime(payment_date, '%Y-%m-%d').date()
                             
@@ -456,21 +459,28 @@ def edit_contract(id):
                                 payment.contract_product_id = int(contract_product_id)
                         continue
                 
-                payment_amount = request.form.get(f'{prefix}amount')
+                # 新增回款记录
                 if payment_amount and float(payment_amount) > 0:
                     payment_data = {
                         'payment_amount': float(payment_amount),
-                        'payment_date': request.form.get(f'{prefix}date'),
+                        'payment_date': payment_date,
                         'handler': request.form.get(f'{prefix}handler', '').strip() or None,
                         'remark': request.form.get(f'{prefix}remark'),
                         'contract_product_id': request.form.get(f'{prefix}contract_product_id') or None
                     }
+                    current_app.logger.info(f"[DEBUG] Adding new payment record: {payment_data}")
                     if payment_data['payment_date']:
-                        ContractService.add_payment_record(id, payment_data)
+                        try:
+                            ContractService.add_payment_record(id, payment_data)
+                            current_app.logger.info(f"[DEBUG] Payment record added successfully")
+                        except Exception as e:
+                            current_app.logger.error(f"[DEBUG] Error adding payment record: {e}")
+                            raise
             
             # 删除未被提交的回款记录（已在页面上删除的）
             for payment in contract.payment_records:
                 if payment.id not in submitted_payment_ids:
+                    current_app.logger.info(f"[DEBUG] Deleting payment record {payment.id}")
                     db.session.delete(payment)
             
             # 处理部门/负责人 [v1.3] [v1.5] 简化逻辑，直接使用表单值
