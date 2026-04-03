@@ -1399,11 +1399,15 @@ function loadExistingData() {
     ];
     
     console.log('[DEBUG] Loading payments:', existingPayments);
+    console.log(`[DEBUG] Will load ${existingPayments.length} payment records`);
+    
     // 先加载所有发货记录，再加载回款记录（因为回款依赖发货记录）
-    existingPayments.forEach(p => {
+    existingPayments.forEach((p, idx) => {
+        console.log(`[DEBUG] Loading payment ${idx}:`, p);
         addPaymentRowWithData(p, true);
     });
     
+    console.log('[DEBUG] loadExistingData completed');
     updateTransactionProductOptions();
 }
 
@@ -1531,13 +1535,26 @@ function addTransactionRowWithData(data, isExisting = false) {
 }
 
 function addPaymentRowWithData(data, isExisting = false) {
-    const template = document.getElementById('payment-row-template').innerHTML;
-    const html = template.replace(/{index}/g, paymentCount);
+    console.log(`[DEBUG] addPaymentRowWithData called:`, data);
+    
+    const template = document.getElementById('payment-row-template');
+    if (!template) {
+        console.error('[DEBUG] payment-row-template not found!');
+        return;
+    }
+    
+    const html = template.innerHTML.replace(/{index}/g, paymentCount);
     const container = document.getElementById('payments-container');
+    if (!container) {
+        console.error('[DEBUG] payments-container not found!');
+        return;
+    }
+    
     const tempDiv = document.createElement('div');
     tempDiv.innerHTML = html;
     const row = tempDiv.firstElementChild;
     container.appendChild(row);
+    console.log(`[DEBUG] Payment row ${paymentCount} appended to container`);
     
     if (isExisting) {
         row.dataset.existingId = data.id;
@@ -1578,13 +1595,27 @@ function addPaymentRowWithData(data, isExisting = false) {
         console.warn(`[DEBUG] Payment ${paymentCount}: has contract_product_id but no product_code`);
     }
     
-    row.querySelector(`[name="payment_${paymentCount}_amount"]`).value = data.payment_amount;
-    row.querySelector(`[name="payment_${paymentCount}_date"]`).value = data.payment_date;
-    row.querySelector(`[name="payment_${paymentCount}_handler"]`).value = data.handler;
-    row.querySelector(`[name="payment_${paymentCount}_remark"]`).value = data.remark || '';
+    // 填充字段值
+    const amountInput = row.querySelector(`[name="payment_${paymentCount}_amount"]`);
+    const dateInput = row.querySelector(`[name="payment_${paymentCount}_date"]`);
+    const handlerInput = row.querySelector(`[name="payment_${paymentCount}_handler"]`);
+    const remarkInput = row.querySelector(`[name="payment_${paymentCount}_remark"]`);
+    
+    if (amountInput) amountInput.value = data.payment_amount;
+    else console.error(`[DEBUG] amount input not found for payment_${paymentCount}_amount`);
+    
+    if (dateInput) dateInput.value = data.payment_date;
+    else console.error(`[DEBUG] date input not found for payment_${paymentCount}_date`);
+    
+    if (handlerInput) handlerInput.value = data.handler;
+    else console.error(`[DEBUG] handler input not found for payment_${paymentCount}_handler`);
+    
+    if (remarkInput) remarkInput.value = data.remark || '';
+    else console.error(`[DEBUG] remark input not found for payment_${paymentCount}_remark`);
     
     paymentCount++;
     document.getElementById('payment_count').value = paymentCount;
+    console.log(`[DEBUG] Payment row ${paymentCount-1} completed, paymentCount now ${paymentCount}`);
 }
 {% endif %}
 
