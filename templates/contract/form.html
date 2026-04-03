@@ -381,6 +381,22 @@
     </div>
 </form>
 
+<script>
+// [DEBUG] 表单提交前打印所有 payment 字段
+document.getElementById('contractForm').addEventListener('submit', function(e) {
+    console.log('[DEBUG] Form submitting...');
+    console.log('[DEBUG] payment_count:', document.getElementById('payment_count').value);
+    
+    // 打印所有 payment 相关字段
+    const formData = new FormData(this);
+    for (let [key, value] of formData.entries()) {
+        if (key.includes('payment')) {
+            console.log(`[DEBUG] Form field: ${key}=${value}`);
+        }
+    }
+});
+</script>
+
 <!-- 产品行模板 - 支持下拉选择和手动输入 [v1.3] 优化排版 -->
 <template id="product-row-template">
     <div class="product-row border rounded p-3 mb-3" data-index="{index}">
