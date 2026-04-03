@@ -431,12 +431,14 @@ def edit_contract(id):
             existing_payment_ids = {p.id for p in contract.payment_records}
             submitted_payment_ids = set()
             
+            print(f"[DEBUG-PY] Processing {payment_count} payments")
             for i in range(payment_count):
                 prefix = f'payment_{i}_'
                 payment_id = request.form.get(f'{prefix}id')
                 payment_amount = request.form.get(f'{prefix}amount')
                 payment_date = request.form.get(f'{prefix}date')
                 
+                print(f"[DEBUG-PY] Payment {i}: id={payment_id}, amount={payment_amount}, date={payment_date}")
                 current_app.logger.info(f"[DEBUG] Payment {i}: id={payment_id}, amount={payment_amount}, date={payment_date}")
                 
                 if payment_id:
@@ -465,6 +467,7 @@ def edit_contract(id):
                         continue
                 
                 # 新增回款记录
+                print(f"[DEBUG-PY] Checking new payment condition: amount={payment_amount}")
                 if payment_amount and float(payment_amount) > 0:
                     payment_data = {
                         'payment_amount': float(payment_amount),
@@ -473,16 +476,23 @@ def edit_contract(id):
                         'remark': request.form.get(f'{prefix}remark'),
                         'contract_product_id': request.form.get(f'{prefix}contract_product_id') or None
                     }
+                    print(f"[DEBUG-PY] Adding new payment: {payment_data}")
                     current_app.logger.info(f"[DEBUG] Adding new payment record: {payment_data}")
                     if payment_data['payment_date']:
                         try:
                             result = ContractService.add_payment_record(id, payment_data)
+                            print(f"[DEBUG-PY] Payment added: ID={result.id}")
                             current_app.logger.info(f"[DEBUG] Payment record added successfully: ID={result.id}")
                         except Exception as e:
+                            print(f"[DEBUG-PY] Error: {e}")
                             current_app.logger.error(f"[DEBUG] Error adding payment record: {e}")
                             import traceback
                             current_app.logger.error(traceback.format_exc())
                             raise
+                    else:
+                        print(f"[DEBUG-PY] Skipped: no payment_date")
+                else:
+                    print(f"[DEBUG-PY] Skipped: amount condition failed")
             
             # 删除未被提交的回款记录（已在页面上删除的）
             for payment in contract.payment_records:
