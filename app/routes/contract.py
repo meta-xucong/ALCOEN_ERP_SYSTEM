@@ -329,6 +329,9 @@ def edit_contract(id):
             
             # 处理发货记录 - 包括更新、新增和删除
             transaction_count = int(request.form.get('transaction_count', 0))
+            # DEBUG
+            import logging
+            logging.info(f"[DEBUG] transaction_count={transaction_count}")
             existing_transaction_ids = {t.id for t in contract.transactions}
             submitted_transaction_ids = set()
             
@@ -336,6 +339,9 @@ def edit_contract(id):
                 prefix = f'transaction_{i}_'
                 trans_id = request.form.get(f'{prefix}id')  # 如果有id则是已有记录
                 product_code = request.form.get(f'{prefix}contract_product_id')
+                # DEBUG
+                import logging
+                logging.info(f"[DEBUG] trans {i}: id={trans_id}, product_code={product_code}")
                 
                 if trans_id:
                     submitted_transaction_ids.add(int(trans_id))
@@ -391,8 +397,16 @@ def edit_contract(id):
                             'invoice_date': request.form.get(f'{prefix}invoice_date') or None,
                             'remark': request.form.get(f'{prefix}remark')
                         }
+                        # DEBUG
+                        import logging
+                        logging.info(f"[DEBUG] Adding trans: {transaction_data}")
                         if transaction_data['quantity'] > 0:
-                            ContractService.add_transaction(id, transaction_data, is_new=True)
+                            try:
+                                ContractService.add_transaction(id, transaction_data, is_new=True)
+                                logging.info("[DEBUG] Trans added successfully")
+                            except Exception as e:
+                                logging.error(f"[DEBUG] Error adding trans: {e}")
+                                raise
             
             # 删除未被提交的发货记录（已在页面上删除的）
             for trans in contract.transactions:
@@ -464,6 +478,7 @@ def edit_contract(id):
                 contract.manager = manager
             if department and manager:
                 contract.owner = f"{department} - {manager}"
+            
             db.session.commit()
             
             # 处理图片上传 [v1.3]
@@ -475,6 +490,10 @@ def edit_contract(id):
             contract_documents = request.files.getlist('contract_documents')
             if contract_documents:
                 ContractService.upload_contract_documents(id, contract_documents)
+            
+            # [v1.3] [v1.5.2] 检查合同完成状态
+            ContractService.check_completion(contract.id)
+            db.session.commit()
             
             flash('合同更新成功！', 'success')
             return redirect(url_for('contract.view_contract', id=id))

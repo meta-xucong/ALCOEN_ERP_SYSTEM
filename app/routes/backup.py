@@ -1,15 +1,35 @@
 """
-数据备份路由 - 超级管理员专用
+数据备份路由 - 超级管理员和总经理专用
 提供ERP系统完整数据备份下载功能
 """
 import os
 import shutil
 import zipfile
 from datetime import datetime
-from flask import Blueprint, render_template, send_file, flash, redirect, url_for, current_app
-from app.utils.decorators import admin_required
+from flask import Blueprint, render_template, send_file, flash, redirect, url_for, current_app, session, request
+from functools import wraps
+from flask import g
 
 backup_bp = Blueprint('backup', __name__, url_prefix='/backup')
+
+
+def backup_admin_required(f):
+    """要求用户必须是超级管理员或总经理"""
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if 'user_id' not in session:
+            return redirect(url_for('auth.login', next=request.url))
+        
+        from app.models import User
+        user = User.query.get(session['user_id'])
+        
+        if not user or not (user.is_superadmin or user.role.code == 'general_manager'):
+            flash('需要管理员权限', 'error')
+            return redirect(url_for('main.index'))
+        
+        g.current_user = user
+        return f(*args, **kwargs)
+    return decorated_function
 
 
 def get_backup_directory():
@@ -35,7 +55,7 @@ def get_exports_directory():
 
 
 @backup_bp.route('/')
-@admin_required
+@backup_admin_required
 def backup_page():
     """数据备份页面"""
     # 获取各目录信息
@@ -67,7 +87,7 @@ def backup_page():
 
 
 @backup_bp.route('/download')
-@admin_required
+@backup_admin_required
 def download_backup():
     """下载完整数据备份"""
     try:
@@ -153,7 +173,7 @@ exports/        - 导出的Excel文件
 
 
 @backup_bp.route('/cleanup', methods=['POST'])
-@admin_required
+@backup_admin_required
 def cleanup_backups():
     """清理旧的备份文件"""
     try:

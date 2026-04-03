@@ -7,15 +7,32 @@
 {% block content %}
 <div class="row mb-4">
     <div class="col-12">
-        <h1 class="d-flex align-items-center gap-3 mb-0">
-            <i class="bi bi-file-earmark-plus text-gradient" style="font-size: 2rem;"></i>
-            <span class="text-gradient" style="font-weight: 700; font-size: 2rem;">
-                {% if is_new %}新增合同{% else %}编辑合同{% endif %}
-            </span>
-            {% if is_logistics %}
-            <span class="badge bg-info ms-2">物流经理模式</span>
+        <div class="d-flex justify-content-between align-items-center">
+            <h1 class="d-flex align-items-center gap-3 mb-0">
+                <i class="bi bi-file-earmark-plus text-gradient" style="font-size: 2rem;"></i>
+                <span class="text-gradient" style="font-weight: 700; font-size: 2rem;">
+                    {% if is_new %}新增合同{% else %}编辑合同{% endif %}
+                </span>
+                {% if is_logistics %}
+                <span class="badge bg-info ms-2">物流经理模式</span>
+                {% endif %}
+            </h1>
+            {% if not is_new %}
+            <!-- [v1.5.2] 添加合同状态显示 -->
+            <div class="d-flex gap-2">
+                {% set delivery_info = contract.get_delivery_status_display() %}
+                {% set payment_info = contract.get_payment_status_display() %}
+                <span class="badge {{ delivery_info.badge }} fs-6">
+                    <i class="bi bi-box-seam"></i> 发货{{ delivery_info.text }}
+                </span>
+                {% if current_user.can_view_financial() %}
+                <span class="badge {{ payment_info.badge }} fs-6">
+                    <i class="bi bi-cash"></i> 回款{{ payment_info.text }}
+                </span>
+                {% endif %}
+            </div>
             {% endif %}
-        </h1>
+        </div>
     </div>
 </div>
 
@@ -1317,6 +1334,12 @@ function initDepartmentManager() {
 {% endif %}
 
 {% if not is_new %}
+// DEBUG: 输出记录数到控制台
+console.log('[DEBUG] Contract ID: {{ contract.id }}');
+console.log('[DEBUG] Products count: {{ contract.contract_products|length }}');
+console.log('[DEBUG] Transactions count: {{ contract.transactions|length }}');
+console.log('[DEBUG] Payments count: {{ contract.payment_records|length }}');
+
 // 加载已有合同数据
 function loadExistingData() {
     // 加载产品计划
@@ -1350,12 +1373,12 @@ function loadExistingData() {
             price_with_tax: {{ trans.price_with_tax }},
             handler: '{{ trans.handler or "" }}',
             delivery_date: '{{ trans.delivery_date.isoformat() if trans.delivery_date else "" }}',
-            invoice_date: '{{ trans.invoice_date.isoformat() if trans.invoice_date else "" }}',
             remark: '{{ trans.remark or "" }}'
         }{% if not loop.last %},{% endif %}
         {% endfor %}
     ];
     
+    console.log('[DEBUG] Loading transactions:', existingTransactions);
     existingTransactions.forEach(t => {
         addTransactionRowWithData(t, true);
     });
@@ -1374,6 +1397,7 @@ function loadExistingData() {
         {% endfor %}
     ];
     
+    console.log('[DEBUG] Loading payments:', existingPayments);
     // 先加载所有发货记录，再加载回款记录（因为回款依赖发货记录）
     existingPayments.forEach(p => {
         addPaymentRowWithData(p, true);
@@ -1442,7 +1466,10 @@ function addProductRowWithData(data) {
 }
 
 function addTransactionRowWithData(data, isExisting = false) {
-    if (productCount === 0) return;
+    if (productCount === 0) {
+        console.warn('[DEBUG] Cannot add transaction: no products');
+        return;
+    }
     
     const template = document.getElementById('transaction-row-template').innerHTML;
     const html = template.replace(/{index}/g, transactionCount);
@@ -1461,24 +1488,39 @@ function addTransactionRowWithData(data, isExisting = false) {
         row.appendChild(idInput);
     }
     
+    // [v1.5.2] 确保产品选项已更新
     updateTransactionProductOptions(transactionCount);
     
     const productSelect = row.querySelector(`[name="transaction_${transactionCount}_contract_product_id"]`);
-    for (let opt of productSelect.options) {
-        if (opt.value === data.product_code) {
-            productSelect.value = data.product_code;
-            onTransactionProductSelect(productSelect);
-            break;
+    console.log('[DEBUG] Transaction product options:', productSelect?.options?.length || 0);
+    
+    // 尝试选择产品
+    let productFound = false;
+    if (productSelect && data.product_code) {
+        for (let opt of productSelect.options) {
+            if (opt.value === data.product_code) {
+                productSelect.value = data.product_code;
+                onTransactionProductSelect(productSelect);
+                productFound = true;
+                break;
+            }
         }
+    }
+    
+    // [v1.5.2] 如果找不到产品，添加一个提示选项
+    if (!productFound && productSelect && data.product_code) {
+        console.warn('[DEBUG] Product not found in dropdown:', data.product_code);
+        const option = document.createElement('option');
+        option.value = data.product_code;
+        option.textContent = `${data.product_code} (原产品)`;
+        option.selected = true;
+        productSelect.appendChild(option);
     }
     
     row.querySelector(`[name="transaction_${transactionCount}_quantity"]`).value = data.quantity;
     row.querySelector(`[name="transaction_${transactionCount}_price"]`).value = data.price_with_tax;
     row.querySelector(`[name="transaction_${transactionCount}_handler"]`).value = data.handler;
     row.querySelector(`[name="transaction_${transactionCount}_delivery_date"]`).value = data.delivery_date;
-    if (data.invoice_date) {
-        row.querySelector(`[name="transaction_${transactionCount}_invoice_date"]`).value = data.invoice_date;
-    }
     if (data.remark) {
         row.querySelector(`[name="transaction_${transactionCount}_remark"]`).value = data.remark;
     }
