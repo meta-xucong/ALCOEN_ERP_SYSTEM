@@ -573,6 +573,11 @@
 
 {% block extra_js %}
 <script>
+// [DEBUG] 页面加载诊断
+console.log('[DEBUG] === Contract Form Debug ===');
+console.log('[DEBUG] is_new: {{ is_new|lower }}');
+console.log('[DEBUG] Contract ID: {{ contract.id if contract else "None" }}');
+
 // 产品管理
 let productCount = 0;
 let transactionCount = 0;
