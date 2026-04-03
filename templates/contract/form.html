@@ -1345,6 +1345,9 @@ console.log('[DEBUG] Payments count: {{ contract.payment_records|length }}');
 
 // 加载已有合同数据
 function loadExistingData() {
+    console.log('[DEBUG] loadExistingData started');
+    console.log(`[DEBUG] Initial counts: productCount=${productCount}, transactionCount=${transactionCount}, paymentCount=${paymentCount}`);
+    
     // 加载产品计划
     const existingProducts = [
         {% for cp in contract.contract_products %}
@@ -1361,9 +1364,11 @@ function loadExistingData() {
         {% endfor %}
     ];
     
+    console.log(`[DEBUG] Loading ${existingProducts.length} products`);
     existingProducts.forEach(p => {
         addProductRowWithData(p);
     });
+    console.log(`[DEBUG] After products loaded: productCount=${productCount}`);
     
     // 加载发货记录 [v1.3]
     const existingTransactions = [
@@ -1382,9 +1387,12 @@ function loadExistingData() {
     ];
     
     console.log('[DEBUG] Loading transactions:', existingTransactions);
-    existingTransactions.forEach(t => {
+    console.log(`[DEBUG] productCount before transactions: ${productCount}`);
+    existingTransactions.forEach((t, idx) => {
+        console.log(`[DEBUG] Loading transaction ${idx}:`, t);
         addTransactionRowWithData(t, true);
     });
+    console.log(`[DEBUG] After transactions loaded: transactionCount=${transactionCount}`);
     
     // 加载回款记录 [v1.3]
     const existingPayments = [
@@ -1474,6 +1482,8 @@ function addProductRowWithData(data) {
 }
 
 function addTransactionRowWithData(data, isExisting = false) {
+    console.log(`[DEBUG] addTransactionRowWithData called: productCount=${productCount}, isExisting=${isExisting}`, data);
+    
     if (productCount === 0) {
         console.warn('[DEBUG] Cannot add transaction: no products');
         return;
