@@ -279,11 +279,7 @@ def edit_contract(id):
         for cp in contract.contract_products
     ]
     
-    is_valid = form.validate_on_submit()
-    print(f"[DEBUG-PY] Form valid: {is_valid}")
-    if not is_valid:
-        print(f"[DEBUG-PY] Form errors: {form.errors}")
-    if is_valid:
+    if form.validate_on_submit():
         try:
             # 更新合同基础信息 [问题4] 添加归属人
             contract_data = {
