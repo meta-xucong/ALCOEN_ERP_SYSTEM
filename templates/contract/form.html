@@ -626,6 +626,7 @@ function calculateProductTotal(input) {
 
 // 发货记录管理
 function addTransactionRow() {
+    console.log(`[DEBUG] addTransactionRow called, productCount=${productCount}, transactionCount=${transactionCount}`);
     if (productCount === 0) {
         alert('请先添加产品计划');
         return;
@@ -883,6 +884,7 @@ function onProductCodeInput(input) {
 
 // 回款记录管理 [v1.3] 新增
 function addPaymentRow() {
+    console.log(`[DEBUG] addPaymentRow called, paymentCount=${paymentCount}`);
     const template = document.getElementById('payment-row-template').innerHTML;
     const html = template.replace(/{index}/g, paymentCount);
     const container = document.getElementById('payments-container');
