@@ -423,6 +423,11 @@ def edit_contract(id):
             # 处理回款记录 - 包括更新、新增和删除 [v1.3]
             payment_count = int(request.form.get('payment_count', 0))
             current_app.logger.info(f"[DEBUG] Processing {payment_count} payment records for contract {id}")
+            
+            # [DEBUG] 打印所有表单数据
+            for key in request.form:
+                if 'payment' in key:
+                    current_app.logger.info(f"[DEBUG] Form data: {key}={request.form.get(key)}")
             existing_payment_ids = {p.id for p in contract.payment_records}
             submitted_payment_ids = set()
             
