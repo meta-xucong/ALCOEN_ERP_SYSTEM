@@ -548,6 +548,9 @@ def edit_contract(id):
         
         except Exception as e:
             db.session.rollback()
+            import traceback
+            print(f"[DEBUG-PY] ERROR in edit_contract: {e}")
+            print(traceback.format_exc())
             flash(f'更新失败：{str(e)}', 'error')
     
     stats = ContractService.get_statistics(id)
