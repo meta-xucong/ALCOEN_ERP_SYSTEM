@@ -1392,7 +1392,8 @@ function loadExistingData() {
             payment_date: '{{ payment.payment_date.isoformat() if payment.payment_date else "" }}',
             handler: '{{ payment.handler or "" }}',
             remark: '{{ payment.remark or "" }}',
-            contract_product_id: {{ payment.contract_product_id if payment.contract_product_id else 'null' }}
+            contract_product_id: {{ payment.contract_product_id if payment.contract_product_id else 'null' }},
+            product_code: '{{ payment.contract_product.product_code if payment.contract_product else "" }}'
         }{% if not loop.last %},{% endif %}
         {% endfor %}
     ];
@@ -1550,17 +1551,31 @@ function addPaymentRowWithData(data, isExisting = false) {
     // 填充对应发货记录下拉列表
     updatePaymentProductOptions(paymentCount);
     
-    // 恢复对应产品选择（如果存在）
-    if (data.contract_product_id) {
-        const productSelect = document.querySelector(`[name="payment_${paymentCount}_contract_product_id"]`);
-        if (productSelect) {
-            for (let opt of productSelect.options) {
-                if (opt.value === String(data.contract_product_id)) {
-                    productSelect.value = data.contract_product_id;
-                    break;
-                }
+    // [v1.5.2] 恢复对应产品选择（通过 product_code 匹配）
+    const productSelect = document.querySelector(`[name="payment_${paymentCount}_contract_product_id"]`);
+    if (productSelect && data.product_code) {
+        console.log(`[DEBUG] Payment ${paymentCount}: looking for product_code=${data.product_code}`);
+        let found = false;
+        for (let opt of productSelect.options) {
+            if (opt.value === data.product_code) {
+                productSelect.value = data.product_code;
+                found = true;
+                console.log(`[DEBUG] Payment ${paymentCount}: matched product_code=${data.product_code}`);
+                break;
             }
         }
+        // 如果找不到对应产品，添加一个提示选项
+        if (!found) {
+            console.warn(`[DEBUG] Payment ${paymentCount}: product_code not found, adding fallback option`);
+            const option = document.createElement('option');
+            option.value = data.product_code;
+            option.textContent = `${data.product_code} (原产品)`;
+            option.selected = true;
+            productSelect.appendChild(option);
+        }
+    } else if (productSelect && data.contract_product_id) {
+        // 兼容旧数据：如果没有 product_code 但有 contract_product_id
+        console.warn(`[DEBUG] Payment ${paymentCount}: has contract_product_id but no product_code`);
     }
     
     row.querySelector(`[name="payment_${paymentCount}_amount"]`).value = data.payment_amount;

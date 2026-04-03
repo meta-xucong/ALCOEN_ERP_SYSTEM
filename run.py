@@ -4,9 +4,21 @@ ALCOEN ERP - Development Entry Point
 """
 import os
 import sys
+import logging
+from logging.handlers import RotatingFileHandler
 
 # Add the current directory to path
 sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
+
+# 配置日志
+if not os.path.exists('logs'):
+    os.makedirs('logs')
+handler = RotatingFileHandler('logs/app.log', maxBytes=1000000, backupCount=5, encoding='utf-8')
+handler.setLevel(logging.INFO)
+formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+handler.setFormatter(formatter)
+logging.getLogger().addHandler(handler)
+logging.getLogger().setLevel(logging.INFO)
 
 from app import create_app, db
 from app.models import Company, Transaction, Statement, StatementItem
