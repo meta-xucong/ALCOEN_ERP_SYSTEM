@@ -80,7 +80,9 @@ def new_contract():
     # 设置产品选择下拉
     product_form.product_id.choices = ProductService.get_product_choices()
     
+    print(f"[DEBUG-PY] Form submit check: is_submitted={form.is_submitted}, validate={form.validate()}")
     if form.validate_on_submit():
+        print(f"[DEBUG-PY] Form validated, processing...")
         try:
             # 获取合同基础信息 [问题4] 添加归属人
             contract_data = {
