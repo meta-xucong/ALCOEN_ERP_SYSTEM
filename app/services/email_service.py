@@ -9,11 +9,52 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from flask import current_app, render_template_string
 from app import db
-from app.models import User, VerificationCode, TrustedDevice
+from app.models import User, VerificationCode, TrustedDevice, SystemSetting
 
 
 class EmailService:
     """邮件服务"""
+
+    @staticmethod
+    def _resolve_mail_config() -> dict:
+        """Resolve mail config from app config, fallback to DB system settings."""
+        mail_server = current_app.config.get('MAIL_SERVER')
+        mail_port = current_app.config.get('MAIL_PORT', 465)
+        mail_use_ssl = current_app.config.get('MAIL_USE_SSL', True)
+        mail_username = current_app.config.get('MAIL_USERNAME')
+        mail_password = current_app.config.get('MAIL_PASSWORD')
+        mail_sender = current_app.config.get('MAIL_DEFAULT_SENDER')
+
+        # Fallback to DB settings when env/config is missing.
+        if not all([mail_server, mail_username, mail_password]):
+            db_cfg = SystemSetting.get_email_config()
+            mail_server = mail_server or db_cfg.get('server')
+            mail_port = mail_port or db_cfg.get('port', 465)
+            mail_use_ssl = db_cfg.get('use_ssl') if db_cfg.get('use_ssl') is not None else mail_use_ssl
+            mail_username = mail_username or db_cfg.get('username')
+            mail_password = mail_password or db_cfg.get('password')
+            sender_missing = False
+            if isinstance(mail_sender, tuple):
+                sender_missing = len(mail_sender) < 2 or not mail_sender[1]
+            else:
+                sender_missing = not mail_sender
+
+            if sender_missing:
+                sender_name = db_cfg.get('sender_name') or 'ERP系统'
+                sender_email = mail_username or ''
+                mail_sender = (sender_name, sender_email)
+
+        if isinstance(mail_use_ssl, str):
+            mail_use_ssl = mail_use_ssl.lower() == 'true'
+
+        return {
+            'server': mail_server,
+            'port': int(mail_port or 465),
+            'use_ssl': bool(mail_use_ssl),
+            'username': mail_username,
+            'password': mail_password,
+            'sender': mail_sender
+        }
     
     @staticmethod
     def send_email(to_email: str, subject: str, html_content: str) -> tuple:
@@ -29,12 +70,13 @@ class EmailService:
             (success, error_message)
         """
         try:
-            mail_server = current_app.config.get('MAIL_SERVER')
-            mail_port = current_app.config.get('MAIL_PORT', 465)
-            mail_use_ssl = current_app.config.get('MAIL_USE_SSL', True)
-            mail_username = current_app.config.get('MAIL_USERNAME')
-            mail_password = current_app.config.get('MAIL_PASSWORD')
-            mail_sender = current_app.config.get('MAIL_DEFAULT_SENDER', mail_username)
+            cfg = EmailService._resolve_mail_config()
+            mail_server = cfg['server']
+            mail_port = cfg['port']
+            mail_use_ssl = cfg['use_ssl']
+            mail_username = cfg['username']
+            mail_password = cfg['password']
+            mail_sender = cfg['sender'] or mail_username
             
             # 检查配置
             if not all([mail_server, mail_username, mail_password]):
