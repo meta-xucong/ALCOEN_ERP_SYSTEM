@@ -8,6 +8,7 @@ from app.services.transaction_service import TransactionService
 from app.services.statement_service import StatementService
 from app.services.product_service import ProductService
 from app.utils.decorators import login_required, permission_required
+from app import db
 
 transaction_bp = Blueprint('transaction', __name__)
 
@@ -141,9 +142,9 @@ def new_transaction():
                 'quantity': form.quantity.data,
                 'unit': form.unit.data,
                 'price_with_tax': price,
+                'handler': '系统录入',
                 'delivery_date': form.delivery_date.data,
                 'invoice_date': form.invoice_date.data,
-                'payment_date': form.payment_date.data,
                 'contract_no': form.contract_no.data,
                 'remark': form.remark.data
             }
@@ -193,9 +194,9 @@ def edit_transaction(id):
                 'quantity': form.quantity.data,
                 'unit': form.unit.data,
                 'price_with_tax': form.price_with_tax.data,
+                'handler': transaction.handler or '系统录入',
                 'delivery_date': form.delivery_date.data,
                 'invoice_date': form.invoice_date.data,
-                'payment_date': form.payment_date.data,
                 'contract_no': form.contract_no.data,
                 'remark': form.remark.data
             }

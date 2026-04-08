@@ -105,17 +105,19 @@
                         </ul>
                     </li>
                     {% endif %}
-                    {% if current_user and current_user.has_permission('user_manage') %}
+                    {% if current_user and (current_user.has_permission('user_manage') or current_user.role.code == 'general_manager') %}
                     <li class="nav-item dropdown">
                         <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown">
                             <i class="bi bi-gear"></i> 系统管理
                         </a>
                         <ul class="dropdown-menu">
+                            {% if current_user.has_permission('user_manage') %}
                             <li>
                                 <a class="dropdown-item" href="{{ url_for('user.list_users') }}">
                                     <i class="bi bi-people"></i> 用户管理
                                 </a>
                             </li>
+                            {% endif %}
                             {% if current_user.has_permission('user_approve') %}
                             <li>
                                 <a class="dropdown-item" href="{{ url_for('user.pending_users') }}">
@@ -130,13 +132,22 @@
                                 </a>
                             </li>
                             {% endif %}
-                            {% if current_user.is_superadmin %}
                             <li><hr class="dropdown-divider"></li>
+                            {% if current_user.is_superadmin or current_user.has_permission('user_manage') %}
+                            <li>
+                                <a class="dropdown-item" href="{{ url_for('settings.email') }}">
+                                    <i class="bi bi-envelope-fill"></i> 邮箱管理
+                                </a>
+                            </li>
+                            {% endif %}
+                            {% if current_user.is_superadmin %}
                             <li>
                                 <a class="dropdown-item" href="{{ url_for('department.list_departments') }}">
                                     <i class="bi bi-building"></i> 部门管理
                                 </a>
                             </li>
+                            {% endif %}
+                            {% if current_user.is_superadmin or current_user.role.code == 'general_manager' %}
                             <li>
                                 <a class="dropdown-item" href="{{ url_for('backup.backup_page') }}">
                                     <i class="bi bi-cloud-download"></i> 数据备份

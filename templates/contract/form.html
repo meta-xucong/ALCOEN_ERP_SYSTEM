@@ -7,32 +7,15 @@
 {% block content %}
 <div class="row mb-4">
     <div class="col-12">
-        <div class="d-flex justify-content-between align-items-center">
-            <h1 class="d-flex align-items-center gap-3 mb-0">
-                <i class="bi bi-file-earmark-plus text-gradient" style="font-size: 2rem;"></i>
-                <span class="text-gradient" style="font-weight: 700; font-size: 2rem;">
-                    {% if is_new %}新增合同{% else %}编辑合同{% endif %}
-                </span>
-                {% if is_logistics %}
-                <span class="badge bg-info ms-2">物流经理模式</span>
-                {% endif %}
-            </h1>
-            {% if not is_new %}
-            <!-- [v1.5.2] 添加合同状态显示 -->
-            <div class="d-flex gap-2">
-                {% set delivery_info = contract.get_delivery_status_display() %}
-                {% set payment_info = contract.get_payment_status_display() %}
-                <span class="badge {{ delivery_info.badge }} fs-6">
-                    <i class="bi bi-box-seam"></i> 发货{{ delivery_info.text }}
-                </span>
-                {% if current_user.can_view_financial() %}
-                <span class="badge {{ payment_info.badge }} fs-6">
-                    <i class="bi bi-cash"></i> 回款{{ payment_info.text }}
-                </span>
-                {% endif %}
-            </div>
+        <h1 class="d-flex align-items-center gap-3 mb-0">
+            <i class="bi bi-file-earmark-plus text-gradient" style="font-size: 2rem;"></i>
+            <span class="text-gradient" style="font-weight: 700; font-size: 2rem;">
+                {% if is_new %}新增合同{% else %}编辑合同{% endif %}
+            </span>
+            {% if is_logistics %}
+            <span class="badge bg-info ms-2">物流经理模式</span>
             {% endif %}
-        </div>
+        </h1>
     </div>
 </div>
 
@@ -122,20 +105,18 @@
                     <input type="hidden" name="manager" value="{{ current_user_manager }}">
                     <div class="form-text text-success"><i class="bi bi-check-circle"></i> 自动匹配您的姓名</div>
                     {% elif is_pm %}
-                    {# [v1.5] 部门PM：负责人默认自己，但可从部门成员中选择 #}
+                    {# 部门PM：负责人自动匹配，但允许下拉选择 #}
                     <div class="input-group input-group-sm">
-                        <select class="form-select" id="manager-select" name="manager" style="display: block;"
+                        <select class="form-select" id="manager-select" style="display: block;"
                                 onchange="onManagerSelect(this)">
-                            <option value="">-- 选择负责人 --</option>
-                            {% for user_name in department_users %}
-                            <option value="{{ user_name }}" {% if user_name == current_user_manager %}selected{% endif %}>
-                                {{ user_name }}{% if user_name == current_user_manager %}（本人）{% endif %}
-                            </option>
+                            <option value="{{ current_user_manager }}" selected>{{ current_user_manager }}（本人）</option>
+                            {% for mgr in managers %}
+                            <option value="{{ mgr }}">{{ mgr }}</option>
                             {% endfor %}
                         </select>
                         <input type="text" class="form-control" id="manager-input" name="manager"
-                               value=""
-                               placeholder="输入其他负责人" style="display: none;"
+                               value="{{ current_user_manager }}"
+                               placeholder="输入新负责人" style="display: none;"
                                onchange="onManagerInput(this)">
                         <button type="button" class="btn btn-outline-secondary"
                                 onclick="toggleManagerInput(this)" title="切换手动输入">
@@ -143,7 +124,7 @@
                         </button>
                     </div>
                     <div class="form-text text-success" style="font-size: 11px;">
-                        <i class="bi bi-check-circle"></i> 默认本人，可选择部门其他成员
+                        <i class="bi bi-check-circle"></i> 默认本人，可选择其他
                     </div>
                     {% else %}
                     {# 总经理和超级管理员：保持原有逻辑 #}
@@ -265,7 +246,7 @@
                             <div class="position-relative" id="existing-img-{{ img.id }}">
                                 <img src="{{ url_for('static', filename=img.filepath) }}" 
                                      class="img-thumbnail" style="width: 80px; height: 80px; object-fit: cover; cursor: pointer;"
-                                     onclick="openImageModal({{ url_for('static', filename=img.filepath)|tojson }})"
+                                     onclick="openImageModal('{{ url_for('static', filename=img.filepath) }}')"
                                      title="{{ img.filename }}">
                                 <button type="button" class="btn btn-danger btn-sm position-absolute top-0 end-0" 
                                         onclick="deleteExistingImage({{ img.id }})" style="padding: 0 3px; font-size: 10px;">
@@ -380,22 +361,6 @@
         </button>
     </div>
 </form>
-
-<script>
-// [DEBUG] 表单提交前打印所有 payment 字段
-document.getElementById('contractForm').addEventListener('submit', function(e) {
-    console.log('[DEBUG] Form submitting...');
-    console.log('[DEBUG] payment_count:', document.getElementById('payment_count').value);
-    
-    // 打印所有 payment 相关字段
-    const formData = new FormData(this);
-    for (let [key, value] of formData.entries()) {
-        if (key.includes('payment')) {
-            console.log(`[DEBUG] Form field: ${key}=${value}`);
-        }
-    }
-});
-</script>
 
 <!-- 产品行模板 - 支持下拉选择和手动输入 [v1.3] 优化排版 -->
 <template id="product-row-template">
@@ -531,7 +496,7 @@ document.getElementById('contractForm').addEventListener('submit', function(e) {
                 <div class="col-md-2">
                     <label class="form-label">经手人 *</label>
                     <input type="text" class="form-control" name="transaction_{index}_handler" 
-                           required maxlength="50" placeholder="必填">
+                           required maxlength="50" placeholder="必填" value="{{ current_user.real_name or current_user.username }}">
                 </div>
                 <div class="col-md-4">
                     <label class="form-label">备注</label>
@@ -573,7 +538,7 @@ document.getElementById('contractForm').addEventListener('submit', function(e) {
             <!-- [v1.3] 对应产品下拉框 - 从产品计划中选择 -->
             <div class="col-md-2">
                 <label class="form-label">对应产品</label>
-                <select class="form-select" name="payment_{index}_contract_product_id">
+                <select class="form-select" name="payment_{index}_contract_product_id" required>
                     <option value="">-- 选择产品 --</option>
                 </select>
             </div>
@@ -589,11 +554,6 @@ document.getElementById('contractForm').addEventListener('submit', function(e) {
 
 {% block extra_js %}
 <script>
-// [DEBUG] 页面加载诊断
-console.log('[DEBUG] === Contract Form Debug ===');
-console.log('[DEBUG] is_new: {{ is_new|lower }}');
-console.log('[DEBUG] Contract ID: {{ contract.id if contract else "None" }}');
-
 // 产品管理
 let productCount = 0;
 let transactionCount = 0;
@@ -642,7 +602,6 @@ function calculateProductTotal(input) {
 
 // 发货记录管理
 function addTransactionRow() {
-    console.log(`[DEBUG] addTransactionRow called, productCount=${productCount}, transactionCount=${transactionCount}`);
     if (productCount === 0) {
         alert('请先添加产品计划');
         return;
@@ -657,6 +616,7 @@ function addTransactionRow() {
     
     updateTransactionProductOptions(transactionCount);
     
+    // [v1.5.2] 设置默认值
     const dateInput = document.querySelector(`[name="transaction_${transactionCount}_delivery_date"]`);
     if (dateInput) {
         dateInput.value = new Date().toISOString().split('T')[0];
@@ -900,7 +860,6 @@ function onProductCodeInput(input) {
 
 // 回款记录管理 [v1.3] 新增
 function addPaymentRow() {
-    console.log(`[DEBUG] addPaymentRow called, paymentCount=${paymentCount}`);
     const template = document.getElementById('payment-row-template').innerHTML;
     const html = template.replace(/{index}/g, paymentCount);
     const container = document.getElementById('payments-container');
@@ -1292,12 +1251,9 @@ function openImageModal(imageSrc) {
 
 // 页面加载时初始化
 window.onload = function() {
-    console.log('[DEBUG] Window loaded, is_new={{ is_new|lower }}');
     {% if is_new %}
-    console.log('[DEBUG] New contract mode - adding product row');
     addProductRow();
     {% else %}
-    console.log('[DEBUG] Edit mode - loading existing data');
     loadExistingData();
     // 初始化部门负责人联动
     initDepartmentManager();
@@ -1360,17 +1316,8 @@ function initDepartmentManager() {
 {% endif %}
 
 {% if not is_new %}
-// DEBUG: 输出记录数到控制台
-console.log('[DEBUG] Contract ID: {{ contract.id }}');
-console.log('[DEBUG] Products count: {{ contract.contract_products|length }}');
-console.log('[DEBUG] Transactions count: {{ contract.transactions|length }}');
-console.log('[DEBUG] Payments count: {{ contract.payment_records|length }}');
-
 // 加载已有合同数据
 function loadExistingData() {
-    console.log('[DEBUG] loadExistingData started');
-    console.log(`[DEBUG] Initial counts: productCount=${productCount}, transactionCount=${transactionCount}, paymentCount=${paymentCount}`);
-    
     // 加载产品计划
     const existingProducts = [
         {% for cp in contract.contract_products %}
@@ -1387,11 +1334,9 @@ function loadExistingData() {
         {% endfor %}
     ];
     
-    console.log(`[DEBUG] Loading ${existingProducts.length} products`);
     existingProducts.forEach(p => {
         addProductRowWithData(p);
     });
-    console.log(`[DEBUG] After products loaded: productCount=${productCount}`);
     
     // 加载发货记录 [v1.3]
     const existingTransactions = [
@@ -1409,13 +1354,9 @@ function loadExistingData() {
         {% endfor %}
     ];
     
-    console.log('[DEBUG] Loading transactions:', existingTransactions);
-    console.log(`[DEBUG] productCount before transactions: ${productCount}`);
-    existingTransactions.forEach((t, idx) => {
-        console.log(`[DEBUG] Loading transaction ${idx}:`, t);
+    existingTransactions.forEach(t => {
         addTransactionRowWithData(t, true);
     });
-    console.log(`[DEBUG] After transactions loaded: transactionCount=${transactionCount}`);
     
     // 加载回款记录 [v1.3]
     const existingPayments = [
@@ -1426,22 +1367,16 @@ function loadExistingData() {
             payment_date: '{{ payment.payment_date.isoformat() if payment.payment_date else "" }}',
             handler: '{{ payment.handler or "" }}',
             remark: '{{ payment.remark or "" }}',
-            contract_product_id: {{ payment.contract_product_id if payment.contract_product_id else 'null' }},
             product_code: '{{ payment.contract_product.product_code if payment.contract_product else "" }}'
         }{% if not loop.last %},{% endif %}
         {% endfor %}
     ];
     
-    console.log('[DEBUG] Loading payments:', existingPayments);
-    console.log(`[DEBUG] Will load ${existingPayments.length} payment records`);
-    
     // 先加载所有发货记录，再加载回款记录（因为回款依赖发货记录）
-    existingPayments.forEach((p, idx) => {
-        console.log(`[DEBUG] Loading payment ${idx}:`, p);
+    existingPayments.forEach(p => {
         addPaymentRowWithData(p, true);
     });
     
-    console.log('[DEBUG] loadExistingData completed');
     updateTransactionProductOptions();
 }
 
@@ -1461,6 +1396,8 @@ function addProductRowWithData(data) {
         if (opt.value === data.product_code) {
             matchedInDropdown = true;
             select.value = data.product_code;
+            // [v1.5.2] 修复：先设置选项的 dataset.price，再调用 onProductCodeSelect
+            opt.dataset.price = data.price;
             onProductCodeSelect(select);
             break;
         }
@@ -1477,12 +1414,11 @@ function addProductRowWithData(data) {
         row.dataset.productMatched = 'false';
     }
     
-    if (!matchedInDropdown) {
-        row.querySelector('.product-name-input').value = data.product_name;
-        row.querySelector('.product-model-input').value = data.product_model;
-        row.querySelector('.product-unit-input').value = data.unit;
-        row.querySelector('.product-price-input').value = data.price;
-    }
+    // [v1.5.2] 修复：无论是否匹配下拉框，都使用 data 中的数据填充字段
+    row.querySelector('.product-name-input').value = data.product_name;
+    row.querySelector('.product-model-input').value = data.product_model;
+    row.querySelector('.product-unit-input').value = data.unit;
+    row.querySelector('.product-price-input').value = data.price;
     
     row.querySelector(`[name="product_${productCount}_quantity"]`).value = data.quantity;
     row.querySelector('.product-total').value = data.total;
@@ -1505,13 +1441,6 @@ function addProductRowWithData(data) {
 }
 
 function addTransactionRowWithData(data, isExisting = false) {
-    console.log(`[DEBUG] addTransactionRowWithData called: productCount=${productCount}, isExisting=${isExisting}`, data);
-    
-    if (productCount === 0) {
-        console.warn('[DEBUG] Cannot add transaction: no products');
-        return;
-    }
-    
     const template = document.getElementById('transaction-row-template').innerHTML;
     const html = template.replace(/{index}/g, transactionCount);
     const container = document.getElementById('transactions-container');
@@ -1529,11 +1458,9 @@ function addTransactionRowWithData(data, isExisting = false) {
         row.appendChild(idInput);
     }
     
-    // [v1.5.2] 确保产品选项已更新
     updateTransactionProductOptions(transactionCount);
     
     const productSelect = row.querySelector(`[name="transaction_${transactionCount}_contract_product_id"]`);
-    console.log('[DEBUG] Transaction product options:', productSelect?.options?.length || 0);
     
     // 尝试选择产品
     let productFound = false;
@@ -1550,7 +1477,6 @@ function addTransactionRowWithData(data, isExisting = false) {
     
     // [v1.5.2] 如果找不到产品，添加一个提示选项
     if (!productFound && productSelect && data.product_code) {
-        console.warn('[DEBUG] Product not found in dropdown:', data.product_code);
         const option = document.createElement('option');
         option.value = data.product_code;
         option.textContent = `${data.product_code} (原产品)`;
@@ -1571,26 +1497,13 @@ function addTransactionRowWithData(data, isExisting = false) {
 }
 
 function addPaymentRowWithData(data, isExisting = false) {
-    console.log(`[DEBUG] addPaymentRowWithData called:`, data);
-    
-    const template = document.getElementById('payment-row-template');
-    if (!template) {
-        console.error('[DEBUG] payment-row-template not found!');
-        return;
-    }
-    
-    const html = template.innerHTML.replace(/{index}/g, paymentCount);
+    const template = document.getElementById('payment-row-template').innerHTML;
+    const html = template.replace(/{index}/g, paymentCount);
     const container = document.getElementById('payments-container');
-    if (!container) {
-        console.error('[DEBUG] payments-container not found!');
-        return;
-    }
-    
     const tempDiv = document.createElement('div');
     tempDiv.innerHTML = html;
     const row = tempDiv.firstElementChild;
     container.appendChild(row);
-    console.log(`[DEBUG] Payment row ${paymentCount} appended to container`);
     
     if (isExisting) {
         row.dataset.existingId = data.id;
@@ -1607,19 +1520,16 @@ function addPaymentRowWithData(data, isExisting = false) {
     // [v1.5.2] 恢复对应产品选择（通过 product_code 匹配）
     const productSelect = document.querySelector(`[name="payment_${paymentCount}_contract_product_id"]`);
     if (productSelect && data.product_code) {
-        console.log(`[DEBUG] Payment ${paymentCount}: looking for product_code=${data.product_code}`);
         let found = false;
         for (let opt of productSelect.options) {
             if (opt.value === data.product_code) {
                 productSelect.value = data.product_code;
                 found = true;
-                console.log(`[DEBUG] Payment ${paymentCount}: matched product_code=${data.product_code}`);
                 break;
             }
         }
         // 如果找不到对应产品，添加一个提示选项
         if (!found) {
-            console.warn(`[DEBUG] Payment ${paymentCount}: product_code not found, adding fallback option`);
             const option = document.createElement('option');
             option.value = data.product_code;
             option.textContent = `${data.product_code} (原产品)`;
@@ -1631,27 +1541,19 @@ function addPaymentRowWithData(data, isExisting = false) {
         console.warn(`[DEBUG] Payment ${paymentCount}: has contract_product_id but no product_code`);
     }
     
-    // 填充字段值
+    // [v1.5.2] 填充字段值，添加空值检查
     const amountInput = row.querySelector(`[name="payment_${paymentCount}_amount"]`);
     const dateInput = row.querySelector(`[name="payment_${paymentCount}_date"]`);
     const handlerInput = row.querySelector(`[name="payment_${paymentCount}_handler"]`);
     const remarkInput = row.querySelector(`[name="payment_${paymentCount}_remark"]`);
     
     if (amountInput) amountInput.value = data.payment_amount;
-    else console.error(`[DEBUG] amount input not found for payment_${paymentCount}_amount`);
-    
     if (dateInput) dateInput.value = data.payment_date;
-    else console.error(`[DEBUG] date input not found for payment_${paymentCount}_date`);
-    
-    if (handlerInput) handlerInput.value = data.handler;
-    else console.error(`[DEBUG] handler input not found for payment_${paymentCount}_handler`);
-    
+    if (handlerInput) handlerInput.value = data.handler || '';
     if (remarkInput) remarkInput.value = data.remark || '';
-    else console.error(`[DEBUG] remark input not found for payment_${paymentCount}_remark`);
     
     paymentCount++;
     document.getElementById('payment_count').value = paymentCount;
-    console.log(`[DEBUG] Payment row ${paymentCount-1} completed, paymentCount now ${paymentCount}`);
 }
 {% endif %}
 

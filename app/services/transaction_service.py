@@ -28,9 +28,9 @@ class TransactionService:
             quantity=float(data['quantity']),
             unit=data['unit'],
             price_with_tax=float(data['price_with_tax']),
+            handler=data.get('handler') or '系统录入',
             delivery_date=data['delivery_date'],
             invoice_date=data.get('invoice_date'),
-            payment_date=data.get('payment_date'),
             contract_no=data.get('contract_no'),
             remark=data.get('remark')
         )
@@ -62,9 +62,9 @@ class TransactionService:
         transaction.quantity = float(data['quantity'])
         transaction.unit = data['unit']
         transaction.price_with_tax = float(data['price_with_tax'])
+        transaction.handler = data.get('handler') or transaction.handler or '系统录入'
         transaction.delivery_date = data['delivery_date']
         transaction.invoice_date = data.get('invoice_date')
-        transaction.payment_date = data.get('payment_date')
         transaction.contract_no = data.get('contract_no')
         transaction.remark = data.get('remark')
         

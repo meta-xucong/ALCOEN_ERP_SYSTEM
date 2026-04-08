@@ -19,6 +19,7 @@ def generator():
     companies = StatementService.get_company_list()
     # [v1.3] 获取部门列表 [v1.5] 移除从Manager表获取负责人列表
     departments = ContractService.get_department_list()
+    managers = ContractService.get_owner_list()
     
     if form.validate_on_submit():
         # 获取所有筛选条件
@@ -90,7 +91,8 @@ def generator():
     return render_template('statement/generator.html',
                          form=form,
                          companies=companies,
-                         departments=departments)
+                         departments=departments,
+                         managers=managers)
 
 
 @statement_bp.route('/<statement_no>')

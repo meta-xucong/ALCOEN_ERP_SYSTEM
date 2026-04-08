@@ -41,7 +41,7 @@ if __name__ == '__main__':
     print("=" * 60)
     print("ALCOEN ERP v1.0 - Development Server")
     print("=" * 60)
-    print(f"Access URL: http://localhost:5000")
+    print(f"Access URL: http://localhost:8080")
     print(f"Debug Mode: {app.debug}")
     print("=" * 60)
     
@@ -50,5 +50,5 @@ if __name__ == '__main__':
         host='0.0.0.0',
         port=8080,
         debug=True,
-        use_reloader=True
+        use_reloader=False
     )

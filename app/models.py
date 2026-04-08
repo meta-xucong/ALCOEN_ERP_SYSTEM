@@ -774,6 +774,78 @@ class TrustedDevice(db.Model):
         self.last_used_at = datetime.now()
 
 
+# ==================== v1.5: 邮件验证系统模型 ====================
+
+class SystemSetting(db.Model):
+    """系统设置表 - 存储系统级配置"""
+    __tablename__ = 'system_settings'
+    
+    id: Mapped[int] = mapped_column(primary_key=True)
+    key: Mapped[str] = mapped_column(String(50), unique=True, nullable=False, index=True)
+    value: Mapped[str] = mapped_column(Text, nullable=True)
+    description: Mapped[str] = mapped_column(String(255), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now, onupdate=datetime.now)
+    updated_by_id: Mapped[int] = mapped_column(ForeignKey('users.id'), nullable=True)
+    
+    # 关联
+    updated_by: Mapped['User'] = relationship(foreign_keys=[updated_by_id])
+    
+    def __repr__(self):
+        return f'<SystemSetting {self.key}>'
+    
+    @staticmethod
+    def get(key: str, default: str = None) -> str:
+        """获取设置值"""
+        setting = SystemSetting.query.filter_by(key=key).first()
+        return setting.value if setting else default
+    
+    @staticmethod
+    def set(key: str, value: str, description: str = None, user_id: int = None):
+        """设置值"""
+        setting = SystemSetting.query.filter_by(key=key).first()
+        if setting:
+            setting.value = value
+            if description:
+                setting.description = description
+            setting.updated_by_id = user_id
+        else:
+            setting = SystemSetting(
+                key=key,
+                value=value,
+                description=description,
+                updated_by_id=user_id
+            )
+            db.session.add(setting)
+        db.session.commit()
+        return setting
+    
+    @staticmethod
+    def get_email_config() -> dict:
+        """获取系统邮箱配置"""
+        return {
+            'server': SystemSetting.get('mail_server', 'smtp.exmail.qq.com'),
+            'port': int(SystemSetting.get('mail_port', '465')),
+            'use_ssl': SystemSetting.get('mail_use_ssl', 'true').lower() == 'true',
+            'username': SystemSetting.get('mail_username', ''),
+            'password': SystemSetting.get('mail_password', ''),
+            'sender_name': SystemSetting.get('mail_sender_name', 'ERP系统'),
+        }
+    
+    @staticmethod
+    def set_email_config(config: dict, user_id: int = None):
+        """保存系统邮箱配置"""
+        settings = [
+            ('mail_server', config.get('server', 'smtp.exmail.qq.com'), 'SMTP服务器地址'),
+            ('mail_port', str(config.get('port', 465)), 'SMTP端口'),
+            ('mail_use_ssl', 'true' if config.get('use_ssl', True) else 'false', '是否使用SSL'),
+            ('mail_username', config.get('username', ''), '发件邮箱账号'),
+            ('mail_password', config.get('password', ''), '发件邮箱密码'),
+            ('mail_sender_name', config.get('sender_name', 'ERP系统'), '发件人显示名称'),
+        ]
+        for key, value, desc in settings:
+            SystemSetting.set(key, value, desc, user_id)
+
+
 # 角色权限配置
 ROLE_PERMISSIONS = {
     'superadmin': list(PERMISSIONS.keys()),
@@ -808,4 +880,15 @@ ROLE_PERMISSIONS = {
         # 'statement_view',  # [v1.4] 物流经理不能查看历史对账单
         'transaction_view', 'transaction_create', 'transaction_edit',
     ],
+    
+    'gm_assistant': [
+        'contract_view', 'contract_edit',  # 可以查看和修改所有订单，但不能创建
+        'product_view',
+        'statement_view', 'statement_export',  # 可以查看和打印对账单
+        # 没有 'contract_create' - 不可以发起订单
+        # 没有 'transaction_view' - 看不到发货单
+    ],
 }
+
+
+
