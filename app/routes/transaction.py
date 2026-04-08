@@ -231,6 +231,8 @@ def delete_transaction(id):
 
 
 @transaction_bp.route('/api/products-by-company')
+@login_required
+@permission_required('transaction_view')
 def api_products_by_company():
     """API: 获取指定公司的所有产品编码"""
     company_name = request.args.get('company_name', '')

@@ -80,9 +80,7 @@ def new_contract():
     # 设置产品选择下拉
     product_form.product_id.choices = ProductService.get_product_choices()
     
-    print(f"[DEBUG-PY] Form submit check: is_submitted={form.is_submitted}, validate={form.validate()}")
     if form.validate_on_submit():
-        print(f"[DEBUG-PY] Form validated, processing...")
         try:
             # 获取合同基础信息 [问题4] 添加归属人
             contract_data = {
@@ -221,6 +219,11 @@ def new_contract():
         ).all()
         department_users = [u.real_name or u.username for u in dept_users]
     
+    # 兼容模板中的 managers 变量
+    managers = ContractService.get_department_users()
+    if g.current_user.is_department_pm() and department_users:
+        managers = department_users
+    
     return render_template('contract/form.html',
                          form=form,
                          product_form=product_form,
@@ -229,6 +232,7 @@ def new_contract():
                          products=products,
                          departments=departments,
                          department_users=department_users,
+                         managers=managers,
                          owners=owners,
                          is_new=True,
                          current_user_dept=current_user_dept,
@@ -339,9 +343,6 @@ def edit_contract(id):
             
             # 处理发货记录 - 包括更新、新增和删除
             transaction_count = int(request.form.get('transaction_count', 0))
-            # DEBUG
-            import logging
-            logging.info(f"[DEBUG] transaction_count={transaction_count}")
             existing_transaction_ids = {t.id for t in contract.transactions}
             submitted_transaction_ids = set()
             
@@ -349,9 +350,6 @@ def edit_contract(id):
                 prefix = f'transaction_{i}_'
                 trans_id = request.form.get(f'{prefix}id')  # 如果有id则是已有记录
                 product_code = request.form.get(f'{prefix}contract_product_id')
-                # DEBUG
-                import logging
-                logging.info(f"[DEBUG] trans {i}: id={trans_id}, product_code={product_code}")
                 
                 if trans_id:
                     submitted_transaction_ids.add(int(trans_id))
@@ -385,6 +383,7 @@ def edit_contract(id):
                             if remark is not None:
                                 transaction.remark = remark
                             
+                            # [v1.5.2] 恢复 invoice_date 处理
                             invoice_date = request.form.get(f'{prefix}invoice_date')
                             if invoice_date:
                                 transaction.invoice_date = datetime.strptime(invoice_date, '%Y-%m-%d').date()
@@ -395,6 +394,9 @@ def edit_contract(id):
                         contract_id=id,
                         product_code=product_code
                     ).first()
+                    
+                    # [v1.5.2] 调试日志
+                    current_app.logger.info(f"[v1.5.2] Looking for ContractProduct: contract_id={id}, product_code={product_code}, found={contract_product is not None}")
                     
                     if contract_product:
                         transaction_data = {
@@ -407,20 +409,22 @@ def edit_contract(id):
                             'invoice_date': request.form.get(f'{prefix}invoice_date') or None,
                             'remark': request.form.get(f'{prefix}remark')
                         }
-                        # DEBUG
-                        import logging
-                        logging.info(f"[DEBUG] Adding trans: {transaction_data}")
+                        # [v1.5.2] 添加调试和错误处理
+                        current_app.logger.info(f"[v1.5.2] Creating transaction: {transaction_data}")
                         if transaction_data['quantity'] > 0:
                             try:
-                                ContractService.add_transaction(id, transaction_data, is_new=True)
-                                logging.info("[DEBUG] Trans added successfully")
+                                trans = ContractService.add_transaction(id, transaction_data, is_new=True)
+                                current_app.logger.info(f"[v1.5.2] Transaction created: id={trans.id}")
                             except Exception as e:
-                                logging.error(f"[DEBUG] Error adding trans: {e}")
+                                current_app.logger.error(f"[v1.5.2] Error adding trans: {e}")
                                 raise
+                    else:
+                        current_app.logger.error(f"[v1.5.2] ContractProduct not found: contract_id={id}, product_code={product_code}")
             
             # 删除未被提交的发货记录（已在页面上删除的）
+            # 仅删除“提交前已存在”的记录，避免误删本次新增记录
             for trans in contract.transactions:
-                if trans.id not in submitted_transaction_ids:
+                if trans.id in existing_transaction_ids and trans.id not in submitted_transaction_ids:
                     # [v1.3] 先删除关联的对账单明细，避免外键约束错误
                     for item in trans.statement_items:
                         db.session.delete(item)
@@ -428,24 +432,12 @@ def edit_contract(id):
             
             # 处理回款记录 - 包括更新、新增和删除 [v1.3]
             payment_count = int(request.form.get('payment_count', 0))
-            current_app.logger.info(f"[DEBUG] Processing {payment_count} payment records for contract {id}")
-            
-            # [DEBUG] 打印所有表单数据
-            for key in request.form:
-                if 'payment' in key:
-                    current_app.logger.info(f"[DEBUG] Form data: {key}={request.form.get(key)}")
             existing_payment_ids = {p.id for p in contract.payment_records}
             submitted_payment_ids = set()
             
-            print(f"[DEBUG-PY] Processing {payment_count} payments")
             for i in range(payment_count):
                 prefix = f'payment_{i}_'
                 payment_id = request.form.get(f'{prefix}id')
-                payment_amount = request.form.get(f'{prefix}amount')
-                payment_date = request.form.get(f'{prefix}date')
-                
-                print(f"[DEBUG-PY] Payment {i}: id={payment_id}, amount={payment_amount}, date={payment_date}")
-                current_app.logger.info(f"[DEBUG] Payment {i}: id={payment_id}, amount={payment_amount}, date={payment_date}")
                 
                 if payment_id:
                     submitted_payment_ids.add(int(payment_id))
@@ -453,9 +445,11 @@ def edit_contract(id):
                     if int(payment_id) in existing_payment_ids:
                         payment = PaymentRecord.query.get(int(payment_id))
                         if payment:
+                            payment_amount = request.form.get(f'{prefix}amount')
                             if payment_amount is not None:
                                 payment.payment_amount = float(payment_amount)
                             
+                            payment_date = request.form.get(f'{prefix}date')
                             if payment_date:
                                 payment.payment_date = datetime.strptime(payment_date, '%Y-%m-%d').date()
                             
@@ -467,55 +461,38 @@ def edit_contract(id):
                             if remark is not None:
                                 payment.remark = remark
                             
-                            contract_product_id = request.form.get(f'{prefix}contract_product_id')
-                            if contract_product_id:
-                                payment.contract_product_id = int(contract_product_id)
+                            # [v1.5.2] 修复：前端传的是 product_code，需要查询获取 contract_product_id
+                            product_code = request.form.get(f'{prefix}contract_product_id')
+                            if product_code:
+                                cp = ContractProduct.query.filter_by(contract_id=id, product_code=product_code).first()
+                                payment.contract_product_id = cp.id if cp else None
                         continue
                 
-                # 新增回款记录 [v1.5.2] 修复：直接创建，不使用Service方法避免重复commit
-                print(f"[DEBUG-PY] Checking new payment condition: amount={payment_amount}")
+                payment_amount = request.form.get(f'{prefix}amount')
                 if payment_amount and float(payment_amount) > 0:
-                    try:
-                        # 处理日期
-                        if payment_date:
-                            payment_date_obj = datetime.strptime(payment_date, '%Y-%m-%d').date()
-                        else:
-                            payment_date_obj = None
-                        
-                        handler = request.form.get(f'{prefix}handler', '').strip() or None
-                        remark = request.form.get(f'{prefix}remark')
-                        contract_product_id = request.form.get(f'{prefix}contract_product_id')
-                        
-                        # 直接创建记录
-                        new_payment = PaymentRecord(
-                            contract_id=id,
-                            contract_product_id=int(contract_product_id) if contract_product_id else None,
-                            company_name=contract.company_name,
-                            payment_amount=float(payment_amount),
-                            payment_date=payment_date_obj,
-                            handler=handler,
-                            remark=remark
-                        )
-                        db.session.add(new_payment)
-                        
-                        # 添加备注
-                        tz = timezone(timedelta(hours=8))
-                        now = datetime.now(tz).strftime('%Y-%m-%d %H:%M:%S')
-                        contract.append_remark(f"添加回款记录: {float(payment_amount):.2f}元")
-                        
-                        print(f"[DEBUG-PY] Created new payment: amount={payment_amount}, date={payment_date}")
-                        current_app.logger.info(f"[DEBUG] Created new payment record")
-                    except Exception as e:
-                        print(f"[DEBUG-PY] Error creating payment: {e}")
-                        current_app.logger.error(f"[DEBUG] Error: {e}")
-                        raise
-                else:
-                    print(f"[DEBUG-PY] Skipped: amount condition failed")
+                    # [v1.5.2] 修复：直接创建PaymentRecord对象，避免Service方法中的重复commit
+                    payment_date_str = request.form.get(f'{prefix}date')
+                    payment_date_obj = datetime.strptime(payment_date_str, '%Y-%m-%d').date() if payment_date_str else None
+                    
+                    # 前端传的是 product_code，需要查询获取 contract_product_id
+                    product_code = request.form.get(f'{prefix}contract_product_id')
+                    cp = ContractProduct.query.filter_by(contract_id=id, product_code=product_code).first() if product_code else None
+                    
+                    new_payment = PaymentRecord(
+                        contract_id=id,
+                        contract_product_id=cp.id if cp else None,
+                        company_name=contract.company_name,
+                        payment_amount=float(payment_amount),
+                        payment_date=payment_date_obj,
+                        handler=request.form.get(f'{prefix}handler', '').strip() or None,
+                        remark=request.form.get(f'{prefix}remark')
+                    )
+                    db.session.add(new_payment)
             
             # 删除未被提交的回款记录（已在页面上删除的）
+            # 仅删除“提交前已存在”的记录，避免误删本次新增记录
             for payment in contract.payment_records:
-                if payment.id not in submitted_payment_ids:
-                    current_app.logger.info(f"[DEBUG] Deleting payment record {payment.id}")
+                if payment.id in existing_payment_ids and payment.id not in submitted_payment_ids:
                     db.session.delete(payment)
             
             # 处理部门/负责人 [v1.3] [v1.5] 简化逻辑，直接使用表单值
@@ -527,7 +504,6 @@ def edit_contract(id):
                 contract.manager = manager
             if department and manager:
                 contract.owner = f"{department} - {manager}"
-            
             db.session.commit()
             
             # 处理图片上传 [v1.3]
@@ -540,7 +516,7 @@ def edit_contract(id):
             if contract_documents:
                 ContractService.upload_contract_documents(id, contract_documents)
             
-            # [v1.3] [v1.5.2] 检查合同完成状态
+            # [v1.5.2] 修复：更新合同发货/回款状态
             ContractService.check_completion(contract.id)
             db.session.commit()
             
@@ -550,8 +526,8 @@ def edit_contract(id):
         except Exception as e:
             db.session.rollback()
             import traceback
-            print(f"[DEBUG-PY] ERROR in edit_contract: {e}")
-            print(traceback.format_exc())
+            current_app.logger.error(f"[v1.5.2] ERROR in edit_contract: {e}")
+            current_app.logger.error(traceback.format_exc())
             flash(f'更新失败：{str(e)}', 'error')
     
     stats = ContractService.get_statistics(id)
@@ -573,6 +549,11 @@ def edit_contract(id):
         ).all()
         department_users = [u.real_name or u.username for u in dept_users]
     
+    # 兼容模板中的 managers 变量
+    managers = ContractService.get_department_users()
+    if g.current_user.is_department_pm() and department_users:
+        managers = department_users
+    
     return render_template('contract/form.html',
                          form=form,
                          transaction_form=transaction_form,
@@ -582,6 +563,7 @@ def edit_contract(id):
                          products=products,
                          departments=departments,
                          department_users=department_users,
+                         managers=managers,
                          owners=owners,
                          is_new=False)
 
@@ -679,8 +661,9 @@ def logistics_edit_contract(id):
                             db.session.add(transaction)
             
             # 删除未提交的发货记录
+            # 仅删除“提交前已存在”的记录，避免误删本次新增记录
             for trans in contract.transactions:
-                if trans.id not in submitted_transaction_ids:
+                if trans.id in existing_transaction_ids and trans.id not in submitted_transaction_ids:
                     for item in trans.statement_items:
                         db.session.delete(item)
                     db.session.delete(trans)
@@ -804,6 +787,10 @@ def download_contract_file(contract_id, file_id):
 @login_required
 def api_get_stats(id):
     """API: 获取合同统计信息"""
+    contract = Contract.query.get_or_404(id)
+    if not g.current_user.can_view_contract(contract):
+        return jsonify({'success': False, 'error': 'forbidden'}), 403
+    
     stats = ContractService.get_statistics(id)
     return jsonify(stats)
 
@@ -812,8 +799,11 @@ def api_get_stats(id):
 @login_required
 def api_check_completion(id):
     """API: 检查合同完成状态"""
+    contract = Contract.query.get_or_404(id)
+    if not g.current_user.can_view_contract(contract):
+        return jsonify({'success': False, 'error': 'forbidden'}), 403
+    
     is_completed = ContractService.check_completion(id)
-    contract = Contract.query.get(id)
     return jsonify({
         'is_completed': is_completed,
         'status': contract.status if contract else 'unknown'
@@ -825,6 +815,9 @@ def api_check_completion(id):
 def api_get_contract_products(contract_id):
     """API: 获取合同产品列表（用于交易记录选择）"""
     contract = Contract.query.get_or_404(contract_id)
+    if not g.current_user.can_view_contract(contract):
+        return jsonify({'success': False, 'error': 'forbidden'}), 403
+    
     products = [
         {
             'id': cp.id,
@@ -845,9 +838,13 @@ def api_get_contract_products(contract_id):
 @login_required
 def api_append_remark(id):
     """API: 追加备注"""
-    message = request.json.get('message', '')
+    contract = Contract.query.get_or_404(id)
+    if not g.current_user.can_edit_contract(contract):
+        return jsonify({'success': False, 'error': 'forbidden'}), 403
+    
+    payload = request.get_json(silent=True) or {}
+    message = payload.get('message', '')
     if message:
-        contract = Contract.query.get_or_404(id)
         contract.append_remark(message)
         db.session.commit()
         return jsonify({'success': True})
@@ -861,6 +858,10 @@ def api_delete_image(image_id):
     from app.models import ContractImage
     try:
         image = ContractImage.query.get_or_404(image_id)
+        contract = Contract.query.get(image.contract_id)
+        if not contract or not g.current_user.can_edit_contract(contract):
+            return jsonify({'success': False, 'error': 'forbidden'}), 403
+        
         # 删除文件
         import os
         from flask import current_app
@@ -884,6 +885,9 @@ def export_delivery_note(id):
     from flask import current_app
     
     contract = Contract.query.get_or_404(id)
+    if not g.current_user.can_view_contract(contract):
+        flash('您没有权限导出此合同的发货单', 'error')
+        return redirect(url_for('contract.list_contracts'))
     
     if not contract.transactions:
         flash('没有发货记录，无法导出发货单', 'warning')
