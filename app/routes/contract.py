@@ -19,6 +19,7 @@ contract_bp = Blueprint('contract', __name__, url_prefix='/contract')
 @contract_bp.route('/')
 @contract_bp.route('/list')
 @login_required
+@permission_required('contract_view')
 def list_contracts():
     """[v1.3] 合同列表 - 支持部门或负责人搜索，[v1.4] 添加权限过滤"""
     from flask import g
@@ -241,6 +242,7 @@ def new_contract():
 
 @contract_bp.route('/<int:id>')
 @login_required
+@permission_required('contract_view')
 def view_contract(id):
     """查看合同详情"""
     from flask import g
@@ -697,6 +699,11 @@ def logistics_edit_contract(id):
 @permission_required('contract_delete')
 def delete_contract(id):
     """删除合同"""
+    contract = Contract.query.get_or_404(id)
+    if not g.current_user.can_edit_contract_basic(contract):
+        flash('您没有权限删除此合同', 'error')
+        return redirect(url_for('contract.list_contracts'))
+
     try:
         ContractService.delete_contract(id)
         flash('合同删除成功！', 'success')

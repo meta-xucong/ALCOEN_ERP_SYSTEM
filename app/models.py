@@ -577,7 +577,7 @@ class User(db.Model):
     def can_access_department(self, dept_name: str) -> bool:
         """是否可以访问指定部门的数据"""
         # 超级管理员、总经理、物流经理可以访问所有部门
-        if self.is_superadmin or self.role.code in ['general_manager', 'logistics_manager']:
+        if self.is_superadmin or self.role.code in ['general_manager', 'gm_assistant', 'logistics_manager']:
             return True
         # 部门角色只能访问本部门
         if self.department and self.department.name == dept_name:
@@ -588,21 +588,29 @@ class User(db.Model):
         """是否可以编辑合同的发货记录"""
         if self.is_superadmin:
             return True
+        if not (self.has_permission('contract_edit_delivery') or self.has_permission('contract_edit')):
+            return False
         # 物流经理可以编辑所有合同的发货记录
         if self.role.code == 'logistics_manager':
             return True
-        # 总经理、部门PM可以编辑
-        if self.role.code in ['general_manager', 'department_pm']:
+        # 总经理、总经理助理、部门PM可以编辑
+        if self.role.code in ['general_manager', 'gm_assistant', 'department_pm']:
             return True
-        # 部门销售经理不能编辑发货记录
-        return False
+        # 部门销售经理只能编辑自己创建的合同
+        if self.role.code == 'sales_manager':
+            if contract:
+                return contract.created_by_id == self.id
+            return True
+        return True
     
     def can_view_contract(self, contract) -> bool:
         """是否可以查看合同"""
         if self.is_superadmin:
             return True
-        # 总经理和物流经理可以查看所有
-        if self.role.code in ['general_manager', 'logistics_manager']:
+        if not self.has_permission('contract_view'):
+            return False
+        # 总经理、总经理助理和物流经理可以查看所有
+        if self.role.code in ['general_manager', 'gm_assistant', 'logistics_manager']:
             return True
         # 部门PM可以查看本部门所有合同
         if self.role.code == 'department_pm':
@@ -610,7 +618,7 @@ class User(db.Model):
         # 部门销售经理只能查看自己创建的合同
         if self.role.code == 'sales_manager':
             return contract.created_by_id == self.id
-        return False
+        return True
     
     def can_edit_contract(self, contract=None) -> bool:
         """是否可以编辑合同（进入编辑页面）"""
@@ -618,9 +626,11 @@ class User(db.Model):
             return True
         # 物流经理可以编辑（但只能编辑发货记录和附件）
         if self.role.code == 'logistics_manager':
-            return True
-        # 总经理可以编辑所有
-        if self.role.code == 'general_manager':
+            return self.has_permission('contract_edit_delivery')
+        if not self.has_permission('contract_edit'):
+            return False
+        # 总经理、总经理助理可以编辑所有
+        if self.role.code in ['general_manager', 'gm_assistant']:
             return True
         # 部门PM可以编辑本部门所有合同
         if self.role.code == 'department_pm':
@@ -632,7 +642,7 @@ class User(db.Model):
             if contract:
                 return contract.created_by_id == self.id
             return True
-        return False
+        return True
     
     def can_edit_contract_basic(self, contract=None) -> bool:
         """是否可以编辑合同基本信息（物流经理除外）"""
@@ -641,8 +651,10 @@ class User(db.Model):
         # 物流经理不能编辑合同基本信息
         if self.role.code == 'logistics_manager':
             return False
-        # 总经理可以编辑所有
-        if self.role.code == 'general_manager':
+        if not self.has_permission('contract_edit'):
+            return False
+        # 总经理、总经理助理可以编辑所有
+        if self.role.code in ['general_manager', 'gm_assistant']:
             return True
         # 部门PM可以编辑本部门所有合同
         if self.role.code == 'department_pm':
@@ -654,7 +666,7 @@ class User(db.Model):
             if contract:
                 return contract.created_by_id == self.id
             return True
-        return False
+        return True
     
     def is_logistics_manager(self) -> bool:
         """是否是物流经理"""
@@ -667,6 +679,10 @@ class User(db.Model):
     def is_sales_manager(self) -> bool:
         """是否是部门销售经理"""
         return self.role.code == 'sales_manager'
+
+    def is_gm_assistant(self) -> bool:
+        """是否是总经理助理"""
+        return self.role.code == 'gm_assistant'
 
 
 # 权限定义常量
