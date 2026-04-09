@@ -3,11 +3,34 @@
 {% block title %}交易合同 - ALCOEN ERP{% endblock %}
 
 {% block content %}
+<style>
+.status-chip {
+    font-size: 0.72rem;
+    line-height: 1.1;
+    padding: 0.35rem 0.45rem;
+    white-space: nowrap;
+}
+
+.contract-filter-card {
+    position: relative;
+    z-index: 20;
+    overflow: visible;
+}
+
+.contract-filter-card .card-body {
+    overflow: visible;
+}
+
+.contract-filter-card .dropdown-menu {
+    z-index: 3000;
+}
+</style>
+
 <div class="d-flex justify-content-between align-items-center mb-4">
     <h1 class="d-flex align-items-center gap-3">
-            <i class="bi bi-file-earmark-text text-gradient" style="font-size: 2rem;"></i>
-            <span class="text-gradient" style="font-weight: 700; font-size: 2rem;">交易合同</span>
-        </h1>
+        <i class="bi bi-file-earmark-text text-gradient" style="font-size: 2rem;"></i>
+        <span class="text-gradient" style="font-weight: 700; font-size: 2rem;">交易合同</span>
+    </h1>
     {% if current_user and current_user.has_permission('contract_create') %}
     <a href="{{ url_for('contract.new_contract') }}" class="btn btn-primary">
         <i class="bi bi-plus-circle"></i> 新增合同
@@ -15,36 +38,84 @@
     {% endif %}
 </div>
 
-<!-- 筛选栏 [问题4] 添加归属人搜索 -->
-<div class="card mb-4">
+<div class="card mb-4 contract-filter-card">
     <div class="card-body">
-        <form method="GET" action="" class="row g-3">
-            <div class="col-md-2">
-                <input type="text" name="contract_no" class="form-control" 
-                       placeholder="合同编号" value="{{ contract_no }}">
+        <form method="GET" action="" class="row g-2">
+            <div class="col-md-4">
+                <input type="text" name="contract_no" class="form-control" placeholder="合同编号" value="{{ contract_no }}">
             </div>
-            <div class="col-md-2">
-                <input type="text" name="company_name" class="form-control" 
-                       placeholder="公司名称" value="{{ company_name }}"
-                       list="company-list">
+            <div class="col-md-4">
+                <input type="text" name="company_name" class="form-control" placeholder="公司名称" value="{{ company_name }}" list="company-list">
                 <datalist id="company-list">
                     {% for company in companies %}
                     <option value="{{ company }}">
                     {% endfor %}
                 </datalist>
             </div>
-            <div class="col-md-2">
-                <input type="text" name="dept_or_manager" class="form-control" 
-                       placeholder="部门或负责人" value="{{ dept_or_manager }}">
-            </div>
-            <div class="col-md-2">
-                <select name="status" class="form-select">
-                    <option value="">所有状态</option>
-                    <option value="pending" {% if status == 'pending' %}selected{% endif %}>未完成</option>
-                    <option value="completed" {% if status == 'completed' %}selected{% endif %}>已完成</option>
-                </select>
-            </div>
             <div class="col-md-4">
+                <input type="text" name="dept_or_manager" class="form-control" placeholder="负责人/部门" value="{{ dept_or_manager }}">
+            </div>
+
+            <div class="col-md-3">
+                <div class="dropdown w-100">
+                    <button class="btn btn-outline-secondary dropdown-toggle w-100" type="button" data-bs-toggle="dropdown" data-bs-auto-close="outside">
+                        发货状态
+                    </button>
+                    <div class="dropdown-menu p-3 w-100">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" name="delivery_status" value="completed" id="delivery-completed" {% if 'completed' in delivery_statuses %}checked{% endif %}>
+                            <label class="form-check-label" for="delivery-completed">完全发货</label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" name="delivery_status" value="partial" id="delivery-partial" {% if 'partial' in delivery_statuses %}checked{% endif %}>
+                            <label class="form-check-label" for="delivery-partial">部分发货</label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" name="delivery_status" value="pending" id="delivery-pending" {% if 'pending' in delivery_statuses %}checked{% endif %}>
+                            <label class="form-check-label" for="delivery-pending">未发货</label>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="dropdown w-100">
+                    <button class="btn btn-outline-secondary dropdown-toggle w-100" type="button" data-bs-toggle="dropdown" data-bs-auto-close="outside">
+                        回款状态
+                    </button>
+                    <div class="dropdown-menu p-3 w-100">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" name="payment_status" value="completed" id="payment-completed" {% if 'completed' in payment_statuses %}checked{% endif %}>
+                            <label class="form-check-label" for="payment-completed">完全回款</label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" name="payment_status" value="partial" id="payment-partial" {% if 'partial' in payment_statuses %}checked{% endif %}>
+                            <label class="form-check-label" for="payment-partial">部分回款</label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" name="payment_status" value="pending" id="payment-pending" {% if 'pending' in payment_statuses %}checked{% endif %}>
+                            <label class="form-check-label" for="payment-pending">未回款</label>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="dropdown w-100">
+                    <button class="btn btn-outline-secondary dropdown-toggle w-100" type="button" data-bs-toggle="dropdown" data-bs-auto-close="outside">
+                        开票状态
+                    </button>
+                    <div class="dropdown-menu p-3 w-100">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" name="invoice_status" value="invoiced" id="invoice-done" {% if 'invoiced' in invoice_statuses %}checked{% endif %}>
+                            <label class="form-check-label" for="invoice-done">已开票</label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" name="invoice_status" value="not_invoiced" id="invoice-none" {% if 'not_invoiced' in invoice_statuses %}checked{% endif %}>
+                            <label class="form-check-label" for="invoice-none">未开票</label>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3 d-flex gap-2">
                 <button type="submit" class="btn btn-outline-primary">
                     <i class="bi bi-search"></i> 筛选
                 </button>
@@ -56,7 +127,6 @@
     </div>
 </div>
 
-<!-- 合同列表 [问题5] 状态样式优化 -->
 <div class="card">
     <div class="card-body p-0">
         {% if contracts %}
@@ -68,7 +138,7 @@
                         <th>客户名称</th>
                         <th>所属部门</th>
                         <th>负责人</th>
-                        <th class="text-end">合同总价</th>
+                        <th class="text-end">产品总价</th>
                         <th class="text-center">状态</th>
                         <th>创建时间</th>
                         <th class="text-center">操作</th>
@@ -76,67 +146,58 @@
                 </thead>
                 <tbody>
                     {% for contract in contracts %}
-                    {# [问题5] 完成合同显示淡绿背景 #}
                     <tr class="{% if contract.status == 'completed' %}table-success{% endif %}">
-                        <td>
-                            <strong class="text-primary">{{ contract.contract_no }}</strong>
-                        </td>
+                        <td><strong class="text-primary">{{ contract.contract_no }}</strong></td>
                         <td>{{ contract.company_name }}</td>
                         <td>
                             {% if contract.department %}
-                                <span class="badge bg-info">{{ contract.department }}</span>
+                            <span class="badge bg-info">{{ contract.department }}</span>
                             {% else %}
-                                <span class="text-muted">-</span>
+                            <span class="text-muted">-</span>
                             {% endif %}
                         </td>
                         <td>
                             {% if contract.manager %}
-                                <span class="badge bg-secondary">{{ contract.manager }}</span>
+                            <span class="badge bg-secondary">{{ contract.manager }}</span>
                             {% else %}
-                                <span class="text-muted">-</span>
+                            <span class="text-muted">-</span>
                             {% endif %}
                         </td>
                         <td class="text-end fw-bold">
                             {% if current_user and current_user.can_view_financial() %}
-                                {{ contract.total_value|format_money }}
+                            {{ contract.total_value|format_money }}
                             {% else %}
-                                <span class="text-muted">***</span>
+                            <span class="text-muted">***</span>
                             {% endif %}
                         </td>
                         <td class="text-center">
-                            {% set status_info = contract.get_status_display() %}
                             {% set delivery_info = contract.get_delivery_status_display() %}
                             {% set payment_info = contract.get_payment_status_display() %}
-                            <div class="d-flex flex-column gap-1">
-                                {# [v1.4] 使用模型返回的颜色类：partial红色, pending黄色, completed绿色 #}
-                                <span class="badge {{ delivery_info.badge }}"><i class="bi bi-box-seam"></i> {{ delivery_info.text }}</span>
-                                <span class="badge {{ payment_info.badge }}"><i class="bi bi-cash"></i> {{ payment_info.text }}</span>
+                            {% set invoice_info = contract.get_invoice_status_display() %}
+                            <div class="d-flex flex-wrap justify-content-center gap-1">
+                                <span class="badge {{ delivery_info.badge }} status-chip"><i class="bi bi-box-seam"></i> {{ delivery_info.text }}</span>
+                                <span class="badge {{ payment_info.badge }} status-chip"><i class="bi bi-cash"></i> {{ payment_info.text }}</span>
+                                <span class="badge {{ invoice_info.badge }} status-chip"><i class="bi bi-receipt"></i> {{ invoice_info.text }}</span>
                             </div>
                         </td>
                         <td>{{ contract.created_at.strftime('%Y-%m-%d') }}</td>
                         <td class="text-center">
-                            <a href="{{ url_for('contract.view_contract', id=contract.id) }}" 
-                               class="btn btn-sm btn-outline-info">
+                            <a href="{{ url_for('contract.view_contract', id=contract.id) }}" class="btn btn-sm btn-outline-info">
                                 <i class="bi bi-eye"></i> 查看
                             </a>
                             {% if current_user.can_edit_contract(contract) %}
-                                {% if current_user.is_logistics_manager() %}
-                                <a href="{{ url_for('contract.logistics_edit_contract', id=contract.id) }}" 
-                                   class="btn btn-sm btn-outline-info">
-                                    <i class="bi bi-truck"></i> 编辑发货
-                                </a>
-                                {% else %}
-                                <a href="{{ url_for('contract.edit_contract', id=contract.id) }}" 
-                                   class="btn btn-sm btn-outline-primary">
-                                    <i class="bi bi-pencil"></i> 编辑
-                                </a>
-                                {% endif %}
+                            {% if current_user.is_logistics_manager() %}
+                            <a href="{{ url_for('contract.logistics_edit_contract', id=contract.id) }}" class="btn btn-sm btn-outline-info">
+                                <i class="bi bi-truck"></i> 编辑发货
+                            </a>
+                            {% else %}
+                            <a href="{{ url_for('contract.edit_contract', id=contract.id) }}" class="btn btn-sm btn-outline-primary">
+                                <i class="bi bi-pencil"></i> 编辑
+                            </a>
+                            {% endif %}
                             {% endif %}
                             {% if current_user.has_permission('contract_delete') and current_user.can_access_department(contract.department) %}
-                            <form method="POST" 
-                                  action="{{ url_for('contract.delete_contract', id=contract.id) }}"
-                                  class="d-inline" 
-                                  onsubmit="return confirm('确定要删除该合同吗？此操作将删除合同下的所有记录！');">
+                            <form method="POST" action="{{ url_for('contract.delete_contract', id=contract.id) }}" class="d-inline" onsubmit="return confirm('确定要删除该合同吗？此操作将删除合同下的所有记录。');">
                                 <button type="submit" class="btn btn-sm btn-outline-danger">
                                     <i class="bi bi-trash"></i>
                                 </button>
@@ -148,52 +209,38 @@
                 </tbody>
             </table>
         </div>
-        
-        <!-- 分页 -->
+
         {% if pagination.pages > 1 %}
         <div class="card-footer">
             <nav>
                 <ul class="pagination justify-content-center mb-0">
                     {% if pagination.has_prev %}
                     <li class="page-item">
-                        <a class="page-link" href="{{ url_for('contract.list_contracts', page=pagination.prev_num, contract_no=contract_no, company_name=company_name, status=status) }}">
-                            上一页
-                        </a>
+                        <a class="page-link" href="{{ url_for('contract.list_contracts', page=pagination.prev_num, contract_no=contract_no, company_name=company_name, dept_or_manager=dept_or_manager, delivery_status=delivery_status_csv, payment_status=payment_status_csv, invoice_status=invoice_status_csv) }}">上一页</a>
                     </li>
                     {% endif %}
-                    
                     {% for page_num in pagination.iter_pages(left_edge=2, left_current=2, right_current=3, right_edge=2) %}
-                        {% if page_num %}
-                            {% if page_num == pagination.page %}
-                            <li class="page-item active">
-                                <span class="page-link">{{ page_num }}</span>
-                            </li>
-                            {% else %}
-                            <li class="page-item">
-                                <a class="page-link" href="{{ url_for('contract.list_contracts', page=page_num, contract_no=contract_no, company_name=company_name, status=status) }}">
-                                    {{ page_num }}
-                                </a>
-                            </li>
-                            {% endif %}
-                        {% else %}
-                        <li class="page-item disabled">
-                            <span class="page-link">...</span>
-                        </li>
-                        {% endif %}
+                    {% if page_num %}
+                    {% if page_num == pagination.page %}
+                    <li class="page-item active"><span class="page-link">{{ page_num }}</span></li>
+                    {% else %}
+                    <li class="page-item">
+                        <a class="page-link" href="{{ url_for('contract.list_contracts', page=page_num, contract_no=contract_no, company_name=company_name, dept_or_manager=dept_or_manager, delivery_status=delivery_status_csv, payment_status=payment_status_csv, invoice_status=invoice_status_csv) }}">{{ page_num }}</a>
+                    </li>
+                    {% endif %}
+                    {% else %}
+                    <li class="page-item disabled"><span class="page-link">...</span></li>
+                    {% endif %}
                     {% endfor %}
-                    
                     {% if pagination.has_next %}
                     <li class="page-item">
-                        <a class="page-link" href="{{ url_for('contract.list_contracts', page=pagination.next_num, contract_no=contract_no, company_name=company_name, status=status) }}">
-                            下一页
-                        </a>
+                        <a class="page-link" href="{{ url_for('contract.list_contracts', page=pagination.next_num, contract_no=contract_no, company_name=company_name, dept_or_manager=dept_or_manager, delivery_status=delivery_status_csv, payment_status=payment_status_csv, invoice_status=invoice_status_csv) }}">下一页</a>
                     </li>
                     {% endif %}
                 </ul>
             </nav>
         </div>
         {% endif %}
-        
         {% else %}
         <div class="text-center py-5 text-muted">
             <i class="bi bi-inbox fs-1"></i>
@@ -204,11 +251,5 @@
         </div>
         {% endif %}
     </div>
-</div>
-
-<div class="alert alert-info mt-4">
-    <i class="bi bi-info-circle"></i>
-    <strong>提示：</strong>v1.2 版本已升级为"合同-交易记录"模式。一个合同可以包含多种产品计划，每种产品可以分多次发货。
-    <a href="{{ url_for('transaction.list_transactions') }}">查看历史交易记录</a>
 </div>
 {% endblock %}

@@ -1,0 +1,173 @@
+{% extends 'base.html' %}
+
+{% block title %}邮箱配置 - {{ user.real_name or user.username }}{% endblock %}
+
+{% block content %}
+<div class="container py-4">
+    <div class="row justify-content-center">
+        <div class="col-md-8">
+            <div class="card shadow-sm">
+                <div class="card-header bg-primary text-white">
+                    <h5 class="mb-0">
+                        <i class="bi bi-envelope-gear"></i> 
+                        {% if user.id == current_user.id %}
+                            我的邮箱配置
+                        {% else %}
+                            {{ user.real_name or user.username }} 的邮箱配置
+                        {% endif %}
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <!-- 当前配置状态 -->
+                    <div class="alert {% if user.has_email_config() %}alert-success{% else %}alert-info{% endif %} mb-4">
+                        <h6 class="alert-heading">
+                            <i class="bi bi-info-circle"></i> 当前状态
+                        </h6>
+                        {% if user.has_email_config() %}
+                            <p class="mb-1">✅ 已配置个人邮箱</p>
+                            <p class="mb-0 small">
+                                发件邮箱: <strong>{{ user.smtp_username }}</strong><br>
+                                SMTP服务器: {{ user.smtp_server }}:{{ user.smtp_port }}
+                            </p>
+                        {% else %}
+                            <p class="mb-1">ℹ️ 使用系统默认邮箱配置</p>
+                            <p class="mb-0 small">系统邮箱: office@alcochrom.com</p>
+                        {% endif %}
+                    </div>
+
+                    <form method="POST" action="">
+                        <!-- 邮箱账号 -->
+                        <div class="mb-3">
+                            <label for="smtp_username" class="form-label">
+                                邮箱账号 <span class="text-danger">*</span>
+                            </label>
+                            <input type="email" class="form-control" id="smtp_username" name="smtp_username" 
+                                   value="{{ user.smtp_username or '' }}" required
+                                   placeholder="例如: yourname@alcochrom.com">
+                            <div class="form-text">用于发送验证码的邮箱地址</div>
+                        </div>
+
+                        <!-- 邮箱密码 -->
+                        <div class="mb-3">
+                            <label for="smtp_password" class="form-label">
+                                邮箱密码/授权码 <span class="text-danger">*</span>
+                            </label>
+                            <input type="password" class="form-control" id="smtp_password" name="smtp_password" 
+                                   placeholder="{% if user.smtp_password %}已配置，留空保持不变{% else %}请输入密码或授权码{% endif %}">
+                            <div class="form-text">
+                                腾讯企业邮箱通常使用登录密码，QQ/163邮箱需要使用授权码
+                            </div>
+                        </div>
+
+                        <!-- 发件人名称 -->
+                        <div class="mb-3">
+                            <label for="smtp_sender_name" class="form-label">发件人显示名称</label>
+                            <input type="text" class="form-control" id="smtp_sender_name" name="smtp_sender_name" 
+                                   value="{{ user.smtp_sender_name or 'ERP系统' }}"
+                                   placeholder="ERP系统">
+                            <div class="form-text">用户收到的邮件中显示的发件人名称</div>
+                        </div>
+
+                        <!-- 高级设置折叠 -->
+                        <div class="mb-3">
+                            <a class="text-decoration-none" data-bs-toggle="collapse" href="#advancedSettings" role="button">
+                                <i class="bi bi-gear"></i> 高级设置
+                            </a>
+                            <div class="collapse mt-2" id="advancedSettings">
+                                <div class="card card-body bg-light">
+                                    <!-- SMTP服务器 -->
+                                    <div class="mb-3">
+                                        <label for="smtp_server" class="form-label">SMTP服务器</label>
+                                        <input type="text" class="form-control" id="smtp_server" name="smtp_server" 
+                                               value="{{ user.smtp_server or 'smtp.exmail.qq.com' }}"
+                                               placeholder="smtp.exmail.qq.com">
+                                    </div>
+
+                                    <!-- SMTP端口 -->
+                                    <div class="mb-3">
+                                        <label for="smtp_port" class="form-label">SMTP端口</label>
+                                        <input type="number" class="form-control" id="smtp_port" name="smtp_port" 
+                                               value="{{ user.smtp_port or 465 }}"
+                                               placeholder="465">
+                                        <div class="form-text">465(SSL) 或 587(TLS)</div>
+                                    </div>
+
+                                    <!-- SSL/TLS -->
+                                    <div class="form-check mb-3">
+                                        <input class="form-check-input" type="checkbox" id="smtp_use_ssl" name="smtp_use_ssl" 
+                                               {% if user.smtp_use_ssl is none or user.smtp_use_ssl %}checked{% endif %}>
+                                        <label class="form-check-label" for="smtp_use_ssl">
+                                            使用SSL加密连接
+                                        </label>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 测试邮件 -->
+                        <div class="mb-4">
+                            <label for="test_email" class="form-label">
+                                <i class="bi bi-send"></i> 测试邮件（可选）
+                            </label>
+                            <input type="email" class="form-control" id="test_email" name="test_email" 
+                                   placeholder="输入邮箱地址进行测试发送">
+                            <div class="form-text">保存配置后会向此邮箱发送一封测试邮件</div>
+                        </div>
+
+                        <!-- 操作按钮 -->
+                        <div class="d-flex justify-content-between">
+                            <div>
+                                <button type="submit" class="btn btn-primary">
+                                    <i class="bi bi-save"></i> 保存配置
+                                </button>
+                                
+                                {% if user.has_email_config() %}
+                                <button type="submit" name="action" value="clear" class="btn btn-outline-danger ms-2"
+                                        onclick="return confirm('确定要恢复使用系统默认邮箱吗？')">
+                                    <i class="bi bi-trash"></i> 恢复默认
+                                </button>
+                                {% endif %}
+                            </div>
+                            
+                            <a href="{% if user.id == current_user.id %}{{ url_for('user.user_profile') }}{% else %}{{ url_for('user.list_users') }}{% endif %}" 
+                               class="btn btn-outline-secondary">
+                                <i class="bi bi-arrow-left"></i> 返回
+                            </a>
+                        </div>
+                    </form>
+
+                    <!-- 帮助信息 -->
+                    <hr class="my-4">
+                    <div class="small text-muted">
+                        <h6><i class="bi bi-question-circle"></i> 常见邮箱配置</h6>
+                        <table class="table table-sm table-borderless">
+                            <tbody>
+                                <tr>
+                                    <td><strong>腾讯企业邮箱</strong></td>
+                                    <td>smtp.exmail.qq.com:465</td>
+                                    <td>使用邮箱密码</td>
+                                </tr>
+                                <tr>
+                                    <td><strong>QQ邮箱</strong></td>
+                                    <td>smtp.qq.com:465</td>
+                                    <td>需要授权码</td>
+                                </tr>
+                                <tr>
+                                    <td><strong>163邮箱</strong></td>
+                                    <td>smtp.163.com:465</td>
+                                    <td>需要授权码</td>
+                                </tr>
+                                <tr>
+                                    <td><strong>Gmail</strong></td>
+                                    <td>smtp.gmail.com:587</td>
+                                    <td>关闭SSL，开启TLS</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

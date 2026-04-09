@@ -93,7 +93,7 @@ class ContractForm(FlaskForm):
     )
     
     total_value = FloatField(
-        '合同总价',
+        '产品总价',
         validators=[Optional()],
         render_kw={'readonly': True, 'placeholder': '自动计算'}
     )

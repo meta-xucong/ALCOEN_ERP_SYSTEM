@@ -5,9 +5,10 @@
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-4">
     <h1><i class="bi bi-file-earmark-text"></i> {{ contract.contract_no }}</h1>
-    <div class="d-flex gap-2">
+    <div class="d-flex gap-2 flex-wrap justify-content-end">
         {% set delivery_info = contract.get_delivery_status_display() %}
         {% set payment_info = contract.get_payment_status_display() %}
+        {% set invoice_info = contract.get_invoice_status_display() %}
         <span class="badge {{ delivery_info.badge }} fs-6">
             <i class="bi bi-box-seam"></i> {{ delivery_info.text }}
         </span>
@@ -16,10 +17,22 @@
             <i class="bi bi-cash"></i> {{ payment_info.text }}
         </span>
         {% endif %}
+        <span class="badge {{ invoice_info.badge }} fs-6">
+            <i class="bi bi-receipt"></i> {{ invoice_info.text }}
+        </span>
     </div>
 </div>
 
-<!-- 合同信息 -->
+<style>
+.contract-financial-grid {
+    row-gap: 0.5rem;
+}
+
+.contract-financial-grid .finance-item {
+    margin-bottom: 0;
+}
+</style>
+
 <div class="card mb-4">
     <div class="card-header">
         <h5 class="mb-0"><i class="bi bi-file-text"></i> 合同信息</h5>
@@ -28,21 +41,25 @@
         <div class="row">
             <div class="col-md-3">
                 <p><strong>客户名称：</strong>{{ contract.company_name }}</p>
-                <p><strong>合同总价：</strong><span class="fs-4 text-primary">{% if current_user.can_view_financial() %}{{ contract.total_value|format_money }}{% else %}***{% endif %}</span></p>
+                <p><strong>产品总价：</strong>
+                    <span class="fs-5 text-primary">
+                        {% if current_user.can_view_financial() %}{{ contract.total_value|format_money }}{% else %}***{% endif %}
+                    </span>
+                </p>
             </div>
             <div class="col-md-3">
                 <p><strong>所属部门：</strong>
                     {% if contract.department %}
-                        <span class="badge bg-info">{{ contract.department }}</span>
+                    <span class="badge bg-info">{{ contract.department }}</span>
                     {% else %}
-                        <span class="text-muted">未设置</span>
+                    <span class="text-muted">未设置</span>
                     {% endif %}
                 </p>
                 <p><strong>负责人：</strong>
                     {% if contract.manager %}
-                        <span class="badge bg-secondary">{{ contract.manager }}</span>
+                    <span class="badge bg-secondary">{{ contract.manager }}</span>
                     {% else %}
-                        <span class="text-muted">未设置</span>
+                    <span class="text-muted">未设置</span>
                     {% endif %}
                 </p>
             </div>
@@ -55,10 +72,30 @@
                 <p><strong>更新时间：</strong>{{ contract.updated_at.strftime('%Y-%m-%d %H:%M') }}</p>
             </div>
         </div>
+        {% if current_user.can_view_financial() %}
+        <hr>
+        <div class="row contract-financial-grid">
+            <div class="col-12 col-lg-4 finance-item">
+                <p class="finance-item"><strong>实收金额（合同总价）：</strong><span class="text-success">{{ stats.target_receivable_value|format_money }}</span></p>
+            </div>
+            <div class="col-12 col-lg-8">
+                <div class="row row-cols-1 row-cols-md-3 g-3">
+                    <div class="col finance-item">
+                        <p class="finance-item"><strong>产品总价：</strong><span class="text-primary">{{ stats.total_planned_value|format_money }}</span></p>
+                    </div>
+                    <div class="col finance-item">
+                        <p class="finance-item"><strong>折扣金额：</strong><span class="text-warning">{{ stats.discount_value|format_money }}</span></p>
+                    </div>
+                    <div class="col finance-item">
+                        <p class="finance-item"><strong>已回款：</strong><span class="text-primary">{{ stats.total_paid_value|format_money }}</span></p>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% endif %}
     </div>
 </div>
 
-<!-- 发货产品计划 [v1.3] 添加型号列，优化数量显示，备注移到第二行（有条件显示） -->
 <div class="card mb-4">
     <div class="card-header bg-success text-white">
         <h5 class="mb-0"><i class="bi bi-box-seam"></i> 发货产品计划</h5>
@@ -70,10 +107,10 @@
                     <th>产品编码</th>
                     <th>产品名称</th>
                     <th>型号</th>
-                    <th class="text-center" style="width: 80px;">数量</th>
-                    <th class="text-center" style="width: 60px;">单位</th>
-                    <th class="text-center" style="width: 80px;">已发数量</th>
-                    <th class="text-center" style="width: 80px;">未发数量</th>
+                    <th class="text-center">数量</th>
+                    <th class="text-center">单位</th>
+                    <th class="text-center">已发数量</th>
+                    <th class="text-center">未发数量</th>
                     {% if current_user.can_view_financial() %}
                     <th class="text-end">计划货值</th>
                     <th class="text-end">已发货值</th>
@@ -86,11 +123,11 @@
                     <td><code>{{ cp.product_code }}</code></td>
                     <td>{{ cp.product_name or '-' }}</td>
                     <td>{{ cp.product_model or '-' }}</td>
-                    <td class="text-center">{{ cp.quantity|int }}</td>
+                    <td class="text-center">{{ '%.2f'|format(cp.quantity or 0) }}</td>
                     <td class="text-center">{{ cp.unit or '个' }}</td>
-                    <td class="text-center">{{ cp.get_delivered_quantity()|int }}</td>
+                    <td class="text-center">{{ '%.2f'|format(cp.get_delivered_quantity() or 0) }}</td>
                     <td class="text-center {% if cp.get_remaining_quantity() == 0 %}text-success{% else %}text-warning{% endif %}">
-                        {{ cp.get_remaining_quantity()|int }}
+                        {{ '%.2f'|format(cp.get_remaining_quantity() or 0) }}
                     </td>
                     {% if current_user.can_view_financial() %}
                     <td class="text-end">{{ cp.total|format_money }}</td>
@@ -110,7 +147,6 @@
     </div>
 </div>
 
-<!-- 发货记录 [v1.3] 优化显示，添加含税单价/金额，与输入页面对应 -->
 <div class="card mb-4">
     <div class="card-header bg-info text-white d-flex justify-content-between align-items-center">
         <h5 class="mb-0"><i class="bi bi-truck"></i> 发货记录</h5>
@@ -125,17 +161,17 @@
         <table class="table table-hover mb-0">
             <thead>
                 <tr>
-                    <th style="width: 100px;">发货日期</th>
+                    <th>发货日期</th>
                     <th>产品编码</th>
                     <th>产品名称</th>
                     <th>型号</th>
-                    <th class="text-center" style="width: 70px;">数量</th>
-                    <th style="width: 60px;">单位</th>
+                    <th class="text-center">数量</th>
+                    <th>单位</th>
                     {% if current_user.can_view_financial() %}
-                    <th class="text-end" style="width: 100px;">含税单价</th>
-                    <th class="text-end" style="width: 120px;">含税金额</th>
+                    <th class="text-end">含税单价</th>
+                    <th class="text-end">含税金额</th>
                     {% endif %}
-                    <th style="width: 80px;">经手人</th>
+                    <th>经手人</th>
                     <th>备注</th>
                 </tr>
             </thead>
@@ -146,7 +182,7 @@
                     <td><code>{{ trans.product_code }}</code></td>
                     <td>{{ trans.product_name or '-' }}</td>
                     <td>{{ trans.product_model or '-' }}</td>
-                    <td class="text-center">{{ trans.quantity|int }}</td>
+                    <td class="text-center">{{ '%.2f'|format(trans.quantity or 0) }}</td>
                     <td>{{ trans.unit }}</td>
                     {% if current_user.can_view_financial() %}
                     <td class="text-end">{{ trans.price_with_tax|format_money }}</td>
@@ -166,7 +202,6 @@
     </div>
 </div>
 
-<!-- 回款记录 [v1.3] 新增独立回款记录板块，与输入页面对应 -->
 {% if current_user.can_view_financial() %}
 <div class="card mb-4">
     <div class="card-header bg-warning text-dark">
@@ -177,9 +212,10 @@
         <table class="table table-hover mb-0">
             <thead>
                 <tr>
-                    <th style="width: 100px;">回款日期</th>
-                    <th class="text-end" style="width: 130px;">回款金额</th>
-                    <th style="width: 100px;">经手人</th>
+                    <th>回款日期</th>
+                    <th class="text-end">回款金额</th>
+                    <th>开票记录</th>
+                    <th>经手人</th>
                     <th>对应产品</th>
                     <th>备注</th>
                 </tr>
@@ -189,12 +225,19 @@
                 <tr>
                     <td>{{ payment.payment_date|format_date }}</td>
                     <td class="text-end text-success fw-bold">{{ payment.payment_amount|format_money }}</td>
+                    <td>
+                        {% if payment.invoice_date %}
+                        <span class="text-success">{{ payment.invoice_date|format_date }}</span>
+                        {% else %}
+                        <span class="text-danger">未开票</span>
+                        {% endif %}
+                    </td>
                     <td>{{ payment.handler or '-' }}</td>
                     <td>
                         {% if payment.contract_product %}
-                            <small>{{ payment.contract_product.product_code }}</small>
+                        <small>{{ payment.contract_product.product_code }}</small>
                         {% else %}
-                            <span class="text-muted">-</span>
+                        <span class="text-muted">-</span>
                         {% endif %}
                     </td>
                     <td><small class="text-muted">{{ payment.remark or '-' }}</small></td>
@@ -211,9 +254,7 @@
 </div>
 {% endif %}
 
-<!-- [v1.4] 附件和合同文件 - 并排显示 -->
 <div class="row mb-4">
-    <!-- 附件图片 -->
     <div class="col-md-6">
         <div class="card h-100">
             <div class="card-header bg-primary text-white">
@@ -224,8 +265,8 @@
                 <div class="d-flex flex-wrap gap-2">
                     {% for img in contract.images %}
                     <div class="position-relative">
-                        <img src="{{ url_for('static', filename=img.filepath) }}" 
-                             class="img-thumbnail" 
+                        <img src="{{ url_for('static', filename=img.filepath) }}"
+                             class="img-thumbnail"
                              style="width: 100px; height: 100px; object-fit: cover; cursor: pointer;"
                              onclick="openImageModal({{ url_for('static', filename=img.filepath)|tojson }})"
                              title="{{ img.filename }}">
@@ -244,8 +285,7 @@
             </div>
         </div>
     </div>
-    
-    <!-- [v1.4] 上传合同文件（物流经理无权限） -->
+
     {% if not current_user.is_logistics_manager() %}
     <div class="col-md-6">
         <div class="card h-100">
@@ -256,7 +296,7 @@
                 {% if contract.contract_files %}
                 <div class="list-group">
                     {% for doc in contract.contract_files %}
-                    <a href="{{ url_for('contract.download_contract_file', contract_id=contract.id, file_id=doc.id) }}" 
+                    <a href="{{ url_for('contract.download_contract_file', contract_id=contract.id, file_id=doc.id) }}"
                        class="list-group-item list-group-item-action d-flex justify-content-between align-items-center"
                        target="_blank">
                         <div>
@@ -264,11 +304,11 @@
                             <span>{{ doc.filename }}</span>
                             <small class="text-muted">
                                 {% if doc.file_size < 1024 %}
-                                    {{ doc.file_size }} B
+                                {{ doc.file_size }} B
                                 {% elif doc.file_size < 1024 * 1024 %}
-                                    {{ (doc.file_size / 1024)|int }} KB
+                                {{ (doc.file_size / 1024)|int }} KB
                                 {% else %}
-                                    {{ (doc.file_size / (1024 * 1024))|round(1) }} MB
+                                {{ (doc.file_size / (1024 * 1024))|round(1) }} MB
                                 {% endif %}
                             </small>
                         </div>
@@ -288,44 +328,49 @@
     {% endif %}
 </div>
 
-<!-- 统计汇总 [v1.3] 发货情况去掉合同总价 -->
 <div class="card mb-4">
     <div class="card-header bg-secondary text-white">
         <h5 class="mb-0"><i class="bi bi-bar-chart"></i> 统计汇总</h5>
     </div>
     <div class="card-body">
-        <!-- 发货统计 -->
         <h6 class="text-muted mb-3"><i class="bi bi-box-seam"></i> 发货情况</h6>
         <div class="row mb-4">
             <div class="col-md-4 text-center">
                 <h6>计划总数量</h6>
-                <p class="fs-4">{{ stats.total_planned_qty|int }}</p>
+                <p class="fs-4">{{ '%.2f'|format(stats.total_planned_qty or 0) }}</p>
             </div>
             <div class="col-md-4 text-center">
                 <h6>已发货数量</h6>
-                <p class="fs-4 text-success">{{ stats.total_delivered_qty|int }}</p>
+                <p class="fs-4 text-success">{{ '%.2f'|format(stats.total_delivered_qty or 0) }}</p>
             </div>
             <div class="col-md-4 text-center">
                 <h6>未发货数量</h6>
                 <p class="fs-4 {% if stats.total_remaining_qty == 0 %}text-success{% else %}text-warning{% endif %}">
-                    {{ stats.total_remaining_qty|int }}
+                    {{ '%.2f'|format(stats.total_remaining_qty or 0) }}
                 </p>
             </div>
         </div>
         {% if current_user.can_view_financial() %}
-        <!-- 回款统计 -->
         <hr>
         <h6 class="text-muted mb-3"><i class="bi bi-cash"></i> 回款情况</h6>
-        <div class="row">
-            <div class="col-md-4 text-center">
-                <h6>合同总价</h6>
+        <div class="row row-cols-1 row-cols-md-5 g-2">
+            <div class="col text-center">
+                <h6>实收金额（合同总价）</h6>
+                <p class="fs-4 text-info">{{ stats.target_receivable_value|format_money }}</p>
+            </div>
+            <div class="col text-center">
+                <h6>产品总价</h6>
                 <p class="fs-4 text-primary">{{ stats.total_planned_value|format_money }}</p>
             </div>
-            <div class="col-md-4 text-center">
+            <div class="col text-center">
+                <h6>折扣金额</h6>
+                <p class="fs-4 text-warning">{{ stats.discount_value|format_money }}</p>
+            </div>
+            <div class="col text-center">
                 <h6>已回款金额</h6>
                 <p class="fs-4 text-success">{{ stats.total_paid_value|format_money }}</p>
             </div>
-            <div class="col-md-4 text-center">
+            <div class="col text-center">
                 <h6>未回款金额</h6>
                 <p class="fs-4 {% if stats.total_unpaid_value == 0 %}text-success{% else %}text-warning{% endif %}">
                     {{ stats.total_unpaid_value|format_money }}
@@ -336,7 +381,6 @@
     </div>
 </div>
 
-<!-- 备注日志 -->
 {% if current_user and not current_user.is_logistics_manager() %}
 <div class="card mb-4">
     <div class="card-header">
@@ -348,7 +392,6 @@
 </div>
 {% endif %}
 
-<!-- 操作按钮 -->
 <div class="d-flex justify-content-between mb-4">
     <a href="{{ url_for('contract.list_contracts') }}" class="btn btn-secondary">
         <i class="bi bi-arrow-left"></i> 返回
@@ -368,7 +411,6 @@
     </div>
 </div>
 
-<!-- 图片放大模态框 -->
 <div class="modal fade" id="imageModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-lg modal-dialog-centered">
         <div class="modal-content">
@@ -386,7 +428,6 @@
 
 {% block extra_js %}
 <script>
-// 图片放大查看
 function openImageModal(imageSrc) {
     document.getElementById('modalImage').src = imageSrc;
     const modal = new bootstrap.Modal(document.getElementById('imageModal'));

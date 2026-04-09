@@ -5,6 +5,71 @@
 {% set is_logistics = current_user and current_user.is_logistics_manager() %}
 
 {% block content %}
+<style>
+.wide-number-input {
+    min-width: 150px;
+    font-variant-numeric: tabular-nums;
+}
+
+.financial-summary-card .form-control[readonly] {
+    background-color: #f8f9fa;
+}
+
+.financial-summary-card .card-header.financial-header {
+    background: rgba(140, 82, 255, 0.12);
+    border-bottom: 1px solid rgba(140, 82, 255, 0.2);
+}
+
+.financial-summary-card .financial-field {
+    display: flex;
+    flex-direction: column;
+}
+
+.financial-summary-card .financial-field .form-text {
+    min-height: 1.5rem;
+}
+
+#financial-summary-card .field-actual {
+    order: 1;
+}
+
+#financial-summary-card .field-total {
+    order: 2;
+}
+
+#financial-summary-card .field-discount {
+    order: 3;
+}
+
+.product-row .product-name-input,
+.product-row .product-model-input,
+.transaction-row .trans-product-name,
+.transaction-row .trans-product-model {
+    max-width: 200px;
+}
+
+.product-row .product-qty,
+.transaction-row .trans-qty {
+    min-width: 140px;
+}
+
+.product-row .product-remark {
+    max-width: none;
+}
+
+.product-row .row.align-items-end,
+.transaction-row .row.align-items-end,
+.payment-row .row.align-items-end {
+    row-gap: 0.35rem;
+}
+
+.product-row .row.align-items-end > [class*="col-"],
+.transaction-row .row.align-items-end > [class*="col-"],
+.payment-row .row.align-items-end > [class*="col-"] {
+    margin-bottom: 0;
+}
+</style>
+
 <div class="row mb-4">
     <div class="col-12">
         <h1 class="d-flex align-items-center gap-3 mb-0">
@@ -150,7 +215,7 @@
     </div>
     
     <!-- 发货产品计划 [v1.3] 优化排版 -->
-    <div class="card mb-4">
+    <div class="card mb-4" id="product-plan-card">
         <div class="card-header bg-success text-white d-flex justify-content-between align-items-center">
             <h5 class="mb-0"><i class="bi bi-box-seam"></i> 发货产品计划</h5>
             {% if not is_logistics %}
@@ -171,6 +236,53 @@
         </div>
         {% endif %}
     </div>
+
+    {% if not is_logistics %}
+    <div class="card mb-4 financial-summary-card" id="financial-summary-card">
+        <div class="card-header financial-header">
+            <h5 class="mb-0"><i class="bi bi-currency-yen"></i> 合同金额信息</h5>
+        </div>
+        <div class="card-body">
+            <div class="row g-3 align-items-stretch">
+                <div class="col-md-4 financial-field field-actual">
+                    <label class="form-label">实收金额（合同总价）</label>
+                    <input type="number"
+                           class="form-control wide-number-input"
+                           id="actual_received_value"
+                           name="actual_received_value"
+                           step="0.01"
+                           min="0"
+                           inputmode="decimal"
+                           value="{% if contract and contract.actual_received_value is not none %}{{ '%.2f'|format(contract.actual_received_value) }}{% endif %}">
+                    <div class="form-text">用于回款完成判定，可手动调整。</div>
+                </div>
+                <div class="col-md-4 financial-field field-total">
+                    <label class="form-label">产品总价</label>
+                    <input type="number"
+                           class="form-control wide-number-input"
+                           id="total_value_display"
+                           step="0.01"
+                           min="0"
+                           readonly
+                           value="{{ '%.2f'|format(contract.total_value or 0) if contract else '0.00' }}">
+                    <div class="form-text">默认原价*数量。</div>
+                </div>
+                <div class="col-md-4 financial-field field-discount">
+                    <label class="form-label">折扣金额</label>
+                    <input type="number"
+                           class="form-control wide-number-input"
+                           id="discount_value_display"
+                           name="discount_value"
+                           step="0.01"
+                           min="0"
+                           readonly
+                           value="{{ '%.2f'|format(contract.discount_value or 0) if contract else '0.00' }}">
+                    <div class="form-text">自动计算：产品总价 - 实收金额（合同总价）。</div>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
     
     <!-- 发货记录 [v1.3] -->
     <div class="card mb-4">
@@ -377,7 +489,7 @@
         <!-- 第一行：产品基本信息 -->
         <div class="row align-items-end">
             <!-- 产品编码 - 下拉选择+手动输入切换 -->
-            <div class="col-md-2">
+            <div class="col-md-3">
                 <label class="form-label">产品编码 *</label>
                 <div class="input-group">
                     <select class="form-select product-code-select" 
@@ -407,18 +519,18 @@
                     </button>
                 </div>
             </div>
-            <div class="col-md-3">
+            <div class="col-md-2">
                 <label class="form-label">产品名称</label>
                 <input type="text" class="form-control product-name-input" name="product_{index}_name">
             </div>
-            <div class="col-md-3">
+            <div class="col-md-2">
                 <label class="form-label">型号</label>
                 <input type="text" class="form-control product-model-input" name="product_{index}_model">
             </div>
-            <div class="col-md-1">
+            <div class="col-md-2">
                 <label class="form-label">数量 *</label>
-                <input type="number" class="form-control product-qty" name="product_{index}_quantity" 
-                       step="1" min="0" pattern="\d*" inputmode="numeric"
+                <input type="number" class="form-control product-qty wide-number-input" name="product_{index}_quantity" 
+                       step="0.01" min="0" inputmode="decimal"
                        required onchange="calculateProductTotal(this)">
             </div>
             <div class="col-md-1">
@@ -427,15 +539,15 @@
             </div>
             <div class="col-md-2">
                 <label class="form-label">单价 *</label>
-                <input type="number" class="form-control product-price-input" name="product_{index}_price" 
-                       step="0.01" min="0" required onchange="calculateProductTotal(this)">
+                <input type="number" class="form-control product-price-input wide-number-input" name="product_{index}_price" 
+                       step="0.01" min="0" inputmode="decimal" required onchange="calculateProductTotal(this)">
             </div>
-            <div class="col-md-2">
+            <div class="col-md-3">
                 <label class="form-label">总价</label>
-                <input type="number" class="form-control product-total" name="product_{index}_total" 
+                <input type="number" class="form-control product-total wide-number-input" name="product_{index}_total" 
                        readonly step="0.01">
             </div>
-            <div class="col-md-4">
+            <div class="col-md-9">
                 <label class="form-label">备注</label>
                 <input type="text" class="form-control product-remark" name="product_{index}_remark" maxlength="100">
             </div>
@@ -470,14 +582,14 @@
                     <label class="form-label">产品名称</label>
                     <input type="text" class="form-control trans-product-name" readonly>
                 </div>
-                <div class="col-md-3">
+                <div class="col-md-2">
                     <label class="form-label">型号</label>
                     <input type="text" class="form-control trans-product-model" readonly>
                 </div>
-                <div class="col-md-1">
+                <div class="col-md-2">
                     <label class="form-label">数量 *</label>
-                    <input type="number" class="form-control trans-qty" name="transaction_{index}_quantity" 
-                           step="1" min="0" pattern="\d*" inputmode="numeric"
+                    <input type="number" class="form-control trans-qty wide-number-input" name="transaction_{index}_quantity" 
+                           step="0.01" min="0" inputmode="decimal"
                            required onchange="calculateTransactionTotal(this)">
                 </div>
                 <div class="col-md-2">
@@ -489,11 +601,11 @@
             <div class="row mt-3 align-items-end">
                 <!-- [v1.3] 隐藏含税单价字段，自动从产品计划获取 -->
                 <input type="hidden" class="form-control trans-price" name="transaction_{index}_price" value="0">
-                <div class="col-md-3">
+                <div class="col-md-4">
                     <label class="form-label">发货日期 *</label>
                     <input type="date" class="form-control" name="transaction_{index}_delivery_date" required>
                 </div>
-                <div class="col-md-2">
+                <div class="col-md-4">
                     <label class="form-label">经手人 *</label>
                     <input type="text" class="form-control" name="transaction_{index}_handler" 
                            required maxlength="50" placeholder="必填" value="{{ current_user.real_name or current_user.username }}">
@@ -519,8 +631,8 @@
         <div class="row align-items-end">
             <div class="col-md-2">
                 <label class="form-label">回款金额 *</label>
-                <input type="number" class="form-control" name="payment_{index}_amount" 
-                       step="0.01" min="0" required placeholder="0.00">
+                <input type="number" class="form-control wide-number-input" name="payment_{index}_amount" 
+                       step="0.01" min="0" inputmode="decimal" required placeholder="0.00">
             </div>
             <div class="col-md-2">
                 <label class="form-label">回款日期 *</label>
@@ -558,6 +670,135 @@
 let productCount = 0;
 let transactionCount = 0;
 let paymentCount = 0;
+let actualValueAutoFollow = true;
+
+function normalizeProductRowLayout(row) {
+    if (!row) return;
+    const codeCol = row.querySelector('.product-code-select')?.closest('[class*="col-"]');
+    const nameCol = row.querySelector('.product-name-input')?.closest('[class*="col-"]');
+    const modelCol = row.querySelector('.product-model-input')?.closest('[class*="col-"]');
+    const qtyCol = row.querySelector('.product-qty')?.closest('[class*="col-"]');
+    const unitCol = row.querySelector('.product-unit-input')?.closest('[class*="col-"]');
+    const priceCol = row.querySelector('.product-price-input')?.closest('[class*="col-"]');
+    const totalCol = row.querySelector('.product-total')?.closest('[class*="col-"]');
+    const remarkCol = row.querySelector('.product-remark')?.closest('[class*="col-"]');
+    if (codeCol) codeCol.className = 'col-md-3';
+    if (nameCol) nameCol.className = 'col-md-2';
+    if (modelCol) modelCol.className = 'col-md-2';
+    if (qtyCol) qtyCol.className = 'col-md-2';
+    if (unitCol) unitCol.className = 'col-md-1';
+    if (priceCol) priceCol.className = 'col-md-2';
+    if (totalCol) totalCol.className = 'col-md-3';
+    if (remarkCol) remarkCol.className = 'col-md-9';
+}
+
+function normalizeTransactionRowLayout(row) {
+    if (!row) return;
+    const selectCol = row.querySelector('[name^="transaction_"][name$="_contract_product_id"]')?.closest('[class*="col-"]');
+    const nameCol = row.querySelector('.trans-product-name')?.closest('[class*="col-"]');
+    const modelCol = row.querySelector('.trans-product-model')?.closest('[class*="col-"]');
+    const qtyCol = row.querySelector('.trans-qty')?.closest('[class*="col-"]');
+    const unitCol = row.querySelector('.trans-unit')?.closest('[class*="col-"]');
+    const dateCol = row.querySelector('[name^="transaction_"][name$="_delivery_date"]')?.closest('[class*="col-"]');
+    const handlerCol = row.querySelector('[name^="transaction_"][name$="_handler"]')?.closest('[class*="col-"]');
+    const remarkCol = row.querySelector('[name^="transaction_"][name$="_remark"]')?.closest('[class*="col-"]');
+    if (selectCol) selectCol.className = 'col-md-3';
+    if (nameCol) nameCol.className = 'col-md-3';
+    if (modelCol) modelCol.className = 'col-md-2';
+    if (qtyCol) qtyCol.className = 'col-md-2';
+    if (unitCol) unitCol.className = 'col-md-2';
+    if (dateCol) dateCol.className = 'col-md-4';
+    if (handlerCol) handlerCol.className = 'col-md-4';
+    if (remarkCol) remarkCol.className = 'col-md-4';
+}
+
+function applyFinancialUiTweaks() {
+    const financialCard = document.getElementById('financial-summary-card');
+    const financialTitle = financialCard?.querySelector('.card-header h5');
+    if (financialTitle) {
+        financialTitle.innerHTML = '<i class="bi bi-currency-yen"></i> 合同金额信息';
+    }
+
+    const totalInput = document.getElementById('total_value_display');
+    const actualInput = document.getElementById('actual_received_value');
+    const discountInput = document.getElementById('discount_value_display');
+    const totalField = totalInput?.closest('.financial-field');
+    const actualField = actualInput?.closest('.financial-field');
+    const discountField = discountInput?.closest('.financial-field');
+    if (actualField) actualField.style.order = '1';
+    if (totalField) totalField.style.order = '2';
+    if (discountField) discountField.style.order = '3';
+
+    const totalLabel = totalField?.querySelector('.form-label');
+    const actualLabel = actualField?.querySelector('.form-label');
+    const discountLabel = discountField?.querySelector('.form-label');
+    if (totalLabel) totalLabel.textContent = '产品总价';
+    if (actualLabel) actualLabel.textContent = '实收金额（合同总价）';
+    if (discountLabel) discountLabel.textContent = '折扣金额';
+
+    const totalTip = totalField?.querySelector('.form-text');
+    const actualTip = actualField?.querySelector('.form-text');
+    const discountTip = discountField?.querySelector('.form-text');
+    if (totalTip) totalTip.textContent = '默认原价*数量';
+    if (actualTip) actualTip.textContent = '用于回款完成判定，可手动调整';
+    if (discountTip) discountTip.textContent = '自动计算：产品总价 - 实收金额（合同总价）';
+}
+
+function toNumber(value, fallback = 0) {
+    const n = Number.parseFloat(value);
+    return Number.isFinite(n) ? n : fallback;
+}
+
+function round2(value) {
+    return Math.round((toNumber(value, 0) + Number.EPSILON) * 100) / 100;
+}
+
+function format2(value) {
+    return round2(value).toFixed(2);
+}
+
+function updateContractFinancials(forceSyncActual = false) {
+    const totalInput = document.getElementById('total_value_display');
+    const actualInput = document.getElementById('actual_received_value');
+    const discountInput = document.getElementById('discount_value_display');
+    if (!totalInput || !actualInput || !discountInput) return;
+
+    let totalValue = 0;
+    document.querySelectorAll('.product-total').forEach(input => {
+        totalValue += toNumber(input.value, 0);
+    });
+    totalValue = round2(totalValue);
+    totalInput.value = format2(totalValue);
+
+    if (forceSyncActual || actualInput.value === '' || actualValueAutoFollow) {
+        actualInput.value = format2(totalValue);
+    }
+
+    const actualValue = Math.max(0, round2(toNumber(actualInput.value, totalValue)));
+    actualInput.value = format2(actualValue);
+    discountInput.value = format2(Math.max(0, totalValue - actualValue));
+}
+
+function initContractFinancialInputs() {
+    const totalInput = document.getElementById('total_value_display');
+    const actualInput = document.getElementById('actual_received_value');
+    const discountInput = document.getElementById('discount_value_display');
+    if (!totalInput || !actualInput || !discountInput) return;
+
+    const totalValue = toNumber(totalInput.value, 0);
+    const actualValue = toNumber(actualInput.value, totalValue);
+    const discountValue = toNumber(discountInput.value, Math.max(0, totalValue - actualValue));
+    actualValueAutoFollow = Math.abs(actualValue - totalValue) < 0.01 && Math.abs(discountValue) < 0.01;
+
+    const onActualChanged = () => {
+        actualValueAutoFollow = false;
+        updateContractFinancials(false);
+    };
+    actualInput.addEventListener('input', onActualChanged);
+    actualInput.addEventListener('change', onActualChanged);
+
+    updateContractFinancials(actualInput.value === '');
+}
 
 function addProductRow() {
     const template = document.getElementById('product-row-template').innerHTML;
@@ -565,10 +806,13 @@ function addProductRow() {
     const container = document.getElementById('products-container');
     const tempDiv = document.createElement('div');
     tempDiv.innerHTML = html;
-    container.appendChild(tempDiv.firstElementChild);
+    const row = tempDiv.firstElementChild;
+    container.appendChild(row);
+    normalizeProductRowLayout(row);
     productCount++;
     document.getElementById('product_count').value = productCount;
     updateTransactionProductOptions();
+    updateContractFinancials();
 }
 
 function removeProductRow(btn) {
@@ -591,6 +835,7 @@ function reindexProducts() {
     productCount = rows.length;
     document.getElementById('product_count').value = productCount;
     updateTransactionProductOptions();
+    updateContractFinancials();
 }
 
 function calculateProductTotal(input) {
@@ -598,6 +843,7 @@ function calculateProductTotal(input) {
     const qty = parseFloat(row.querySelector('.product-qty').value) || 0;
     const price = parseFloat(row.querySelector('.product-price-input').value) || 0;
     row.querySelector('.product-total').value = (qty * price).toFixed(2);
+    updateContractFinancials();
 }
 
 // 发货记录管理
@@ -612,7 +858,9 @@ function addTransactionRow() {
     const container = document.getElementById('transactions-container');
     const tempDiv = document.createElement('div');
     tempDiv.innerHTML = html;
-    container.appendChild(tempDiv.firstElementChild);
+    const row = tempDiv.firstElementChild;
+    container.appendChild(row);
+    normalizeTransactionRowLayout(row);
     
     updateTransactionProductOptions(transactionCount);
     
@@ -1253,11 +1501,15 @@ function openImageModal(imageSrc) {
 window.onload = function() {
     {% if is_new %}
     addProductRow();
+    initContractFinancialInputs();
+    updateContractFinancials(true);
     {% else %}
     loadExistingData();
+    initContractFinancialInputs();
     // 初始化部门负责人联动
     initDepartmentManager();
     {% endif %}
+    applyFinancialUiTweaks();
 };
 
 {% if not is_new %}
@@ -1319,9 +1571,10 @@ function initDepartmentManager() {
 // 加载已有合同数据
 function loadExistingData() {
     // 加载产品计划
-    const existingProducts = [
+        const existingProducts = [
         {% for cp in contract.contract_products %}
         {
+            id: {{ cp.id }},
             product_code: '{{ cp.product_code }}',
             product_name: '{{ cp.product_name or "" }}',
             product_model: '{{ cp.product_model or "" }}',
@@ -1365,6 +1618,7 @@ function loadExistingData() {
             id: {{ payment.id }},
             payment_amount: {{ payment.payment_amount }},
             payment_date: '{{ payment.payment_date.isoformat() if payment.payment_date else "" }}',
+            invoice_date: '{{ payment.invoice_date.isoformat() if payment.invoice_date else "" }}',
             handler: '{{ payment.handler or "" }}',
             remark: '{{ payment.remark or "" }}',
             product_code: '{{ payment.contract_product.product_code if payment.contract_product else "" }}'
@@ -1378,6 +1632,7 @@ function loadExistingData() {
     });
     
     updateTransactionProductOptions();
+    updateContractFinancials();
 }
 
 function addProductRowWithData(data) {
@@ -1388,6 +1643,15 @@ function addProductRowWithData(data) {
     tempDiv.innerHTML = html;
     const row = tempDiv.firstElementChild;
     container.appendChild(row);
+    normalizeProductRowLayout(row);
+
+    if (data.id) {
+        const idInput = document.createElement('input');
+        idInput.type = 'hidden';
+        idInput.name = `product_${productCount}_id`;
+        idInput.value = data.id;
+        row.appendChild(idInput);
+    }
     
     const select = row.querySelector('.product-code-select');
     let matchedInDropdown = false;
@@ -1438,6 +1702,7 @@ function addProductRowWithData(data) {
     productCount++;
     document.getElementById('product_count').value = productCount;
     updateTransactionProductOptions();
+    updateContractFinancials();
 }
 
 function addTransactionRowWithData(data, isExisting = false) {
@@ -1448,6 +1713,7 @@ function addTransactionRowWithData(data, isExisting = false) {
     tempDiv.innerHTML = html;
     const row = tempDiv.firstElementChild;
     container.appendChild(row);
+    normalizeTransactionRowLayout(row);
     
     if (isExisting) {
         row.dataset.existingId = data.id;
@@ -1544,11 +1810,13 @@ function addPaymentRowWithData(data, isExisting = false) {
     // [v1.5.2] 填充字段值，添加空值检查
     const amountInput = row.querySelector(`[name="payment_${paymentCount}_amount"]`);
     const dateInput = row.querySelector(`[name="payment_${paymentCount}_date"]`);
+    const invoiceInput = row.querySelector(`[name="payment_${paymentCount}_invoice_date"]`);
     const handlerInput = row.querySelector(`[name="payment_${paymentCount}_handler"]`);
     const remarkInput = row.querySelector(`[name="payment_${paymentCount}_remark"]`);
     
     if (amountInput) amountInput.value = data.payment_amount;
     if (dateInput) dateInput.value = data.payment_date;
+    if (invoiceInput) invoiceInput.value = data.invoice_date || '';
     if (handlerInput) handlerInput.value = data.handler || '';
     if (remarkInput) remarkInput.value = data.remark || '';
     

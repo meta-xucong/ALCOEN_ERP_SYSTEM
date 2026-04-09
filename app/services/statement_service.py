@@ -6,6 +6,14 @@ from app.models import Transaction, Statement, StatementItem, Company, Contract
 
 class StatementService:
     """对账单服务类"""
+
+    @staticmethod
+    def _to_float2(value, default: float = 0.0) -> float:
+        """Convert value to float with 2-decimal precision."""
+        try:
+            return round(float(value), 2)
+        except (TypeError, ValueError):
+            return default
     
     @staticmethod
     def generate_statement_no() -> str:
@@ -191,6 +199,19 @@ class StatementService:
             trans = item.transaction
             trans.display_seq = item.display_seq
             transactions.append(trans)
+
+        # 对账单详情总金额：按对应合同的实收金额（合同总价）汇总
+        contract_ids = {tx.contract_id for tx in transactions if tx.contract_id}
+        statement_total_receivable = StatementService._to_float2(statement.statement_total, 0.0)
+        if contract_ids:
+            contracts = Contract.query.filter(Contract.id.in_(contract_ids)).all()
+            statement_total_receivable = StatementService._to_float2(
+                sum(
+                    (c.actual_received_value if c.actual_received_value is not None else c.total_value or 0.0)
+                    for c in contracts
+                ),
+                statement_total_receivable
+            )
         
         # [LOGIC-8] 解析筛选条件
         filter_conditions = {}
@@ -210,7 +231,8 @@ class StatementService:
             'statement': statement,
             'transactions': transactions,
             'filter_products': filter_conditions.get('product_names'),
-            'filter_conditions': filter_conditions  # [LOGIC-8] 新增
+            'filter_conditions': filter_conditions,  # [LOGIC-8] 新增
+            'statement_total_receivable': statement_total_receivable
         }
     
     @staticmethod

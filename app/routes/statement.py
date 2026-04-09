@@ -130,6 +130,7 @@ def view_statement(statement_no):
     return render_template('statement/result.html',
                          statement=result['statement'],
                          transactions=result['transactions'],
+                         statement_total_display=result.get('statement_total_receivable', result['statement'].statement_total),
                          filter_products=result['filter_products'],
                          filter_conditions=result.get('filter_conditions', {}),
                          companies=companies)

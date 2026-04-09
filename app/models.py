@@ -84,6 +84,8 @@ class Contract(db.Model):
     # [v1.4] 合同创建人
     created_by_id: Mapped[int] = mapped_column(ForeignKey('users.id'), nullable=True)
     total_value: Mapped[float] = mapped_column(Float, default=0)
+    actual_received_value: Mapped[float] = mapped_column(Float, default=0)  # 实收金额（回款完成判断基准）
+    discount_value: Mapped[float] = mapped_column(Float, default=0)  # 折扣金额（总价 - 实收金额）
     remark: Mapped[str] = mapped_column(Text, nullable=True)  # 自动记录修改日志
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now, onupdate=datetime.now)
@@ -142,6 +144,15 @@ class Contract(db.Model):
             'pending': {'text': '未回款', 'class': 'danger', 'badge': 'bg-danger'}
         }
         return status_map.get(self.payment_status, status_map['pending'])
+
+    def get_invoice_status_display(self):
+        """获取开票状态显示。"""
+        has_invoice = any(p.invoice_date for p in self.payment_records) or any(
+            t.invoice_date for t in self.transactions
+        )
+        if has_invoice:
+            return {'text': '已开票', 'class': 'success', 'badge': 'bg-success'}
+        return {'text': '未开票', 'class': 'danger', 'badge': 'bg-danger'}
     
     def append_remark(self, message: str):
         """追加备注记录"""
@@ -267,6 +278,7 @@ class PaymentRecord(db.Model):
     # 回款信息
     payment_amount: Mapped[float] = mapped_column(Float, nullable=False)  # 回款金额
     payment_date: Mapped[Date] = mapped_column(Date, nullable=False, index=True)  # 回款日期
+    invoice_date: Mapped[Date] = mapped_column(Date, nullable=True, index=True)  # 开票日期
     
     # 可选关联发货记录 [v1.3] 可选关联产品计划
     transaction_id: Mapped[int] = mapped_column(ForeignKey('transactions.id'), nullable=True)
@@ -409,7 +421,7 @@ Transaction.statement_items = relationship('StatementItem', back_populates='tran
 def calculate_total_price(mapper, connection, target):
     """自动计算总含税价格 [v1.3] 修复price为0时的计算问题"""
     if target.quantity is not None and target.price_with_tax is not None:
-        target.total_price_with_tax = float(target.quantity) * float(target.price_with_tax)
+        target.total_price_with_tax = round(float(target.quantity) * float(target.price_with_tax), 2)
 
 
 @event.listens_for(ContractProduct, 'before_insert')
@@ -417,7 +429,7 @@ def calculate_total_price(mapper, connection, target):
 def calculate_contract_product_total(mapper, connection, target):
     """自动计算合同产品总价 [v1.3] 修复price为0时的计算问题"""
     if target.quantity is not None and target.price is not None:
-        target.total = float(target.quantity) * float(target.price)
+        target.total = round(float(target.quantity) * float(target.price), 2)
 
 
 @event.listens_for(Transaction, 'after_insert')

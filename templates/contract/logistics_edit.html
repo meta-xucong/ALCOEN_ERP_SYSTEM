@@ -41,7 +41,7 @@
                 </p>
             </div>
             <div class="col-md-3">
-                <p><strong>合同总价：</strong><span class="text-muted">***</span></p>
+                <p><strong>产品总价：</strong><span class="text-muted">***</span></p>
                 <p><strong>创建时间：</strong>{{ contract.created_at.strftime('%Y-%m-%d') }}</p>
             </div>
             <div class="col-md-3">
@@ -76,10 +76,10 @@
                     <td><code>{{ cp.product_code }}</code></td>
                     <td>{{ cp.product_name or '-' }}</td>
                     <td>{{ cp.product_model or '-' }}</td>
-                    <td class="text-center">{{ cp.quantity|int }}</td>
-                    <td class="text-center">{{ cp.get_delivered_quantity()|int }}</td>
+                    <td class="text-center">{{ '%.2f'|format(cp.quantity or 0) }}</td>
+                    <td class="text-center">{{ '%.2f'|format(cp.get_delivered_quantity() or 0) }}</td>
                     <td class="text-center {% if cp.get_remaining_quantity() == 0 %}text-success{% else %}text-warning{% endif %}">
-                        {{ cp.get_remaining_quantity()|int }}
+                        {{ '%.2f'|format(cp.get_remaining_quantity() or 0) }}
                     </td>
                     <td class="text-end">***</td>
                 </tr>
@@ -235,7 +235,7 @@
                 <div class="col-md-1">
                     <label class="form-label">数量 *</label>
                     <input type="number" class="form-control trans-qty" name="transaction_{index}_quantity" 
-                           step="1" min="0" required>
+                           step="0.01" min="0" inputmode="decimal" required>
                 </div>
                 <div class="col-md-1">
                     <label class="form-label">单位</label>

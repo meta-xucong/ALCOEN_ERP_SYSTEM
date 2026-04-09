@@ -527,7 +527,7 @@
                     <tr class="table-primary">
                         <td colspan="8" class="text-end fs-5"><strong>合计：</strong></td>
                         <td class="text-end fs-5">
-                            <strong>{{ statement.statement_total|format_money }}</strong>
+                            <strong>{{ statement_total_display|format_money }}</strong>
                         </td>
                     </tr>
                 </tfoot>
@@ -547,8 +547,8 @@
             <div class="col-md-4">
                 <div class="card bg-light">
                     <div class="card-body text-center py-2">
-                        <div class="text-muted small">总金额</div>
-                        <div class="fs-4 fw-bold text-primary">{{ statement.statement_total|format_money }}</div>
+                        <div class="text-muted small">实收金额（合同总价）</div>
+                        <div class="fs-4 fw-bold text-primary">{{ statement_total_display|format_money }}</div>
                     </div>
                 </div>
             </div>

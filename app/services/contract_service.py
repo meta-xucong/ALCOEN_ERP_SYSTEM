@@ -9,6 +9,23 @@ from app.models import Contract, ContractProduct, Transaction, Product, PaymentR
 
 class ContractService:
     """合同服务类"""
+
+    @staticmethod
+    def _to_float2(value, default: float = 0.0) -> float:
+        """将输入转换为两位小数浮点数。"""
+        try:
+            return round(float(value), 2)
+        except (TypeError, ValueError):
+            return default
+
+    @staticmethod
+    def _normalize_contract_amounts(total_value: float, actual_received_value: float = None) -> tuple:
+        """规范化合同总价、实收金额、折扣金额。"""
+        total = ContractService._to_float2(total_value, 0.0)
+        actual = total if actual_received_value is None else ContractService._to_float2(actual_received_value, total)
+        actual = max(0.0, actual)
+        discount = max(0.0, round(total - actual, 2))
+        return total, actual, discount
     
     @staticmethod
     def create_contract(contract_data: dict, products_data: list) -> Contract:
@@ -41,9 +58,17 @@ class ContractService:
             raise ValueError("请至少添加一种发货产品")
         
         try:
-            # 计算合同总价
-            total_value = sum(p.get('total', p.get('quantity', 0) * p.get('price', 0)) 
-                             for p in products_data)
+            # 计算合同总价，并规范实收/折扣金额
+            calculated_total = sum(
+                ContractService._to_float2(p.get('total', p.get('quantity', 0) * p.get('price', 0)))
+                for p in products_data
+            )
+            requested_total = contract_data.get('total_value', calculated_total)
+            requested_actual = contract_data.get('actual_received_value')
+            total_value, actual_received_value, discount_value = ContractService._normalize_contract_amounts(
+                requested_total,
+                requested_actual if requested_actual is not None else requested_total
+            )
             
             # 创建合同 [问题4] 添加归属人, [v1.4] 添加创建人
             contract = Contract(
@@ -54,7 +79,9 @@ class ContractService:
                 manager=contract_data.get('manager'),
                 created_by_id=contract_data.get('created_by_id'),
                 status='pending',
-                total_value=contract_data.get('total_value', total_value),
+                total_value=total_value,
+                actual_received_value=actual_received_value,
+                discount_value=discount_value,
                 remark=None
             )
             db.session.add(contract)
@@ -77,9 +104,9 @@ class ContractService:
                     default_price=float(product_data.get('price', 0)) if product_data.get('price') else None
                 )
                 
-                quantity = float(product_data.get('quantity', 0))
-                price = float(product_data.get('price', 0))
-                total = quantity * price
+                quantity = ContractService._to_float2(product_data.get('quantity', 0))
+                price = ContractService._to_float2(product_data.get('price', 0))
+                total = round(quantity * price, 2)
                 
                 cp = ContractProduct(
                     contract_id=contract.id,
@@ -122,7 +149,19 @@ class ContractService:
                     contract.append_remark(f"归属人更新: {old_owner or '无'} -> 无")
         
         if 'total_value' in data:
-            contract.total_value = data['total_value']
+            contract.total_value = ContractService._to_float2(data['total_value'], contract.total_value or 0.0)
+
+        if 'actual_received_value' in data or 'total_value' in data:
+            total_value = contract.total_value or 0.0
+            existing_actual = contract.actual_received_value
+            actual_value = data.get('actual_received_value', existing_actual if existing_actual is not None else total_value)
+            total_value, actual_value, discount_value = ContractService._normalize_contract_amounts(
+                total_value,
+                actual_value
+            )
+            contract.total_value = total_value
+            contract.actual_received_value = actual_value
+            contract.discount_value = discount_value
         
         # 追加备注
         if data.get('remark_append'):
@@ -159,7 +198,7 @@ class ContractService:
         cp = ContractProduct.query.get(cp_id) if cp_id else None
         
         # 检查发货数量是否超过合同数量
-        quantity = float(transaction_data.get('quantity', 0))
+        quantity = ContractService._to_float2(transaction_data.get('quantity', 0))
         if cp and is_new:
             # [v1.3修复] 仅对新记录进行数量验证
             delivered = cp.get_delivered_quantity()
@@ -205,9 +244,9 @@ class ContractService:
             product_name=cp.product_name if cp else transaction_data.get('product_name'),
             product_model=cp.product_model if cp else transaction_data.get('product_model'),
             product_type=cp.product_type if cp else transaction_data.get('product_type'),
-            quantity=float(transaction_data.get('quantity', 0)),
+            quantity=quantity,
             unit=transaction_data.get('unit', cp.unit if cp else '个') or '个',
-            price_with_tax=float(transaction_data.get('price_with_tax', 0) or 0),
+            price_with_tax=ContractService._to_float2(transaction_data.get('price_with_tax', 0)),
             handler=handler,
             delivery_date=delivery_date,
             invoice_date=invoice_date,
@@ -250,7 +289,7 @@ class ContractService:
         contract = Contract.query.get_or_404(contract_id)
         
         # 验证回款金额
-        payment_amount = float(payment_data.get('payment_amount', 0))
+        payment_amount = ContractService._to_float2(payment_data.get('payment_amount', 0))
         if payment_amount <= 0:
             raise ValueError("回款金额必须大于0")
         
@@ -266,6 +305,7 @@ class ContractService:
         payment_date = parse_date(payment_data.get('payment_date'))
         if not payment_date:
             raise ValueError("回款日期不能为空")
+        invoice_date = parse_date(payment_data.get('invoice_date'))
         
         # 处理关联的产品计划 [v1.3] 支持contract_product_id 或 product_code
         contract_product_id = None
@@ -294,6 +334,7 @@ class ContractService:
             company_name=contract.company_name,
             payment_amount=payment_amount,
             payment_date=payment_date,
+            invoice_date=invoice_date,
             handler=payment_data.get('handler', '').strip() or None,
             remark=payment_data.get('remark')
         )
@@ -344,21 +385,21 @@ class ContractService:
         contract = Contract.query.get_or_404(contract_id)
         
         products_stats = []
-        total_planned_qty = 0
-        total_delivered_qty = 0
-        total_remaining_qty = 0
-        total_planned_value = 0
-        total_delivered_value = 0
-        total_remaining_value = 0
+        total_planned_qty = 0.0
+        total_delivered_qty = 0.0
+        total_remaining_qty = 0.0
+        products_planned_value = 0.0
+        total_delivered_value = 0.0
+        total_remaining_value = 0.0
         
         for cp in contract.contract_products:
-            planned_qty = cp.quantity
-            delivered_qty = cp.get_delivered_quantity()
-            remaining_qty = cp.get_remaining_quantity()
+            planned_qty = ContractService._to_float2(cp.quantity)
+            delivered_qty = ContractService._to_float2(cp.get_delivered_quantity())
+            remaining_qty = ContractService._to_float2(cp.get_remaining_quantity())
             
-            planned_value = cp.total
-            delivered_value = cp.get_delivered_value()
-            remaining_value = cp.get_remaining_value()
+            planned_value = ContractService._to_float2(cp.total)
+            delivered_value = ContractService._to_float2(cp.get_delivered_value())
+            remaining_value = ContractService._to_float2(cp.get_remaining_value())
             
             products_stats.append({
                 'product_id': cp.id,
@@ -375,26 +416,37 @@ class ContractService:
             total_planned_qty += planned_qty
             total_delivered_qty += delivered_qty
             total_remaining_qty += remaining_qty
-            total_planned_value += planned_value
+            products_planned_value += planned_value
             total_delivered_value += delivered_value
             total_remaining_value += remaining_value
         
         is_completed = total_remaining_qty == 0 and total_planned_qty > 0
         
         # [v1.3] 从 PaymentRecord 表计算总回款金额
-        total_paid_value = sum(
-            (p.payment_amount or 0) for p in contract.payment_records
+        total_planned_value = ContractService._to_float2(contract.total_value, products_planned_value)
+        target_receivable_value = ContractService._to_float2(
+            contract.actual_received_value if contract.actual_received_value is not None else total_planned_value,
+            total_planned_value
         )
-        total_unpaid_value = total_planned_value - total_paid_value
+        discount_value = ContractService._to_float2(
+            contract.discount_value,
+            max(0.0, total_planned_value - target_receivable_value)
+        )
+        total_paid_value = ContractService._to_float2(
+            sum((p.payment_amount or 0) for p in contract.payment_records)
+        )
+        total_unpaid_value = ContractService._to_float2(target_receivable_value - total_paid_value)
         
         return {
             'products': products_stats,
-            'total_planned_qty': total_planned_qty,
-            'total_delivered_qty': total_delivered_qty,
-            'total_remaining_qty': total_remaining_qty,
+            'total_planned_qty': ContractService._to_float2(total_planned_qty),
+            'total_delivered_qty': ContractService._to_float2(total_delivered_qty),
+            'total_remaining_qty': ContractService._to_float2(total_remaining_qty),
             'total_planned_value': total_planned_value,
-            'total_delivered_value': total_delivered_value,
-            'total_remaining_value': total_remaining_value,
+            'target_receivable_value': target_receivable_value,
+            'discount_value': discount_value,
+            'total_delivered_value': ContractService._to_float2(total_delivered_value),
+            'total_remaining_value': ContractService._to_float2(total_remaining_value),
             'total_paid_value': total_paid_value,  # [LOGIC-7] 已回款金额
             'total_unpaid_value': max(0, total_unpaid_value),  # [LOGIC-7] 未回款金额
             'is_completed': is_completed,
@@ -425,13 +477,13 @@ class ContractService:
         else:
             delivery_status = 'pending'
         
-        # 计算回款状态
-        total_planned_value = stats['total_planned_value']
-        total_paid_value = stats.get('total_paid_value', 0)
+        # 计算回款状态（仅以实收金额目标作为完成基准）
+        target_receivable_value = ContractService._to_float2(stats.get('target_receivable_value', 0))
+        total_paid_value = ContractService._to_float2(stats.get('total_paid_value', 0))
         
-        if total_planned_value == 0:
-            payment_status = 'pending'
-        elif total_paid_value >= total_planned_value:
+        if target_receivable_value <= 0:
+            payment_status = 'completed'
+        elif total_paid_value >= target_receivable_value:
             payment_status = 'completed'
         elif total_paid_value > 0:
             payment_status = 'partial'
@@ -551,6 +603,9 @@ class ContractService:
         contract_no: str = None,
         company_name: str = None,
         status: str = None,
+        delivery_statuses: list = None,
+        payment_statuses: list = None,
+        invoice_statuses: list = None,
         owner: str = None,
         dept_or_manager: str = None,
         department: str = None,
@@ -567,6 +622,12 @@ class ContractService:
         
         if status:
             query = query.filter(Contract.status == status)
+
+        if delivery_statuses:
+            query = query.filter(Contract.delivery_status.in_(delivery_statuses))
+
+        if payment_statuses:
+            query = query.filter(Contract.payment_status.in_(payment_statuses))
         
         # [问题4] 按归属人筛选（兼容旧版）
         if owner:
@@ -589,6 +650,25 @@ class ContractService:
         # [v1.4] 按创建人筛选（权限过滤）
         if created_by:
             query = query.filter(Contract.created_by_id == created_by)
+
+        if invoice_statuses:
+            from sqlalchemy import or_
+            payment_invoice_exists = db.session.query(PaymentRecord.id).filter(
+                PaymentRecord.contract_id == Contract.id,
+                PaymentRecord.invoice_date.isnot(None)
+            ).exists()
+            transaction_invoice_exists = db.session.query(Transaction.id).filter(
+                Transaction.contract_id == Contract.id,
+                Transaction.invoice_date.isnot(None)
+            ).exists()
+            has_invoice_expr = or_(payment_invoice_exists, transaction_invoice_exists)
+            invoice_filters = []
+            if 'invoiced' in invoice_statuses:
+                invoice_filters.append(has_invoice_expr)
+            if 'not_invoiced' in invoice_statuses:
+                invoice_filters.append(~has_invoice_expr)
+            if invoice_filters:
+                query = query.filter(or_(*invoice_filters))
         
         return query.order_by(Contract.created_at.desc()).paginate(
             page=page, per_page=per_page, error_out=False
@@ -619,9 +699,9 @@ class ContractService:
             default_price=float(data.get('price', 0)) if data.get('price') else None
         )
         
-        quantity = float(data.get('quantity', 0))
-        price = float(data.get('price', 0))
-        total = quantity * price
+        quantity = ContractService._to_float2(data.get('quantity', 0))
+        price = ContractService._to_float2(data.get('price', 0))
+        total = round(quantity * price, 2)
         
         cp = ContractProduct(
             contract_id=contract_id,
@@ -638,9 +718,21 @@ class ContractService:
         )
         
         db.session.add(cp)
+        db.session.flush()
         
-        # 更新合同总价
-        contract.total_value = sum(p.total for p in contract.contract_products) + total
+        # 更新合同总价与实收/折扣
+        old_total = ContractService._to_float2(contract.total_value)
+        old_actual = ContractService._to_float2(
+            contract.actual_received_value if contract.actual_received_value is not None else old_total,
+            old_total
+        )
+        auto_follow = abs(old_actual - old_total) < 0.01 and abs(ContractService._to_float2(contract.discount_value)) < 0.01
+        new_total = ContractService._to_float2(sum(p.total for p in contract.contract_products))
+        new_actual = new_total if auto_follow else old_actual
+        new_total, new_actual, new_discount = ContractService._normalize_contract_amounts(new_total, new_actual)
+        contract.total_value = new_total
+        contract.actual_received_value = new_actual
+        contract.discount_value = new_discount
         action = "新建产品并添加" if is_new else "添加"
         contract.append_remark(f"{action}产品计划: {data['product_code']} x{quantity}")
         
@@ -656,10 +748,10 @@ class ContractService:
         cp.product_name = data.get('product_name', cp.product_name)
         cp.product_model = data.get('product_model', cp.product_model)
         cp.product_type = data.get('product_type', cp.product_type)
-        cp.quantity = float(data.get('quantity', cp.quantity))
+        cp.quantity = ContractService._to_float2(data.get('quantity', cp.quantity), cp.quantity)
         cp.unit = data.get('unit', cp.unit)
-        cp.price = float(data.get('price', cp.price))
-        cp.total = cp.quantity * cp.price
+        cp.price = ContractService._to_float2(data.get('price', cp.price), cp.price)
+        cp.total = round(cp.quantity * cp.price, 2)
         if 'remark' in data:
             cp.remark = data.get('remark')
         
@@ -668,8 +760,18 @@ class ContractService:
         # 更新合同总价
         contract = Contract.query.get(cp.contract_id)
         if contract:
-            total = sum(p.total for p in contract.contract_products)
+            old_total = ContractService._to_float2(contract.total_value)
+            old_actual = ContractService._to_float2(
+                contract.actual_received_value if contract.actual_received_value is not None else old_total,
+                old_total
+            )
+            auto_follow = abs(old_actual - old_total) < 0.01 and abs(ContractService._to_float2(contract.discount_value)) < 0.01
+            total = ContractService._to_float2(sum(p.total for p in contract.contract_products))
+            new_actual = total if auto_follow else old_actual
+            total, new_actual, new_discount = ContractService._normalize_contract_amounts(total, new_actual)
             contract.total_value = total
+            contract.actual_received_value = new_actual
+            contract.discount_value = new_discount
             contract.append_remark(f"修改产品计划: {cp.product_code}")
             db.session.commit()
         
@@ -690,6 +792,18 @@ class ContractService:
         # 更新合同备注
         contract = Contract.query.get(contract_id)
         if contract:
+            old_total = ContractService._to_float2(contract.total_value)
+            old_actual = ContractService._to_float2(
+                contract.actual_received_value if contract.actual_received_value is not None else old_total,
+                old_total
+            )
+            auto_follow = abs(old_actual - old_total) < 0.01 and abs(ContractService._to_float2(contract.discount_value)) < 0.01
+            new_total = ContractService._to_float2(sum(p.total for p in contract.contract_products if p.id != cp.id))
+            new_actual = new_total if auto_follow else old_actual
+            new_total, new_actual, new_discount = ContractService._normalize_contract_amounts(new_total, new_actual)
+            contract.total_value = new_total
+            contract.actual_received_value = new_actual
+            contract.discount_value = new_discount
             contract.append_remark(f"删除产品计划: {cp.product_code}")
         
         db.session.commit()
@@ -824,48 +938,10 @@ class ContractProductService:
     
     @staticmethod
     def update_contract_product(cp_id: int, data: dict) -> ContractProduct:
-        """更新产品计划"""
-        cp = ContractProduct.query.get_or_404(cp_id)
-        
-        cp.product_code = data.get('product_code', cp.product_code)
-        cp.product_name = data.get('product_name', cp.product_name)
-        cp.product_model = data.get('product_model', cp.product_model)
-        cp.product_type = data.get('product_type', cp.product_type)
-        cp.quantity = float(data.get('quantity', cp.quantity))
-        cp.unit = data.get('unit', cp.unit)
-        cp.price = float(data.get('price', cp.price))
-        cp.total = cp.quantity * cp.price
-        if 'remark' in data:
-            cp.remark = data.get('remark')
-        
-        db.session.commit()
-        
-        # 更新合同总价
-        contract = Contract.query.get(cp.contract_id)
-        if contract:
-            total = sum(p.total for p in contract.contract_products)
-            contract.total_value = total
-            contract.append_remark(f"修改产品计划: {cp.product_code}")
-            db.session.commit()
-        
-        return cp
+        """更新产品计划。"""
+        return ContractService.update_contract_product(cp_id, data)
     
     @staticmethod
     def delete_contract_product(cp_id: int) -> bool:
-        """删除产品计划（检查是否有交易记录）"""
-        cp = ContractProduct.query.get_or_404(cp_id)
-        
-        # 检查是否有交易记录
-        if cp.transactions:
-            return False  # 有关联交易，不能删除
-        
-        contract_id = cp.contract_id
-        db.session.delete(cp)
-        
-        # 更新合同备注
-        contract = Contract.query.get(contract_id)
-        if contract:
-            contract.append_remark(f"删除产品计划: {cp.product_code}")
-        
-        db.session.commit()
-        return True
+        """删除产品计划（检查是否有交易记录）。"""
+        return ContractService.delete_contract_product(cp_id)

@@ -16,6 +16,25 @@ from app.utils.decorators import login_required, permission_required
 contract_bp = Blueprint('contract', __name__, url_prefix='/contract')
 
 
+def _get_multi_query_values(param_name: str) -> list:
+    """读取 GET 多选参数，兼容重复参数与逗号拼接两种格式。"""
+    values = [v.strip() for v in request.args.getlist(param_name) if v and v.strip()]
+    if values:
+        return values
+    csv_value = (request.args.get(param_name, '') or '').strip()
+    if not csv_value:
+        return []
+    return [v.strip() for v in csv_value.split(',') if v.strip()]
+
+
+def _to_float2(value, default: float = 0.0) -> float:
+    """将输入转换为两位小数浮点数。"""
+    try:
+        return round(float(value), 2)
+    except (TypeError, ValueError):
+        return default
+
+
 @contract_bp.route('/')
 @contract_bp.route('/list')
 @login_required
@@ -29,6 +48,9 @@ def list_contracts():
     company_name = request.args.get('company_name', '')
     status = request.args.get('status', '')
     dept_or_manager = request.args.get('dept_or_manager', '')
+    delivery_statuses = _get_multi_query_values('delivery_status')
+    payment_statuses = _get_multi_query_values('payment_status')
+    invoice_statuses = _get_multi_query_values('invoice_status')
     
     # [v1.4] 根据用户角色过滤合同
     user = g.current_user
@@ -49,6 +71,9 @@ def list_contracts():
         contract_no=contract_no or None,
         company_name=company_name or None,
         status=status or None,
+        delivery_statuses=delivery_statuses or None,
+        payment_statuses=payment_statuses or None,
+        invoice_statuses=invoice_statuses or None,
         dept_or_manager=dept_or_manager or None,
         department=department_filter,
         created_by=created_by_filter
@@ -62,6 +87,12 @@ def list_contracts():
                          contract_no=contract_no,
                          company_name=company_name,
                          status=status,
+                         delivery_statuses=delivery_statuses,
+                         payment_statuses=payment_statuses,
+                         invoice_statuses=invoice_statuses,
+                         delivery_status_csv=','.join(delivery_statuses),
+                         payment_status_csv=','.join(payment_statuses),
+                         invoice_status_csv=','.join(invoice_statuses),
                          dept_or_manager=dept_or_manager,
                          companies=companies)
 
@@ -89,6 +120,9 @@ def new_contract():
                 'company_name': form.company_name.data,
                 'owner': form.owner.data.strip() if form.owner.data else None
             }
+            actual_received_raw = request.form.get('actual_received_value')
+            if actual_received_raw not in (None, ''):
+                contract_data['actual_received_value'] = _to_float2(actual_received_raw)
             
             # [问题3] 获取产品计划数据（从动态表单）- 适配下拉/手输双模式
             products_data = []
@@ -103,9 +137,9 @@ def new_contract():
                     'product_name': request.form.get(f'{prefix}name'),
                     'product_model': request.form.get(f'{prefix}model'),
                     'product_type': request.form.get(f'{prefix}type'),
-                    'quantity': float(request.form.get(f'{prefix}quantity', 0)),
+                    'quantity': _to_float2(request.form.get(f'{prefix}quantity', 0)),
                     'unit': request.form.get(f'{prefix}unit', '个'),
-                    'price': float(request.form.get(f'{prefix}price', 0)),
+                    'price': _to_float2(request.form.get(f'{prefix}price', 0)),
                     'remark': request.form.get(f'{prefix}remark')
                 }
                 if product_data['product_code'] and product_data['quantity'] > 0:
@@ -149,9 +183,9 @@ def new_contract():
                     if contract_product:
                         transaction_data = {
                             'contract_product_id': contract_product.id,
-                            'quantity': float(request.form.get(f'{prefix}quantity', 0)),
+                            'quantity': _to_float2(request.form.get(f'{prefix}quantity', 0)),
                             'unit': request.form.get(f'{prefix}unit'),
-                            'price_with_tax': float(request.form.get(f'{prefix}price', 0)),
+                            'price_with_tax': _to_float2(request.form.get(f'{prefix}price', 0)),
                             'handler': request.form.get(f'{prefix}handler', '').strip(),
                             'delivery_date': request.form.get(f'{prefix}delivery_date'),
                             'invoice_date': request.form.get(f'{prefix}invoice_date') or None,
@@ -165,10 +199,11 @@ def new_contract():
             for i in range(payment_count):
                 prefix = f'payment_{i}_'
                 payment_amount = request.form.get(f'{prefix}amount')
-                if payment_amount and float(payment_amount) > 0:
+                if payment_amount and _to_float2(payment_amount) > 0:
                     payment_data = {
-                        'payment_amount': float(payment_amount),
+                        'payment_amount': _to_float2(payment_amount),
                         'payment_date': request.form.get(f'{prefix}date'),
+                        'invoice_date': request.form.get(f'{prefix}invoice_date') or None,
                         'handler': request.form.get(f'{prefix}handler', '').strip() or None,
                         'remark': request.form.get(f'{prefix}remark'),
                         'contract_product_id': request.form.get(f'{prefix}contract_product_id') or None
@@ -297,12 +332,15 @@ def edit_contract(id):
                 'company_name': form.company_name.data,
                 'owner': form.owner.data.strip() if form.owner.data else None
             }
+            actual_received_raw = request.form.get('actual_received_value')
+            if actual_received_raw not in (None, ''):
+                contract_data['actual_received_value'] = _to_float2(actual_received_raw)
             ContractService.update_contract(id, contract_data)
             
             # [问题4] 处理产品计划的修改和新增
             product_count = int(request.form.get('product_count', 0))
             existing_product_ids = {cp.id for cp in contract.contract_products}
-            submitted_product_codes = set()
+            submitted_product_ids = set()
             
             for i in range(product_count):
                 prefix = f'product_{i}_'
@@ -310,35 +348,39 @@ def edit_contract(id):
                 product_code = request.form.get(f'{prefix}code') or request.form.get(f'{prefix}code_select')
                 if not product_code:
                     continue
-                    
-                submitted_product_codes.add(product_code)
+
+                product_id_raw = (request.form.get(f'{prefix}id') or '').strip()
+                product_id = int(product_id_raw) if product_id_raw.isdigit() else None
+
                 product_data = {
                     'product_code': product_code,
                     'product_name': request.form.get(f'{prefix}name'),
                     'product_model': request.form.get(f'{prefix}model'),
                     'product_type': request.form.get(f'{prefix}type'),
-                    'quantity': float(request.form.get(f'{prefix}quantity', 0)),
+                    'quantity': _to_float2(request.form.get(f'{prefix}quantity', 0)),
                     'unit': request.form.get(f'{prefix}unit', '个'),
-                    'price': float(request.form.get(f'{prefix}price', 0)),
+                    'price': _to_float2(request.form.get(f'{prefix}price', 0)),
                     'remark': request.form.get(f'{prefix}remark')
                 }
-                
-                # 查找是否已存在该产品计划
-                existing_cp = ContractProduct.query.filter_by(
-                    contract_id=id,
-                    product_code=product_code
-                ).first()
-                
+
+                # 优先按前端提交的产品计划ID更新，避免修改产品编码时“保存后看似不生效”
+                if product_id and product_id in existing_product_ids:
+                    ContractService.update_contract_product(product_id, product_data)
+                    submitted_product_ids.add(product_id)
+                    continue
+
+                # 兼容旧前端：没有 product_id 时，按产品编码匹配已有记录
+                existing_cp = ContractProduct.query.filter_by(contract_id=id, product_code=product_code).first()
                 if existing_cp:
-                    # 更新现有产品计划
                     ContractService.update_contract_product(existing_cp.id, product_data)
+                    submitted_product_ids.add(existing_cp.id)
                 else:
-                    # 新增产品计划
-                    ContractService.add_contract_product(id, product_data)
+                    new_cp = ContractService.add_contract_product(id, product_data)
+                    submitted_product_ids.add(new_cp.id)
             
             # 删除未被提交的产品计划（已被删除的）
             for cp in contract.contract_products:
-                if cp.product_code not in submitted_product_codes:
+                if cp.id not in submitted_product_ids:
                     # 检查是否有交易记录，没有则删除
                     if not cp.transactions:
                         ContractService.delete_contract_product(cp.id)
@@ -359,10 +401,31 @@ def edit_contract(id):
                     if int(trans_id) in existing_transaction_ids:
                         transaction = Transaction.query.get(int(trans_id))
                         if transaction:
+                            selected_product_code = (request.form.get(f'{prefix}contract_product_id') or '').strip()
+                            selected_contract_product = None
+                            if selected_product_code:
+                                selected_contract_product = ContractProduct.query.filter_by(
+                                    contract_id=id,
+                                    product_code=selected_product_code
+                                ).first()
+                                if selected_contract_product:
+                                    # 同步产品计划关联及冗余字段，避免“前端显示已变更但保存后回滚”
+                                    transaction.contract_product_id = selected_contract_product.id
+                                    transaction.product_id = selected_contract_product.product_id
+                                    transaction.product_code = selected_contract_product.product_code
+                                    transaction.product_name = selected_contract_product.product_name
+                                    transaction.product_model = selected_contract_product.product_model
+                                    transaction.product_type = selected_contract_product.product_type
+                                else:
+                                    current_app.logger.warning(
+                                        f"[v1.5.3] Transaction update product not found: "
+                                        f"contract_id={id}, product_code={selected_product_code}"
+                                    )
+
                             # 更新可编辑字段
                             quantity = request.form.get(f'{prefix}quantity')
                             if quantity is not None:
-                                transaction.quantity = float(quantity)
+                                transaction.quantity = _to_float2(quantity, transaction.quantity)
                             
                             handler = request.form.get(f'{prefix}handler')
                             if handler is not None:
@@ -374,12 +437,19 @@ def edit_contract(id):
                             
                             # 更新其他可选字段
                             price = request.form.get(f'{prefix}price')
-                            if price is not None:
-                                transaction.price_with_tax = float(price or 0)
+                            if price not in (None, ''):
+                                transaction.price_with_tax = _to_float2(price, transaction.price_with_tax)
+                            elif selected_contract_product and selected_contract_product.price is not None:
+                                transaction.price_with_tax = _to_float2(
+                                    selected_contract_product.price,
+                                    transaction.price_with_tax
+                                )
                             
                             unit = request.form.get(f'{prefix}unit')
                             if unit:
                                 transaction.unit = unit
+                            elif selected_contract_product and selected_contract_product.unit:
+                                transaction.unit = selected_contract_product.unit
                             
                             remark = request.form.get(f'{prefix}remark')
                             if remark is not None:
@@ -389,6 +459,8 @@ def edit_contract(id):
                             invoice_date = request.form.get(f'{prefix}invoice_date')
                             if invoice_date:
                                 transaction.invoice_date = datetime.strptime(invoice_date, '%Y-%m-%d').date()
+                            else:
+                                transaction.invoice_date = None
                         continue
                 
                 if product_code:
@@ -403,9 +475,9 @@ def edit_contract(id):
                     if contract_product:
                         transaction_data = {
                             'contract_product_id': contract_product.id,
-                            'quantity': float(request.form.get(f'{prefix}quantity', 0)),
+                            'quantity': _to_float2(request.form.get(f'{prefix}quantity', 0)),
                             'unit': request.form.get(f'{prefix}unit'),
-                            'price_with_tax': float(request.form.get(f'{prefix}price', 0)),
+                            'price_with_tax': _to_float2(request.form.get(f'{prefix}price', 0)),
                             'handler': request.form.get(f'{prefix}handler', '').strip(),
                             'delivery_date': request.form.get(f'{prefix}delivery_date'),
                             'invoice_date': request.form.get(f'{prefix}invoice_date') or None,
@@ -449,11 +521,17 @@ def edit_contract(id):
                         if payment:
                             payment_amount = request.form.get(f'{prefix}amount')
                             if payment_amount is not None:
-                                payment.payment_amount = float(payment_amount)
+                                payment.payment_amount = _to_float2(payment_amount)
                             
                             payment_date = request.form.get(f'{prefix}date')
                             if payment_date:
                                 payment.payment_date = datetime.strptime(payment_date, '%Y-%m-%d').date()
+
+                            invoice_date = request.form.get(f'{prefix}invoice_date')
+                            if invoice_date:
+                                payment.invoice_date = datetime.strptime(invoice_date, '%Y-%m-%d').date()
+                            else:
+                                payment.invoice_date = None
                             
                             handler = request.form.get(f'{prefix}handler')
                             if handler is not None:
@@ -471,7 +549,7 @@ def edit_contract(id):
                         continue
                 
                 payment_amount = request.form.get(f'{prefix}amount')
-                if payment_amount and float(payment_amount) > 0:
+                if payment_amount and _to_float2(payment_amount) > 0:
                     # [v1.5.2] 修复：直接创建PaymentRecord对象，避免Service方法中的重复commit
                     payment_date_str = request.form.get(f'{prefix}date')
                     payment_date_obj = datetime.strptime(payment_date_str, '%Y-%m-%d').date() if payment_date_str else None
@@ -484,8 +562,9 @@ def edit_contract(id):
                         contract_id=id,
                         contract_product_id=cp.id if cp else None,
                         company_name=contract.company_name,
-                        payment_amount=float(payment_amount),
+                        payment_amount=_to_float2(payment_amount),
                         payment_date=payment_date_obj,
+                        invoice_date=datetime.strptime(request.form.get(f'{prefix}invoice_date'), '%Y-%m-%d').date() if request.form.get(f'{prefix}invoice_date') else None,
                         handler=request.form.get(f'{prefix}handler', '').strip() or None,
                         remark=request.form.get(f'{prefix}remark')
                     )
@@ -599,8 +678,29 @@ def logistics_edit_contract(id):
                     submitted_transaction_ids.add(int(trans_id))
                     transaction = Transaction.query.get(int(trans_id))
                     if transaction:
+                        selected_product_code = (product_code or '').strip()
+                        selected_contract_product = None
+                        if selected_product_code:
+                            selected_contract_product = ContractProduct.query.filter_by(
+                                contract_id=contract.id,
+                                product_code=selected_product_code
+                            ).first()
+                            if selected_contract_product:
+                                # 同步产品计划关联及冗余字段，避免保存后产品信息未更新
+                                transaction.contract_product_id = selected_contract_product.id
+                                transaction.product_id = selected_contract_product.product_id
+                                transaction.product_code = selected_contract_product.product_code
+                                transaction.product_name = selected_contract_product.product_name
+                                transaction.product_model = selected_contract_product.product_model
+                                transaction.product_type = selected_contract_product.product_type
+                            else:
+                                current_app.logger.warning(
+                                    f"[v1.5.3] Logistics update product not found: "
+                                    f"contract_id={contract.id}, product_code={selected_product_code}"
+                                )
+
                         # 更新可编辑字段
-                        quantity = float(request.form.get(f'{prefix}quantity', 0))
+                        quantity = _to_float2(request.form.get(f'{prefix}quantity', 0))
                         handler = request.form.get(f'{prefix}handler', '').strip()
                         delivery_date_str = request.form.get(f'{prefix}delivery_date')
                         
@@ -614,12 +714,19 @@ def logistics_edit_contract(id):
                         
                         # 更新其他可选字段
                         price = request.form.get(f'{prefix}price')
-                        if price is not None:
-                            transaction.price_with_tax = float(price or 0)
+                        if price not in (None, ''):
+                            transaction.price_with_tax = _to_float2(price, transaction.price_with_tax)
+                        elif selected_contract_product and selected_contract_product.price is not None:
+                            transaction.price_with_tax = _to_float2(
+                                selected_contract_product.price,
+                                transaction.price_with_tax
+                            )
                         
                         unit = request.form.get(f'{prefix}unit')
                         if unit:
                             transaction.unit = unit
+                        elif selected_contract_product and selected_contract_product.unit:
+                            transaction.unit = selected_contract_product.unit
                         
                         remark = request.form.get(f'{prefix}remark')
                         if remark is not None:
@@ -635,7 +742,7 @@ def logistics_edit_contract(id):
                     ).first()
                     
                     if contract_product:
-                        quantity = float(request.form.get(f'{prefix}quantity', 0))
+                        quantity = _to_float2(request.form.get(f'{prefix}quantity', 0))
                         handler = request.form.get(f'{prefix}handler', '').strip()
                         delivery_date_str = request.form.get(f'{prefix}delivery_date')
                         
@@ -655,7 +762,7 @@ def logistics_edit_contract(id):
                                 product_type=contract_product.product_type,
                                 quantity=quantity,
                                 unit=request.form.get(f'{prefix}unit') or contract_product.unit or '个',
-                                price_with_tax=float(request.form.get(f'{prefix}price', 0) or 0),
+                                price_with_tax=_to_float2(request.form.get(f'{prefix}price', 0)),
                                 handler=handler,
                                 delivery_date=delivery_date,
                                 remark=request.form.get(f'{prefix}remark')
