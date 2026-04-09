@@ -120,25 +120,37 @@ class AuthService:
             return AuthResult(message='账号尚未通过审核，请联系管理员')
         
         # 检查是否需要两步验证
-        if require_2fa and device_fingerprint:
-            # 检查是否为受信任设备
-            if EmailService.is_trusted_device(user.id, device_fingerprint):
-                # 受信任设备，直接登录
-                return AuthResult(success=True, user=user)
-            
-            # 检查用户是否绑定了邮箱
-            if not user.email:
-                # 没有邮箱，直接登录（记录警告日志）
-                current_app.logger.warning(f'用户 {user.username} 未绑定邮箱，跳过两步验证')
-                return AuthResult(success=True, user=user)
-            
-            # 需要验证码验证
-            return AuthResult(
-                success=True,
-                user=user,
-                require_verify=True,
-                device_fingerprint=device_fingerprint
-            )
+        if require_2fa:
+            # 超级管理员强制二次验证：不允许通过受信任设备直接放行
+            if user.is_superadmin:
+                if not user.email:
+                    return AuthResult(message='管理员账号未绑定邮箱，无法完成安全验证')
+                return AuthResult(
+                    success=True,
+                    user=user,
+                    require_verify=True,
+                    device_fingerprint=device_fingerprint
+                )
+
+            if device_fingerprint:
+                # 检查是否为受信任设备
+                if EmailService.is_trusted_device(user.id, device_fingerprint):
+                    # 受信任设备，直接登录
+                    return AuthResult(success=True, user=user)
+                
+                # 检查用户是否绑定了邮箱
+                if not user.email:
+                    # 没有邮箱，直接登录（记录警告日志）
+                    current_app.logger.warning(f'用户 {user.username} 未绑定邮箱，跳过两步验证')
+                    return AuthResult(success=True, user=user)
+                
+                # 需要验证码验证
+                return AuthResult(
+                    success=True,
+                    user=user,
+                    require_verify=True,
+                    device_fingerprint=device_fingerprint
+                )
         
         return AuthResult(success=True, user=user)
     

@@ -11,6 +11,20 @@ from app.utils.decorators import login_required
 auth_bp = Blueprint('auth', __name__, url_prefix='/auth')
 
 
+def _get_client_ip() -> str:
+    """Get real client IP behind reverse proxy."""
+    x_forwarded_for = request.headers.get('X-Forwarded-For', '')
+    if x_forwarded_for:
+        # XFF format: client, proxy1, proxy2...
+        return x_forwarded_for.split(',')[0].strip()
+
+    x_real_ip = request.headers.get('X-Real-IP', '').strip()
+    if x_real_ip:
+        return x_real_ip
+
+    return request.remote_addr or ''
+
+
 @auth_bp.route('/login', methods=['GET', 'POST'])
 def login():
     """登录页面 - 支持两步验证"""
@@ -38,7 +52,7 @@ def login():
         
         # 获取设备信息
         user_agent = request.headers.get('User-Agent', '')
-        ip_address = request.remote_addr
+        ip_address = _get_client_ip()
         
         # 验证登录（支持两步验证）
         result = AuthService.authenticate(
@@ -87,7 +101,7 @@ def login():
         
         # 直接登录（受信任设备或无邮箱）
         next_url = request.args.get('next')
-        return _do_login(user, remember, request.remote_addr, next_url)
+        return _do_login(user, remember, ip_address, next_url)
     
     return render_template('auth/login.html', bg_type=bg_type, bg_image=bg_image)
 
@@ -137,7 +151,7 @@ def verify_code():
                 user_id=user.id,
                 device_fingerprint=fingerprint,
                 device_name=device_name,
-                ip_address=request.remote_addr
+                ip_address=_get_client_ip()
             )
         
         # 清除验证状态
@@ -147,7 +161,7 @@ def verify_code():
         session.pop('pending_verify_purpose', None)
         
         # 执行登录
-        return _do_login(user, remember, request.remote_addr)
+        return _do_login(user, remember, _get_client_ip())
     
     return render_template('auth/verify_code.html', user=user, bg_type=bg_type, bg_image=bg_image)
 
@@ -177,7 +191,7 @@ def resend_code():
     
     # 生成并发送新验证码
     fingerprint = session.get('pending_verify_fingerprint')
-    ip_address = request.remote_addr
+    ip_address = _get_client_ip()
     
     code, error = EmailService.create_verification_code(
         user=user,
