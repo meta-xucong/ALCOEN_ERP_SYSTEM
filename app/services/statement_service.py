@@ -97,12 +97,12 @@ class StatementService:
             if created_by:
                 query = query.filter(Contract.created_by_id == created_by)
         
-        # 5. 应用产品编码筛选（精确匹配，支持多个）
+        # 5. 应用产品编码筛选（模糊匹配，支持多个）
         if product_codes and len(product_codes) > 0 and product_codes[0]:
             code_filters = []
             for code in product_codes:
                 if code.strip():
-                    code_filters.append(Transaction.product_code == code.strip())
+                    code_filters.append(Transaction.product_code.contains(code.strip()))
             if code_filters:
                 query = query.filter(or_(*code_filters))
         

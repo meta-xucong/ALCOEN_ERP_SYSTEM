@@ -49,7 +49,7 @@
                         <div class="col-md-4 mb-3">
                             {{ form.product_code_filter.label(class="form-label") }}
                             {{ form.product_code_filter(class="form-control", placeholder="如: P0001, P0002") }}
-                            <div class="form-text">多个编码用逗号分隔，精确匹配</div>
+                            <div class="form-text">多个编码用逗号分隔，模糊匹配</div>
                         </div>
                         
                         <!-- 产品名称 -->
@@ -115,7 +115,7 @@
                 <ul>
                     <li><strong>公司名称：</strong>筛选特定客户的交易记录</li>
                     <li><strong>合同编号：</strong>筛选特定合同的交易记录（支持模糊匹配）</li>
-                    <li><strong>产品编码：</strong>精确匹配产品编码，多个用逗号分隔</li>
+                    <li><strong>产品编码：</strong>模糊匹配产品编码，多个用逗号分隔</li>
                     <li><strong>产品名称：</strong>模糊匹配产品名称，多个用逗号分隔</li>
                     <li><strong>时间范围：</strong>按发货日期筛选</li>
                 </ul>

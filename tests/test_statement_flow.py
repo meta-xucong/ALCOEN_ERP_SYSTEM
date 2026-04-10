@@ -78,6 +78,29 @@ def test_statement_generator_creates_statement(app, client, login, base_data):
         assert statement.record_count == 1
 
 
+def test_statement_generator_product_code_filter_supports_fuzzy_match(app, client, login, base_data):
+    """Product code filter should use fuzzy matching like product name."""
+    from app.models import Statement
+
+    with app.app_context():
+        _create_contract_with_transaction(base_data["owner_user_id"])
+
+    login(base_data["superadmin_id"])
+    resp = client.post(
+        "/statement/generator",
+        data={"product_code_filter": "ST-"},
+        follow_redirects=False,
+    )
+
+    assert resp.status_code == 302
+    assert "/statement/DZ" in resp.headers.get("Location", "")
+
+    with app.app_context():
+        statement = Statement.query.first()
+        assert statement is not None
+        assert statement.record_count == 1
+
+
 def test_statement_list_requires_login(client):
     """Statement list should redirect anonymous users to login."""
     resp = client.get("/statement/list", follow_redirects=False)

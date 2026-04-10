@@ -298,11 +298,11 @@ class StatementGeneratorForm(FlaskForm):
         render_kw={'placeholder': '输入合同编号（可选，模糊匹配）'}
     )
     
-    # 产品编码筛选（精确匹配，多个逗号分隔）
+    # 产品编码筛选（模糊匹配，多个逗号分隔）
     product_code_filter = StringField(
         '产品编码',
         validators=[Optional()],
-        render_kw={'placeholder': '输入产品编码，多个用逗号分隔（可选）'}
+        render_kw={'placeholder': '输入产品编码，多个用逗号分隔（可选，模糊匹配）'}
     )
     
     # 产品名称筛选（模糊匹配）

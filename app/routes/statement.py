@@ -30,7 +30,7 @@ def generator():
         start_date = form.start_date.data
         end_date = form.end_date.data
         
-        # 解析产品编码筛选（精确匹配）
+        # 解析产品编码筛选（模糊匹配）
         product_codes = []
         if form.product_code_filter.data:
             product_codes = [p.strip() for p in form.product_code_filter.data.split(',') if p.strip()]
