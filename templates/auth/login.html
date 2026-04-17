@@ -354,7 +354,7 @@
         <div class="login-card">
             <div class="login-header">
                 <img src="{{ url_for('static', filename='img/logo.png') }}" alt="ALCOEN">
-                <p>企业资源计划管理系统</p>
+                <p>{% if is_qc %}质量控制系统{% else %}企业资源计划管理系统{% endif %}</p>
             </div>
             
             {% with messages = get_flashed_messages(with_categories=true) %}
@@ -395,7 +395,7 @@
                 <span>或</span>
             </div>
             
-            <a href="{{ url_for('auth.register') }}" class="btn btn-register">
+            <a href="{% if is_qc %}{{ url_for('auth.register_qc') }}{% else %}{{ url_for('auth.register') }}{% endif %}" class="btn btn-register">
                 <i class="bi bi-person-plus"></i> 注册新账号
             </a>
         </div>

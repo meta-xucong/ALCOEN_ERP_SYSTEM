@@ -124,12 +124,23 @@ def test_login_uses_forwarded_ip_for_login_record(app, client):
             real_name="Sales IP",
             role_id=role.id,
             department_id=dept.id,
-            email=None,  # No email: non-admin direct login path
+            email="sales_ip_case@example.com",
             is_active=True,
             is_superadmin=False,
             require_password_change=False,
         )
         db.session.add(user)
+        db.session.flush()
+
+        fp = EmailService.generate_device_fingerprint("UA-IP-TEST", "8.8.8.8")
+        td = TrustedDevice(
+            user_id=user.id,
+            device_fingerprint=fp,
+            device_name="IP Test Device",
+            ip_address="8.8.8.8",
+            expires_at=datetime.now() + timedelta(days=30),
+        )
+        db.session.add(td)
         db.session.commit()
 
     resp = client.post(
@@ -144,3 +155,68 @@ def test_login_uses_forwarded_ip_for_login_record(app, client):
         user = User.query.filter_by(username="sales_ip_case").first()
         assert user is not None
         assert user.last_login_ip == "8.8.8.8"
+
+
+def test_login_verify_code_send_is_deduplicated_with_recent_code(app, client, monkeypatch):
+    """Repeated login attempts in a short window should not send duplicate emails."""
+    with app.app_context():
+        dept = Department(name="Ops")
+        db.session.add(dept)
+        db.session.flush()
+
+        role = Role(
+            name="Ops User",
+            code="ops_user_case",
+            permissions='["contract_view"]',
+            level=20,
+        )
+        db.session.add(role)
+        db.session.flush()
+
+        user = User(
+            username="ops_verify_dedupe",
+            password_hash=generate_password_hash("Pass123!"),
+            real_name="Ops Verify",
+            role_id=role.id,
+            department_id=dept.id,
+            email="ops_verify_dedupe@example.com",
+            is_active=True,
+            is_superadmin=False,
+            require_password_change=False,
+        )
+        db.session.add(user)
+        db.session.commit()
+
+    send_count = {"n": 0}
+
+    def _fake_send(*args, **kwargs):
+        send_count["n"] += 1
+        return True, None
+
+    monkeypatch.setattr(EmailService, "send_verify_code_email", _fake_send)
+
+    first = client.post(
+        "/auth/login",
+        data={"username": "ops_verify_dedupe", "password": "Pass123!"},
+        headers={"User-Agent": "UA-DEDUPE", "X-Forwarded-For": "11.11.11.11"},
+        follow_redirects=False,
+    )
+    assert first.status_code == 302
+    assert "/auth/verify-code" in first.headers.get("Location", "")
+    assert send_count["n"] == 1
+
+    with client.session_transaction() as sess:
+        sess.pop("pending_verify_user_id", None)
+        sess.pop("pending_verify_fingerprint", None)
+        sess.pop("pending_verify_remember", None)
+        sess.pop("pending_verify_purpose", None)
+
+    second = client.post(
+        "/auth/login",
+        data={"username": "ops_verify_dedupe", "password": "Pass123!"},
+        headers={"User-Agent": "UA-DEDUPE", "X-Forwarded-For": "11.11.11.11"},
+        follow_redirects=False,
+    )
+    assert second.status_code == 302
+    assert "/auth/verify-code" in second.headers.get("Location", "")
+    assert send_count["n"] == 1

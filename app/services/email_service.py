@@ -1,19 +1,32 @@
-"""
-邮件服务类 - 处理邮件发送
-"""
+﻿"""
+閭欢鏈嶅姟绫?- 澶勭悊閭欢鍙戦€?"""
 import smtplib
 import random
 import re
 from datetime import datetime, timedelta
+from email.header import Header
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+from email.utils import formataddr
 from flask import current_app, render_template_string
 from app import db
 from app.models import User, VerificationCode, TrustedDevice, SystemSetting
 
 
 class EmailService:
-    """邮件服务"""
+    """閭欢鏈嶅姟"""
+
+    @staticmethod
+    def _mask_email(email: str) -> str:
+        """Mask email for logs."""
+        if not email or '@' not in email:
+            return email or ''
+        local, domain = email.split('@', 1)
+        if len(local) <= 2:
+            masked_local = f'{local[:1]}*'
+        else:
+            masked_local = f'{local[:2]}***{local[-1:]}'
+        return f'{masked_local}@{domain}'
 
     @staticmethod
     def _resolve_mail_config() -> dict:
@@ -40,7 +53,7 @@ class EmailService:
                 sender_missing = not mail_sender
 
             if sender_missing:
-                sender_name = db_cfg.get('sender_name') or 'ERP系统'
+                sender_name = db_cfg.get('sender_name') or 'ERP绯荤粺'
                 sender_email = mail_username or ''
                 mail_sender = (sender_name, sender_email)
 
@@ -55,20 +68,23 @@ class EmailService:
             'password': mail_password,
             'sender': mail_sender
         }
-    
     @staticmethod
-    def send_email(to_email: str, subject: str, html_content: str) -> tuple:
+    def send_email(
+        to_email: str,
+        subject: str,
+        html_content: str,
+        trace_id: str = None,
+        context: str = None
+    ) -> tuple:
         """
-        发送邮件
-        
-        Args:
-            to_email: 收件人邮箱
-            subject: 邮件主题
-            html_content: HTML内容
-            
+        发送邮件。
+
         Returns:
             (success, error_message)
         """
+        trace = trace_id or 'n/a'
+        context_text = context or 'generic'
+
         try:
             cfg = EmailService._resolve_mail_config()
             mail_server = cfg['server']
@@ -77,87 +93,102 @@ class EmailService:
             mail_username = cfg['username']
             mail_password = cfg['password']
             mail_sender = cfg['sender'] or mail_username
-            
-            # 检查配置
+
             if not all([mail_server, mail_username, mail_password]):
+                current_app.logger.error(
+                    '[MAIL][%s] missing config context=%s to=%s',
+                    trace,
+                    context_text,
+                    EmailService._mask_email(to_email)
+                )
                 return False, '邮件服务未配置，请联系管理员'
-            
-            # 解析发件人
+
             if isinstance(mail_sender, tuple):
                 sender_name, sender_email = mail_sender
             else:
                 sender_name, sender_email = 'ERP系统', mail_sender
-            
-            # 创建邮件
+
+            if not sender_email:
+                sender_email = mail_username or ''
+
             msg = MIMEMultipart('alternative')
             msg['Subject'] = subject
-            msg['From'] = f'{sender_name} <{sender_email}>'
+            # RFC-compliant From header: encode display name and build address safely.
+            encoded_sender = str(Header(str(sender_name or 'ERP系统'), 'utf-8'))
+            msg['From'] = formataddr((encoded_sender, sender_email))
             msg['To'] = to_email
-            
-            # 添加HTML内容
+            if trace_id:
+                msg['X-Trace-ID'] = trace_id
             msg.attach(MIMEText(html_content, 'html', 'utf-8'))
-            
-            # 连接SMTP服务器并发送
+
             if mail_use_ssl:
                 server = smtplib.SMTP_SSL(mail_server, mail_port)
             else:
                 server = smtplib.SMTP(mail_server, mail_port)
                 server.starttls()
-            
+
             server.login(mail_username, mail_password)
-            server.sendmail(sender_email, to_email, msg.as_string())
+            refused = server.sendmail(sender_email, to_email, msg.as_string())
             server.quit()
-            
+
+            if refused:
+                current_app.logger.error(
+                    '[MAIL][%s] sendmail refused recipients context=%s to=%s refused=%s',
+                    trace,
+                    context_text,
+                    EmailService._mask_email(to_email),
+                    refused
+                )
+                return False, f'收件人被拒绝: {refused}'
+
+            current_app.logger.info(
+                '[MAIL][%s] accepted by SMTP context=%s server=%s:%s ssl=%s from=%s to=%s',
+                trace,
+                context_text,
+                mail_server,
+                mail_port,
+                mail_use_ssl,
+                sender_email,
+                EmailService._mask_email(to_email)
+            )
             return True, None
-            
+
         except Exception as e:
-            current_app.logger.error(f'邮件发送失败: {str(e)}')
+            current_app.logger.error(
+                '[MAIL][%s] send failed context=%s to=%s err=%s',
+                trace,
+                context_text,
+                EmailService._mask_email(to_email),
+                str(e)
+            )
             return False, f'邮件发送失败: {str(e)}'
-    
     @staticmethod
     def generate_verify_code(length: int = 4) -> str:
         """
-        生成数字验证码
-        
+        鐢熸垚鏁板瓧楠岃瘉鐮?        
         Args:
-            length: 验证码长度
-            
+            length: 楠岃瘉鐮侀暱搴?            
         Returns:
-            数字验证码字符串
+            鏁板瓧楠岃瘉鐮佸瓧绗︿覆
         """
         return ''.join([str(random.randint(0, 9)) for _ in range(length)])
-    
     @staticmethod
     def create_verification_code(user: User, purpose: str = 'login',
                                   device_fingerprint: str = None,
-                                  ip_address: str = None) -> tuple:
-        """
-        创建新的验证码
-        
-        Args:
-            user: 用户对象
-            purpose: 用途
-            device_fingerprint: 设备指纹
-            ip_address: IP地址
-            
-        Returns:
-            (code, error_message)
-        """
-        # 清除该用户该用途的旧验证码
+                                  ip_address: str = None,
+                                  trace_id: str = None) -> tuple:
+        """创建新的验证码并写库。"""
         VerificationCode.query.filter_by(
             user_id=user.id,
             purpose=purpose
         ).delete()
-        
-        # 生成新验证码
+
         code_length = current_app.config.get('VERIFY_CODE_LENGTH', 4)
         code = EmailService.generate_verify_code(code_length)
-        
-        # 计算过期时间
+
         expire_minutes = current_app.config.get('VERIFY_CODE_EXPIRE_MINUTES', 15)
         expires_at = datetime.now() + timedelta(minutes=expire_minutes)
-        
-        # 保存到数据库
+
         verify_code = VerificationCode(
             user_id=user.id,
             code=code,
@@ -168,39 +199,42 @@ class EmailService:
         )
         db.session.add(verify_code)
         db.session.commit()
-        
+
+        current_app.logger.info(
+            '[2FA][%s] code created user_id=%s username=%s purpose=%s ip=%s fp=%s code_id=%s expires_at=%s',
+            trace_id or 'n/a',
+            user.id,
+            user.username,
+            purpose,
+            ip_address,
+            (device_fingerprint or '')[:12],
+            verify_code.id,
+            expires_at
+        )
+
         return code, None
-    
     @staticmethod
-    def send_verify_code_email(user: User, code: str, purpose: str = 'login') -> tuple:
-        """
-        发送验证码邮件
-        
-        Args:
-            user: 用户对象
-            code: 验证码
-            purpose: 用途
-            
-        Returns:
-            (success, error_message)
-        """
+    def send_verify_code_email(
+        user: User,
+        code: str,
+        purpose: str = 'login',
+        trace_id: str = None
+    ) -> tuple:
+        """发送验证码邮件。"""
         if not user.email:
             return False, '用户未绑定邮箱'
-        
-        # 验证邮箱格式
+
         if not EmailService.validate_email(user.email):
             return False, '用户邮箱格式不正确'
-        
-        # 根据用途确定邮件内容
+
         purpose_text = {
             'login': '登录验证',
             'reset_password': '密码重置',
             'register': '注册验证'
         }.get(purpose, '安全验证')
-        
+
         expire_minutes = current_app.config.get('VERIFY_CODE_EXPIRE_MINUTES', 15)
-        
-        # HTML邮件模板
+
         html_template = '''
         <!DOCTYPE html>
         <html>
@@ -222,32 +256,32 @@ class EmailService:
         <body>
             <div class="container">
                 <div class="header">
-                    <h1>🔐 ERP系统 - {{ purpose_text }}</h1>
+                    <h1>📨 ERP系统 - {{ purpose_text }}</h1>
                 </div>
                 <div class="content">
                     <p class="info">您好，<strong>{{ user.real_name or user.username }}</strong>：</p>
                     <p class="info">您正在进行 <strong>{{ purpose_text }}</strong> 操作，请使用以下验证码完成验证：</p>
-                    
+
                     <div class="code-box">
                         <div class="code">{{ code }}</div>
                     </div>
-                    
+
                     <div class="warning">
-                        <strong>⏰ 有效期：</strong>该验证码将在 <strong>{{ expire_minutes }} 分钟</strong> 后过期，请尽快使用。<br>
-                        <strong>🔒 安全提示：</strong>请勿将验证码告知他人，工作人员不会向您索要验证码。
+                        <strong>有效期：</strong>该验证码将在 <strong>{{ expire_minutes }} 分钟</strong> 后过期，请尽快使用。<br>
+                        <strong>安全提示：</strong>请勿将验证码告知他人，工作人员不会向您索要验证码。
                     </div>
-                    
+
                     <p class="info">如果这不是您本人的操作，请忽略此邮件或联系管理员。</p>
                 </div>
                 <div class="footer">
-                    <p>此邮件由 ERP系统自动发送，请勿回复</p>
+                    <p>此邮件由 ERP系统 自动发送，请勿回复</p>
                     <p>发送时间：{{ send_time }}</p>
                 </div>
             </div>
         </body>
         </html>
         '''
-        
+
         html_content = render_template_string(
             html_template,
             user=user,
@@ -256,56 +290,56 @@ class EmailService:
             expire_minutes=expire_minutes,
             send_time=datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         )
-        
-        subject = f'ERP系统 - {purpose_text} - 验证码: {code}'
-        
-        return EmailService.send_email(user.email, subject, html_content)
-    
+
+        subject = f'ERP系统 - {purpose_text} - 验证码 {code}'
+
+        current_app.logger.info(
+            '[2FA][%s] sending verify mail user_id=%s username=%s purpose=%s to=%s',
+            trace_id or 'n/a',
+            user.id,
+            user.username,
+            purpose,
+            EmailService._mask_email(user.email)
+        )
+
+        return EmailService.send_email(
+            user.email,
+            subject,
+            html_content,
+            trace_id=trace_id,
+            context=f'verify_code:{purpose}'
+        )
     @staticmethod
     def verify_code(user_id: int, code: str, purpose: str = 'login') -> tuple:
-        """
-        验证验证码
-        
-        Args:
-            user_id: 用户ID
-            code: 用户输入的验证码
-            purpose: 用途
-            
-        Returns:
-            (success, error_message)
-        """
-        # 查找验证码记录
+        """验证验证码。"""
         record = VerificationCode.query.filter_by(
             user_id=user_id,
             code=code,
             purpose=purpose
         ).order_by(VerificationCode.created_at.desc()).first()
-        
+
         if not record:
             return False, '验证码错误'
-        
+
         if record.is_used:
             return False, '验证码已使用，请重新获取'
-        
+
         if record.is_expired:
             return False, '验证码已过期，请重新获取'
-        
-        # 标记为已使用
+
         record.mark_as_used()
         db.session.commit()
-        
         return True, None
-    
     @staticmethod
     def validate_email(email: str) -> bool:
         """
-        验证邮箱格式
+        楠岃瘉閭鏍煎紡
         
         Args:
-            email: 邮箱地址
+            email: 閭鍦板潃
             
         Returns:
-            是否有效
+            鏄惁鏈夋晥
         """
         pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
         return bool(re.match(pattern, email))
@@ -313,82 +347,54 @@ class EmailService:
     @staticmethod
     def generate_device_fingerprint(user_agent: str, ip_address: str) -> str:
         """
-        生成设备指纹
+        鐢熸垚璁惧鎸囩汗
         
         Args:
-            user_agent: User-Agent字符串
-            ip_address: IP地址
+            user_agent: User-Agent瀛楃涓?            ip_address: IP鍦板潃
             
         Returns:
-            设备指纹（SHA256哈希的前16位）
+            璁惧鎸囩汗锛圫HA256鍝堝笇鐨勫墠16浣嶏級
         """
         import hashlib
         fingerprint_str = f"{user_agent}:{ip_address}"
         return hashlib.sha256(fingerprint_str.encode()).hexdigest()[:32]
-    
     @staticmethod
     def is_trusted_device(user_id: int, device_fingerprint: str) -> bool:
-        """
-        检查是否为受信任设备
-        
-        Args:
-            user_id: 用户ID
-            device_fingerprint: 设备指纹
-            
-        Returns:
-            是否受信任
-        """
+        """检查设备是否为受信任设备。"""
         device = TrustedDevice.query.filter_by(
             user_id=user_id,
             device_fingerprint=device_fingerprint
         ).first()
-        
+
         if not device:
             return False
-        
+
         if device.is_expired:
-            # 删除过期记录
             db.session.delete(device)
             db.session.commit()
             return False
-        
-        # 更新最后使用时间
+
         device.update_last_used()
         db.session.commit()
-        
         return True
-    
     @staticmethod
     def add_trusted_device(user_id: int, device_fingerprint: str,
                            device_name: str = None, ip_address: str = None) -> TrustedDevice:
-        """
-        添加受信任设备
-        
-        Args:
-            user_id: 用户ID
-            device_fingerprint: 设备指纹
-            device_name: 设备名称
-            ip_address: IP地址
-            
-        Returns:
-            TrustedDevice对象
-        """
-        # 检查是否已存在
+        """添加受信任设备。"""
         existing = TrustedDevice.query.filter_by(
             user_id=user_id,
             device_fingerprint=device_fingerprint
         ).first()
-        
+
         trusted_days = current_app.config.get('TRUSTED_DEVICE_DAYS', 30)
         expires_at = datetime.now() + timedelta(days=trusted_days)
-        
+
         if existing:
             existing.expires_at = expires_at
             existing.last_used_at = datetime.now()
             db.session.commit()
             return existing
-        
-        # 创建新记录
+
         device = TrustedDevice(
             user_id=user_id,
             device_fingerprint=device_fingerprint,
@@ -398,23 +404,21 @@ class EmailService:
         )
         db.session.add(device)
         db.session.commit()
-        
         return device
-    
     @staticmethod
     def get_user_trusted_devices(user_id: int) -> list:
         """
-        获取用户的受信任设备列表
+        鑾峰彇鐢ㄦ埛鐨勫彈淇′换璁惧鍒楄〃
         
         Args:
-            user_id: 用户ID
+            user_id: 鐢ㄦ埛ID
             
         Returns:
-            设备列表
+            璁惧鍒楄〃
         """
         devices = TrustedDevice.query.filter_by(user_id=user_id).all()
         
-        # 清理过期设备
+        # 娓呯悊杩囨湡璁惧
         result = []
         for device in devices:
             if device.is_expired:
@@ -428,14 +432,13 @@ class EmailService:
     @staticmethod
     def remove_trusted_device(device_id: int, user_id: int) -> bool:
         """
-        移除受信任设备
-        
+        绉婚櫎鍙椾俊浠昏澶?        
         Args:
-            device_id: 设备ID
-            user_id: 用户ID（用于权限验证）
+            device_id: 璁惧ID
+            user_id: 鐢ㄦ埛ID锛堢敤浜庢潈闄愰獙璇侊級
             
         Returns:
-            是否成功
+            鏄惁鎴愬姛
         """
         device = TrustedDevice.query.filter_by(id=device_id, user_id=user_id).first()
         if device:
@@ -443,3 +446,5 @@ class EmailService:
             db.session.commit()
             return True
         return False
+
+

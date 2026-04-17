@@ -1,0 +1,57 @@
+{% extends 'qc/base.html' %}
+
+{% block title %}QC 角色权限 - ALCOEN QC{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h1 class="mb-0"><i class="bi bi-shield-lock"></i> QC 角色权限</h1>
+</div>
+
+<div class="card">
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-hover mb-0 align-middle">
+                <thead class="table-light">
+                    <tr>
+                        <th>角色名称</th>
+                        <th>角色代码</th>
+                        <th>权限数量</th>
+                        <th>用户数量</th>
+                        <th class="text-center">操作</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for role in roles %}
+                    <tr>
+                        <td>
+                            <strong>{{ role.name }}</strong>
+                            {% if role.code == 'superadmin' %}
+                            <span class="badge bg-danger">系统</span>
+                            {% endif %}
+                        </td>
+                        <td><code>{{ role.code }}</code></td>
+                        <td>
+                            {% if role.code == 'superadmin' %}
+                            <span class="text-muted">全部权限</span>
+                            {% else %}
+                            {{ permission_counts.get(role.id, 0) }}
+                            {% endif %}
+                        </td>
+                        <td>{{ role.users|length }}</td>
+                        <td class="text-center">
+                            {% if role.code != 'superadmin' %}
+                            <a href="{{ url_for('qc.qc_admin_edit_role', role_id=role.id) }}" class="btn btn-sm btn-outline-primary">
+                                <i class="bi bi-pencil"></i> 编辑权限
+                            </a>
+                            {% else %}
+                            <span class="text-muted">不可编辑</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

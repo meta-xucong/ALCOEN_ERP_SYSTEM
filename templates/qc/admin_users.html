@@ -1,0 +1,132 @@
+{% extends 'qc/base.html' %}
+
+{% block title %}QC 用户管理 - ALCOEN QC{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h1 class="mb-0"><i class="bi bi-people"></i> QC 用户管理</h1>
+    <a href="{{ url_for('qc.qc_admin_pending') }}" class="btn btn-warning">
+        <i class="bi bi-hourglass-split"></i> 待审核用户
+    </a>
+</div>
+
+<div class="card mb-4">
+    <div class="card-body">
+        <form method="GET" class="row g-2">
+            <div class="col-md-4">
+                <input type="text" name="keyword" class="form-control" placeholder="用户名 / 姓名 / 邮箱" value="{{ keyword }}">
+            </div>
+            <div class="col-md-3">
+                <select name="role" class="form-select">
+                    <option value="">全部角色</option>
+                    {% for r in roles %}
+                    <option value="{{ r.code }}" {% if role == r.code %}selected{% endif %}>{{ r.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-2">
+                <select name="status" class="form-select">
+                    <option value="">全部状态</option>
+                    <option value="active" {% if status == 'active' %}selected{% endif %}>启用</option>
+                    <option value="inactive" {% if status == 'inactive' %}selected{% endif %}>禁用</option>
+                </select>
+            </div>
+            <div class="col-md-3 d-flex gap-2">
+                <button type="submit" class="btn btn-outline-primary flex-fill"><i class="bi bi-search"></i> 查询</button>
+                <a href="{{ url_for('qc.qc_admin_users') }}" class="btn btn-outline-secondary"><i class="bi bi-x-circle"></i></a>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-hover mb-0 align-middle">
+                <thead class="table-light">
+                    <tr>
+                        <th>用户名</th>
+                        <th>姓名</th>
+                        <th>角色</th>
+                        <th>邮箱</th>
+                        <th class="text-center">状态</th>
+                        <th class="text-end">创建时间</th>
+                        <th class="text-center">操作</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for user in users %}
+                    <tr>
+                        <td>
+                            <strong>{{ user.username }}</strong>
+                            {% if user.is_superadmin %}
+                            <span class="badge bg-danger">超管</span>
+                            {% endif %}
+                        </td>
+                        <td>{{ user.real_name or '-' }}</td>
+                        <td><span class="badge bg-info">{{ user.role.name }}</span></td>
+                        <td>{{ user.email or '-' }}</td>
+                        <td class="text-center">
+                            {% if user.is_active %}
+                            <span class="badge bg-success">启用</span>
+                            {% else %}
+                            <span class="badge bg-secondary">禁用</span>
+                            {% endif %}
+                        </td>
+                        <td class="text-end">{{ user.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+                        <td class="text-center">
+                            {% if not user.is_superadmin %}
+                            <form method="POST" action="{{ url_for('qc.qc_admin_toggle_user', user_id=user.id) }}" class="d-inline">
+                                <button type="submit" class="btn btn-sm btn-outline-{{ 'warning' if user.is_active else 'success' }}">
+                                    {% if user.is_active %}禁用{% else %}启用{% endif %}
+                                </button>
+                            </form>
+                            {% endif %}
+                            <form method="POST" action="{{ url_for('qc.qc_admin_reset_password', user_id=user.id) }}" class="d-inline"
+                                  onsubmit="return confirm('确认重置该用户密码为默认值？');">
+                                <button type="submit" class="btn btn-sm btn-outline-info">
+                                    <i class="bi bi-key"></i> 重置密码
+                                </button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="7" class="text-center py-5 text-muted">暂无 QC 相关用户</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% if pagination and pagination.pages > 1 %}
+        <div class="card-footer">
+            <nav>
+                <ul class="pagination justify-content-center mb-0">
+                    {% if pagination.has_prev %}
+                    <li class="page-item"><a class="page-link" href="{{ url_for('qc.qc_admin_users', page=pagination.prev_num, role=role, status=status, keyword=keyword) }}">上一页</a></li>
+                    {% else %}
+                    <li class="page-item disabled"><span class="page-link">上一页</span></li>
+                    {% endif %}
+                    {% for p in pagination.iter_pages(left_edge=1, right_edge=1, left_current=2, right_current=2) %}
+                        {% if p %}
+                            {% if p == pagination.page %}
+                            <li class="page-item active"><span class="page-link">{{ p }}</span></li>
+                            {% else %}
+                            <li class="page-item"><a class="page-link" href="{{ url_for('qc.qc_admin_users', page=p, role=role, status=status, keyword=keyword) }}">{{ p }}</a></li>
+                            {% endif %}
+                        {% else %}
+                            <li class="page-item disabled"><span class="page-link">...</span></li>
+                        {% endif %}
+                    {% endfor %}
+                    {% if pagination.has_next %}
+                    <li class="page-item"><a class="page-link" href="{{ url_for('qc.qc_admin_users', page=pagination.next_num, role=role, status=status, keyword=keyword) }}">下一页</a></li>
+                    {% else %}
+                    <li class="page-item disabled"><span class="page-link">下一页</span></li>
+                    {% endif %}
+                </ul>
+            </nav>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

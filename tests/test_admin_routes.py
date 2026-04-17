@@ -91,7 +91,7 @@ def test_settings_email_access_for_user_manage_non_superadmin(app, client, login
     settings_resp = client.get("/settings/email", follow_redirects=False)
     assert settings_resp.status_code == 200
 
-    home_resp = client.get("/", follow_redirects=False)
+    home_resp = client.get("/erp/", follow_redirects=False)
     assert home_resp.status_code == 200
     assert "邮箱管理" in home_resp.get_data(as_text=True)
 

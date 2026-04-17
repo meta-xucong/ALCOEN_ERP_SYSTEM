@@ -1,0 +1,308 @@
+{% extends 'qc/base.html' %}
+
+{% block title %}质量检测 - ALCOEN QC{% endblock %}
+
+{% block extra_css %}
+<style>
+    .bg-pass {
+        background-color: rgba(25, 135, 84, 0.08) !important;
+    }
+    .bg-fail {
+        background-color: rgba(220, 53, 69, 0.08) !important;
+    }
+    .inspection-btn {
+        width: 48px;
+        height: 48px;
+        border-radius: 50%;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.25rem;
+        padding: 0;
+    }
+    .attachment-row {
+        transition: background-color 0.2s ease;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h1 class="d-flex align-items-center gap-3 mb-0">
+        <i class="bi bi-search text-gradient" style="font-size: 2rem; color: #0d6efd;"></i>
+        <span class="text-gradient" style="font-weight: 700; font-size: 2rem;">质量检测</span>
+        {% set status_info = order.get_status_display() %}
+        <span class="badge {{ status_info.badge }} fs-6">{{ status_info.text }}</span>
+    </h1>
+    <a href="{{ url_for('qc.quality_inspection_list') }}" class="btn btn-outline-secondary">
+        <i class="bi bi-arrow-left"></i> 返回列表
+    </a>
+</div>
+
+<!-- 基础信息 -->
+<div class="card mb-4">
+    <div class="card-header bg-primary text-white">
+        <h5 class="mb-0"><i class="bi bi-info-circle"></i> 基础信息</h5>
+    </div>
+    <div class="card-body">
+        <div class="row">
+            <div class="col-md-3 mb-3">
+                <label class="text-muted small">批次编号</label>
+                <div class="fw-medium fs-5">{{ order.batch_no }}</div>
+            </div>
+            <div class="col-md-3 mb-3">
+                <label class="text-muted small">工件名称</label>
+                <div class="fw-medium fs-5">{{ order.workpiece_name }}</div>
+            </div>
+            <div class="col-md-3 mb-3">
+                <label class="text-muted small">生产数量</label>
+                <div class="fw-medium fs-5">{{ order.quantity }}</div>
+            </div>
+            <div class="col-md-3 mb-3">
+                <label class="text-muted small">质控负责人</label>
+                <div class="fw-medium fs-5">{{ order.controller.real_name or order.controller.username }}</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% set can_inspect = current_user.role.code == 'qc_inspector' and order.inspector_id == current_user.id and order.status in ['qc_completed', 'inspection_pending'] %}
+
+{% if not can_inspect and order.status in ['qc_completed', 'inspection_pending'] %}
+<div class="alert alert-info">
+    <i class="bi bi-info-circle"></i> 您当前没有权限对该订单执行质检操作。
+</div>
+{% endif %}
+
+<form method="POST" action="" id="inspectionForm">
+    <!-- 图纸 -->
+    {% for att in order.attachments %}
+        {% if att.attach_type == 'drawing' %}
+            {% set record = inspection_records_by_attachment.get(att.id) %}
+            <div class="card mb-3 attachment-row {{ 'bg-pass' if record and record.result == 'pass' else ('bg-fail' if record and record.result == 'fail' else '') }}" id="attachment-row-{{ att.id }}">
+                <div class="card-body">
+                    <div class="row align-items-center">
+                        <div class="col-md-7">
+                            <h6 class="fw-bold"><i class="bi bi-image"></i> 图纸</h6>
+                            <p class="text-muted small mb-2">{{ att.file_path.split('/')[-1] }}</p>
+                            {% if att.is_image %}
+                            <img src="{{ url_for('static', filename='uploads/qc/' ~ order.id ~ '/' ~ att.file_path) }}" class="img-thumbnail" style="max-height: 200px;">
+                            {% else %}
+                            <a href="{{ url_for('static', filename='uploads/qc/' ~ order.id ~ '/' ~ att.file_path) }}" target="_blank" class="btn btn-outline-primary btn-sm">
+                                <i class="bi bi-download"></i> 下载查看
+                            </a>
+                            {% endif %}
+                        </div>
+                        <div class="col-md-5">
+                            <div class="d-flex flex-column gap-2">
+                                <label class="text-muted small">质检审核</label>
+                                <div class="d-flex gap-3 align-items-center">
+                                    <button type="button" class="inspection-btn btn {{ 'btn-success' if record and record.result == 'pass' else 'btn-outline-success' }}" id="btn-pass-{{ att.id }}" onclick="setResult({{ att.id }}, 'pass')" {% if not can_inspect %}disabled{% endif %}>
+                                        <i class="bi bi-check-lg"></i>
+                                    </button>
+                                    <button type="button" class="inspection-btn btn {{ 'btn-danger' if record and record.result == 'fail' else 'btn-outline-danger' }}" id="btn-fail-{{ att.id }}" onclick="setResult({{ att.id }}, 'fail')" {% if not can_inspect %}disabled{% endif %}>
+                                        <i class="bi bi-x-lg"></i>
+                                    </button>
+                                    <input type="hidden" name="result_{{ att.id }}" id="result-{{ att.id }}" class="result-input" value="{{ record.result if record else '' }}">
+                                </div>
+                                <textarea class="form-control mt-2" name="remark_{{ att.id }}" rows="2" placeholder="备注（可选）" {% if not can_inspect %}readonly{% endif %}>{{ record.remark or '' }}</textarea>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        {% endif %}
+    {% endfor %}
+
+    <!-- 作业指导书 -->
+    {% for att in order.attachments %}
+        {% if att.attach_type == 'instruction' %}
+            {% set record = inspection_records_by_attachment.get(att.id) %}
+            <div class="card mb-3 attachment-row {{ 'bg-pass' if record and record.result == 'pass' else ('bg-fail' if record and record.result == 'fail' else '') }}" id="attachment-row-{{ att.id }}">
+                <div class="card-body">
+                    <div class="row align-items-center">
+                        <div class="col-md-7">
+                            <h6 class="fw-bold"><i class="bi bi-file-earmark-text"></i> 作业指导书</h6>
+                            <p class="text-muted small mb-2">{{ att.file_path.split('/')[-1] }}</p>
+                            {% if att.is_image %}
+                            <img src="{{ url_for('static', filename='uploads/qc/' ~ order.id ~ '/' ~ att.file_path) }}" class="img-thumbnail" style="max-height: 200px;">
+                            {% else %}
+                            <a href="{{ url_for('static', filename='uploads/qc/' ~ order.id ~ '/' ~ att.file_path) }}" target="_blank" class="btn btn-outline-primary btn-sm">
+                                <i class="bi bi-download"></i> 下载查看
+                            </a>
+                            {% endif %}
+                        </div>
+                        <div class="col-md-5">
+                            <div class="d-flex flex-column gap-2">
+                                <label class="text-muted small">质检审核</label>
+                                <div class="d-flex gap-3 align-items-center">
+                                    <button type="button" class="inspection-btn btn {{ 'btn-success' if record and record.result == 'pass' else 'btn-outline-success' }}" id="btn-pass-{{ att.id }}" onclick="setResult({{ att.id }}, 'pass')" {% if not can_inspect %}disabled{% endif %}>
+                                        <i class="bi bi-check-lg"></i>
+                                    </button>
+                                    <button type="button" class="inspection-btn btn {{ 'btn-danger' if record and record.result == 'fail' else 'btn-outline-danger' }}" id="btn-fail-{{ att.id }}" onclick="setResult({{ att.id }}, 'fail')" {% if not can_inspect %}disabled{% endif %}>
+                                        <i class="bi bi-x-lg"></i>
+                                    </button>
+                                    <input type="hidden" name="result_{{ att.id }}" id="result-{{ att.id }}" class="result-input" value="{{ record.result if record else '' }}">
+                                </div>
+                                <textarea class="form-control mt-2" name="remark_{{ att.id }}" rows="2" placeholder="备注（可选）" {% if not can_inspect %}readonly{% endif %}>{{ record.remark or '' }}</textarea>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        {% endif %}
+    {% endfor %}
+
+    <!-- 检测点 -->
+    {% for att in order.attachments %}
+        {% if att.attach_type == 'inspection_point' %}
+            {% set record = inspection_records_by_attachment.get(att.id) %}
+            <div class="card mb-3 attachment-row {{ 'bg-pass' if record and record.result == 'pass' else ('bg-fail' if record and record.result == 'fail' else '') }}" id="attachment-row-{{ att.id }}">
+                <div class="card-body">
+                    <div class="row align-items-center">
+                        <div class="col-md-7">
+                            <h6 class="fw-bold"><i class="bi bi-list-check"></i> {{ att.title or '检测点' }}</h6>
+                            <p class="text-muted mb-2">{{ att.content or '' }}</p>
+                            {% if att.is_image %}
+                            <img src="{{ url_for('static', filename='uploads/qc/' ~ order.id ~ '/' ~ att.file_path) }}" class="img-thumbnail" style="max-height: 200px;">
+                            {% elif att.file_path %}
+                            <a href="{{ url_for('static', filename='uploads/qc/' ~ order.id ~ '/' ~ att.file_path) }}" target="_blank" class="btn btn-outline-primary btn-sm">
+                                <i class="bi bi-download"></i> 下载查看
+                            </a>
+                            {% endif %}
+                        </div>
+                        <div class="col-md-5">
+                            <div class="d-flex flex-column gap-2">
+                                <label class="text-muted small">质检审核</label>
+                                <div class="d-flex gap-3 align-items-center">
+                                    <button type="button" class="inspection-btn btn {{ 'btn-success' if record and record.result == 'pass' else 'btn-outline-success' }}" id="btn-pass-{{ att.id }}" onclick="setResult({{ att.id }}, 'pass')" {% if not can_inspect %}disabled{% endif %}>
+                                        <i class="bi bi-check-lg"></i>
+                                    </button>
+                                    <button type="button" class="inspection-btn btn {{ 'btn-danger' if record and record.result == 'fail' else 'btn-outline-danger' }}" id="btn-fail-{{ att.id }}" onclick="setResult({{ att.id }}, 'fail')" {% if not can_inspect %}disabled{% endif %}>
+                                        <i class="bi bi-x-lg"></i>
+                                    </button>
+                                    <input type="hidden" name="result_{{ att.id }}" id="result-{{ att.id }}" class="result-input" value="{{ record.result if record else '' }}">
+                                </div>
+                                <textarea class="form-control mt-2" name="remark_{{ att.id }}" rows="2" placeholder="备注（可选）" {% if not can_inspect %}readonly{% endif %}>{{ record.remark or '' }}</textarea>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        {% endif %}
+    {% endfor %}
+
+    <!-- 备注 -->
+    {% for att in order.attachments %}
+        {% if att.attach_type == 'remark' %}
+            {% set record = inspection_records_by_attachment.get(att.id) %}
+            <div class="card mb-3 attachment-row {{ 'bg-pass' if record and record.result == 'pass' else ('bg-fail' if record and record.result == 'fail' else '') }}" id="attachment-row-{{ att.id }}">
+                <div class="card-body">
+                    <div class="row align-items-center">
+                        <div class="col-md-7">
+                            <h6 class="fw-bold"><i class="bi bi-sticky"></i> 备注</h6>
+                            <p class="text-muted mb-2">{{ att.content or '' }}</p>
+                            {% if att.file_path %}
+                                {% if att.is_image %}
+                                <img src="{{ url_for('static', filename='uploads/qc/' ~ order.id ~ '/' ~ att.file_path) }}" class="img-thumbnail" style="max-height: 200px;">
+                                {% else %}
+                                <a href="{{ url_for('static', filename='uploads/qc/' ~ order.id ~ '/' ~ att.file_path) }}" target="_blank" class="btn btn-outline-primary btn-sm">
+                                    <i class="bi bi-download"></i> 下载查看
+                                </a>
+                                {% endif %}
+                            {% endif %}
+                        </div>
+                        <div class="col-md-5">
+                            <div class="d-flex flex-column gap-2">
+                                <label class="text-muted small">质检审核</label>
+                                <div class="d-flex gap-3 align-items-center">
+                                    <button type="button" class="inspection-btn btn {{ 'btn-success' if record and record.result == 'pass' else 'btn-outline-success' }}" id="btn-pass-{{ att.id }}" onclick="setResult({{ att.id }}, 'pass')" {% if not can_inspect %}disabled{% endif %}>
+                                        <i class="bi bi-check-lg"></i>
+                                    </button>
+                                    <button type="button" class="inspection-btn btn {{ 'btn-danger' if record and record.result == 'fail' else 'btn-outline-danger' }}" id="btn-fail-{{ att.id }}" onclick="setResult({{ att.id }}, 'fail')" {% if not can_inspect %}disabled{% endif %}>
+                                        <i class="bi bi-x-lg"></i>
+                                    </button>
+                                    <input type="hidden" name="result_{{ att.id }}" id="result-{{ att.id }}" class="result-input" value="{{ record.result if record else '' }}">
+                                </div>
+                                <textarea class="form-control mt-2" name="remark_{{ att.id }}" rows="2" placeholder="备注（可选）" {% if not can_inspect %}readonly{% endif %}>{{ record.remark or '' }}</textarea>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        {% endif %}
+    {% endfor %}
+
+    {% if can_inspect %}
+    <div class="d-flex gap-3 mt-4">
+        <button type="submit" class="btn btn-success btn-lg flex-fill" id="btn-submit-pass" disabled>
+            <i class="bi bi-check-circle"></i> 质检合格，进入交付页面
+        </button>
+        <button type="submit" class="btn btn-danger btn-lg flex-fill" id="btn-submit-fail" disabled>
+            <i class="bi bi-x-circle"></i> 质检不合格，退回质量控制流程
+        </button>
+    </div>
+    {% endif %}
+</form>
+
+<script>
+function setResult(attachmentId, result) {
+    const row = document.getElementById('attachment-row-' + attachmentId);
+    const btnPass = document.getElementById('btn-pass-' + attachmentId);
+    const btnFail = document.getElementById('btn-fail-' + attachmentId);
+    const inputResult = document.getElementById('result-' + attachmentId);
+    
+    inputResult.value = result;
+    
+    if (result === 'pass') {
+        row.classList.remove('bg-fail');
+        row.classList.add('bg-pass');
+        btnPass.classList.add('btn-success');
+        btnPass.classList.remove('btn-outline-success');
+        btnFail.classList.remove('btn-danger');
+        btnFail.classList.add('btn-outline-danger');
+    } else {
+        row.classList.remove('bg-pass');
+        row.classList.add('bg-fail');
+        btnFail.classList.add('btn-danger');
+        btnFail.classList.remove('btn-outline-danger');
+        btnPass.classList.remove('btn-success');
+        btnPass.classList.add('btn-outline-success');
+    }
+    
+    checkAllFilled();
+}
+
+function checkAllFilled() {
+    const inputs = document.querySelectorAll('.result-input');
+    let allPass = true;
+    let hasFail = false;
+    let allFilled = true;
+    
+    inputs.forEach(input => {
+        if (!input.value) {
+            allFilled = false;
+        } else if (input.value === 'pass') {
+            // ok
+        } else if (input.value === 'fail') {
+            hasFail = true;
+            allPass = false;
+        }
+    });
+    
+    const btnPassAll = document.getElementById('btn-submit-pass');
+    const btnFailAll = document.getElementById('btn-submit-fail');
+    
+    if (allFilled) {
+        btnPassAll.disabled = !allPass;
+        btnFailAll.disabled = !hasFail;
+    } else {
+        btnPassAll.disabled = true;
+        btnFailAll.disabled = true;
+    }
+}
+
+// 页面加载时检查状态
+document.addEventListener('DOMContentLoaded', checkAllFilled);
+</script>
+{% endblock %}

@@ -24,7 +24,10 @@ class UserService:
         Returns:
             Pagination 对象
         """
-        query = User.query
+        query = User.query.join(Role)
+
+        # ERP 用户管理列表默认不展示 QC-only 账号
+        query = query.filter(~Role.code.in_(['qc_controller', 'qc_inspector']))
         
         # 角色筛选
         if role_code:
@@ -62,7 +65,8 @@ class UserService:
         Returns:
             Pagination 对象
         """
-        return User.query.filter(
+        return User.query.join(Role).filter(
+            ~Role.code.in_(['qc_controller', 'qc_inspector']),
             User.is_active == False,
             User.approved_at.is_(None)
         ).order_by(User.created_at.asc()).paginate(

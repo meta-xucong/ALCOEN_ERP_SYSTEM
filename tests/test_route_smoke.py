@@ -8,7 +8,7 @@ import pytest
 @pytest.mark.parametrize(
     "path",
     [
-        "/",
+        "/erp/",
         "/contract/list",
         "/contract/new",
         "/transaction/",
@@ -36,7 +36,7 @@ def test_protected_pages_load_for_superadmin(client, login, base_data, path):
 @pytest.mark.parametrize(
     "path",
     [
-        "/",
+        "/erp/",
         "/contract/list",
         "/transaction/",
         "/product/",

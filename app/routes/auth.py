@@ -1,21 +1,22 @@
-"""
-认证路由 - 登录/注册/登出
+﻿"""
+璁よ瘉璺敱 - 鐧诲綍/娉ㄥ唽/鐧诲嚭
 """
 from datetime import datetime
-from flask import Blueprint, render_template, request, redirect, url_for, flash, session, current_app, jsonify
+from uuid import uuid4
+from flask import Blueprint, render_template, request, redirect, url_for, flash, session, current_app, jsonify, g
+from app import db
 from app.services.auth_service import AuthService
 from app.services.email_service import EmailService
-from app.models import Role, User, Department, VerificationCode
+from app.models import Role, User, Department, VerificationCode, QCUserBinding
 from app.utils.decorators import login_required
 
 auth_bp = Blueprint('auth', __name__, url_prefix='/auth')
 
 
 def _get_client_ip() -> str:
-    """Get real client IP behind reverse proxy."""
+    """Description."""
     x_forwarded_for = request.headers.get('X-Forwarded-For', '')
     if x_forwarded_for:
-        # XFF format: client, proxy1, proxy2...
         return x_forwarded_for.split(',')[0].strip()
 
     x_real_ip = request.headers.get('X-Real-IP', '').strip()
@@ -27,16 +28,26 @@ def _get_client_ip() -> str:
 
 @auth_bp.route('/login', methods=['GET', 'POST'])
 def login():
-    """登录页面 - 支持两步验证"""
-    # 如果已登录，跳转到首页
+    """Description."""
+    is_qc = request.args.get('sub') == 'qc'
+    
+    # 如果用户点击取消验证，清除 pending 状态
+    if request.args.get('cancel'):
+        session.pop('pending_verify_user_id', None)
+        session.pop('pending_verify_fingerprint', None)
+        session.pop('pending_verify_remember', None)
+        session.pop('pending_verify_purpose', None)
+        session.pop('pending_verify_subsystem', None)
+    
+    # 如果已登录，跳转到对应首页
     if 'user_id' in session:
+        if session.get('subsystem') == 'qc':
+            return redirect(url_for('qc.index'))
         return redirect(url_for('main.index'))
     
-    # 获取背景设置（优先使用用户设置，否则使用默认值）
-    bg_type = 'video'  # 默认视频背景
+    bg_type = 'video'
     bg_image = 'bg-main.jpg'
     
-    # 检查是否处于验证码验证阶段
     pending_verify_user_id = session.get('pending_verify_user_id')
     if pending_verify_user_id:
         return redirect(url_for('auth.verify_code'))
@@ -48,13 +59,11 @@ def login():
         
         if not username or not password:
             flash('请输入用户名和密码', 'warning')
-            return render_template('auth/login.html', bg_type=bg_type, bg_image=bg_image)
+            return render_template('auth/login.html', bg_type=bg_type, bg_image=bg_image, is_qc=is_qc)
         
-        # 获取设备信息
         user_agent = request.headers.get('User-Agent', '')
         ip_address = _get_client_ip()
         
-        # 验证登录（支持两步验证）
         result = AuthService.authenticate(
             username=username,
             password=password,
@@ -65,51 +74,110 @@ def login():
         
         if not result.success:
             flash(result.message, 'error')
-            return render_template('auth/login.html', bg_type=bg_type, bg_image=bg_image)
+            return render_template('auth/login.html', bg_type=bg_type, bg_image=bg_image, is_qc=is_qc)
         
         user = result.user
-        
-        # 检查是否需要验证码验证（两步验证）
         if result.require_verify:
-            # 生成并发送验证码
-            code, error = EmailService.create_verification_code(
-                user=user,
-                purpose='login',
-                device_fingerprint=result.device_fingerprint,
-                ip_address=ip_address
-            )
-            
-            if error:
-                flash(f'验证码生成失败: {error}', 'error')
-                return render_template('auth/login.html', bg_type=bg_type, bg_image=bg_image)
-            
-            # 发送验证码邮件
-            success, error = EmailService.send_verify_code_email(user, code, 'login')
-            
-            if not success:
-                flash(f'验证码发送失败: {error}', 'error')
-                return render_template('auth/login.html', bg_type=bg_type, bg_image=bg_image)
-            
-            # 保存验证状态到session
+            trace_id = f'login-{user.id}-{uuid4().hex[:8]}'
             session['pending_verify_user_id'] = user.id
             session['pending_verify_fingerprint'] = result.device_fingerprint
             session['pending_verify_remember'] = remember
             session['pending_verify_purpose'] = 'login'
-            
+            if is_qc:
+                session['pending_verify_subsystem'] = 'qc'
+
+            current_app.logger.info(
+                '[2FA][%s] verify required username=%s user_id=%s subsystem=%s ip=%s fp=%s',
+                trace_id,
+                user.username,
+                user.id,
+                'qc' if is_qc else 'erp',
+                ip_address,
+                (result.device_fingerprint or '')[:12]
+            )
+
+            recent_code = VerificationCode.query.filter(
+                VerificationCode.user_id == user.id,
+                VerificationCode.purpose == 'login',
+                VerificationCode.used_at.is_(None),
+                VerificationCode.expires_at > datetime.now()
+            ).order_by(VerificationCode.created_at.desc()).first()
+
+            if recent_code and (datetime.now() - recent_code.created_at).total_seconds() < 20:
+                current_app.logger.info(
+                    '[2FA][%s] deduplicated recent code username=%s user_id=%s code_id=%s',
+                    trace_id,
+                    user.username,
+                    user.id,
+                    recent_code.id
+                )
+                flash('验证码已发送，请直接查收并输入', 'info')
+                return redirect(url_for('auth.verify_code'))
+
+            code, error = EmailService.create_verification_code(
+                user=user,
+                purpose='login',
+                device_fingerprint=result.device_fingerprint,
+                ip_address=ip_address,
+                trace_id=trace_id
+            )
+
+            if error:
+                current_app.logger.error(
+                    '[2FA][%s] code create failed username=%s user_id=%s err=%s',
+                    trace_id,
+                    user.username,
+                    user.id,
+                    error
+                )
+                flash(f'验证码生成失败: {error}', 'error')
+                return render_template('auth/login.html', bg_type=bg_type, bg_image=bg_image, is_qc=is_qc)
+
+            success, error = EmailService.send_verify_code_email(user, code, 'login', trace_id=trace_id)
+
+            if not success:
+                VerificationCode.query.filter(
+                    VerificationCode.user_id == user.id,
+                    VerificationCode.purpose == 'login',
+                    VerificationCode.code == code,
+                    VerificationCode.used_at.is_(None)
+                ).delete()
+                db.session.commit()
+                current_app.logger.error(
+                    '[2FA][%s] verify mail failed username=%s user_id=%s err=%s',
+                    trace_id,
+                    user.username,
+                    user.id,
+                    error
+                )
+                flash(f'验证码发送失败: {error}', 'error')
+                return render_template('auth/login.html', bg_type=bg_type, bg_image=bg_image, is_qc=is_qc)
+
+            current_app.logger.info(
+                '[2FA][%s] verify mail sent username=%s user_id=%s to=%s',
+                trace_id,
+                user.username,
+                user.id,
+                EmailService._mask_email(user.email)
+            )
             flash('验证码已发送至您的邮箱，请查收', 'success')
             return redirect(url_for('auth.verify_code'))
-        
-        # 直接登录（受信任设备或无邮箱）
         next_url = request.args.get('next')
-        return _do_login(user, remember, ip_address, next_url)
+        subsystem = 'qc' if is_qc else ''
+        return _do_login(user, remember, ip_address, next_url, subsystem)
     
-    return render_template('auth/login.html', bg_type=bg_type, bg_image=bg_image)
+    return render_template('auth/login.html', bg_type=bg_type, bg_image=bg_image, is_qc=is_qc)
+
+
+@auth_bp.route('/login/qc')
+def qc_login():
+    """Description."""
+    return redirect(url_for('auth.login', sub='qc'))
 
 
 @auth_bp.route('/verify-code', methods=['GET', 'POST'])
 def verify_code():
-    """验证码验证页面 - 两步验证"""
-    # 检查是否有待验证的登录
+    """Description."""
     pending_user_id = session.get('pending_verify_user_id')
     if not pending_user_id:
         return redirect(url_for('auth.login'))
@@ -120,7 +188,6 @@ def verify_code():
         flash('验证会话已过期，请重新登录', 'warning')
         return redirect(url_for('auth.login'))
     
-    # 获取背景设置
     bg_type = 'video'
     bg_image = 'bg-main.jpg'
     
@@ -132,7 +199,6 @@ def verify_code():
             flash('请输入验证码', 'warning')
             return render_template('auth/verify_code.html', user=user, bg_type=bg_type, bg_image=bg_image)
         
-        # 验证验证码
         purpose = session.get('pending_verify_purpose', 'login')
         success, error = EmailService.verify_code(user.id, code, purpose)
         
@@ -140,11 +206,10 @@ def verify_code():
             flash(error, 'error')
             return render_template('auth/verify_code.html', user=user, bg_type=bg_type, bg_image=bg_image)
         
-        # 验证码正确，完成登录
         remember = session.get('pending_verify_remember', False)
         fingerprint = session.get('pending_verify_fingerprint')
+        subsystem = session.pop('pending_verify_subsystem', None)
         
-        # 如果用户选择信任此设备，添加到信任列表
         if trust_device and fingerprint:
             device_name = _get_device_name(request.headers.get('User-Agent', ''))
             EmailService.add_trusted_device(
@@ -154,30 +219,27 @@ def verify_code():
                 ip_address=_get_client_ip()
             )
         
-        # 清除验证状态
         session.pop('pending_verify_user_id', None)
         session.pop('pending_verify_fingerprint', None)
         session.pop('pending_verify_remember', None)
         session.pop('pending_verify_purpose', None)
         
-        # 执行登录
-        return _do_login(user, remember, _get_client_ip())
+        return _do_login(user, remember, _get_client_ip(), subsystem=subsystem)
     
     return render_template('auth/verify_code.html', user=user, bg_type=bg_type, bg_image=bg_image)
 
 
 @auth_bp.route('/resend-code', methods=['POST'])
 def resend_code():
-    """重新发送验证码"""
+    """Description."""
     pending_user_id = session.get('pending_verify_user_id')
     if not pending_user_id:
         return jsonify({'success': False, 'message': '验证会话已过期'})
     
     user = User.query.get(pending_user_id)
     if not user or not user.email:
-        return jsonify({'success': False, 'message': '用户信息无效'})
+        return jsonify({'success': False, 'message': '鐢ㄦ埛淇℃伅鏃犳晥'})
     
-    # 检查发送频率限制（60秒内只能发送一次）
     last_sent = VerificationCode.query.filter_by(
         user_id=user.id,
         purpose='login'
@@ -189,33 +251,52 @@ def resend_code():
             wait_seconds = int(60 - seconds_since_last)
             return jsonify({'success': False, 'message': f'请等待 {wait_seconds} 秒后重试'})
     
-    # 生成并发送新验证码
     fingerprint = session.get('pending_verify_fingerprint')
     ip_address = _get_client_ip()
-    
+    trace_id = f'resend-{user.id}-{uuid4().hex[:8]}'
+
     code, error = EmailService.create_verification_code(
         user=user,
         purpose='login',
         device_fingerprint=fingerprint,
-        ip_address=ip_address
+        ip_address=ip_address,
+        trace_id=trace_id
     )
-    
+
     if error:
+        current_app.logger.error(
+            '[2FA][%s] resend code create failed username=%s user_id=%s err=%s',
+            trace_id,
+            user.username,
+            user.id,
+            error
+        )
         return jsonify({'success': False, 'message': f'验证码生成失败: {error}'})
-    
-    success, error = EmailService.send_verify_code_email(user, code, 'login')
-    
+
+    success, error = EmailService.send_verify_code_email(user, code, 'login', trace_id=trace_id)
+
     if not success:
+        current_app.logger.error(
+            '[2FA][%s] resend verify mail failed username=%s user_id=%s err=%s',
+            trace_id,
+            user.username,
+            user.id,
+            error
+        )
         return jsonify({'success': False, 'message': f'验证码发送失败: {error}'})
-    
+
+    current_app.logger.info(
+        '[2FA][%s] resend verify mail sent username=%s user_id=%s to=%s',
+        trace_id,
+        user.username,
+        user.id,
+        EmailService._mask_email(user.email)
+    )
     return jsonify({'success': True, 'message': '验证码已重新发送'})
 
 
 def _get_device_name(user_agent: str) -> str:
-    """从User-Agent获取设备名称"""
-    import re
-    
-    # 简单解析
+    """Description."""
     if 'Windows' in user_agent:
         os_name = 'Windows'
     elif 'Mac OS' in user_agent or 'Macintosh' in user_agent:
@@ -243,24 +324,48 @@ def _get_device_name(user_agent: str) -> str:
     return f"{browser} on {os_name}"
 
 
-def _do_login(user, remember: bool, ip_address: str, next_url: str = None):
-    """执行登录操作"""
-    # 设置session
+def _do_login(user, remember: bool, ip_address: str, next_url: str = None, subsystem: str = None):
+    """Description."""
+    # QC-only 璐﹀彿涓嶈兘閫氳繃 ERP 鍏ュ彛鐧诲綍
+    if subsystem != 'qc' and user.role.code in ['qc_controller', 'qc_inspector']:
+        session.clear()
+        flash('该账号仅可用于质量控制系统登录；如需使用 ERP，请在 ERP 入口重新注册同名账号。', 'warning')
+        return redirect(url_for('auth.login'))
+
     session['user_id'] = user.id
     session['username'] = user.username
     session.permanent = remember
     
-    # 更新登录信息
     AuthService.update_login_info(user, ip_address)
     
-    # 检查是否需要修改密码
     if user.require_password_change:
         flash('登录成功！请修改初始密码', 'success')
         return redirect(url_for('auth.change_password'))
     
     flash('登录成功！', 'success')
     
-    # 跳转到next或首页
+    if subsystem == 'qc':
+        # QC 子系统登录
+        if user.role.code in ['superadmin', 'general_manager', 'gm_assistant']:
+            session['subsystem'] = 'qc'
+            if next_url:
+                return redirect(next_url)
+            return redirect(url_for('qc.index'))
+        
+        binding = QCUserBinding.query.filter_by(user_id=user.id).first()
+        if not binding:
+            session['pending_qc_user_id'] = user.id
+            return redirect(url_for('auth.qc_role_apply'))
+        if not binding.is_active:
+            flash('您的 QC 账号尚未通过审核，请联系管理员', 'warning')
+            session.clear()
+            return redirect(url_for('auth.qc_login'))
+        
+        session['subsystem'] = 'qc'
+        if next_url:
+            return redirect(next_url)
+        return redirect(url_for('qc.index'))
+    
     if next_url:
         return redirect(next_url)
     return redirect(url_for('main.index'))
@@ -268,12 +373,10 @@ def _do_login(user, remember: bool, ip_address: str, next_url: str = None):
 
 @auth_bp.route('/register', methods=['GET', 'POST'])
 def register():
-    """注册页面"""
-    # 如果已登录，跳转到首页
+    """Description."""
     if 'user_id' in session:
         return redirect(url_for('main.index'))
     
-    # 获取部门和角色列表 - 从部门管理模块获取
     departments = Department.query.order_by(Department.name).all()
     roles = Role.query.filter(Role.code != 'superadmin').order_by(Role.level.desc()).all()
     
@@ -285,7 +388,6 @@ def register():
         email = request.form.get('email', '').strip()
         phone = request.form.get('phone', '').strip() or None
         
-        # 验证
         if not username:
             flash('请输入用户名', 'warning')
             return render_template('auth/register.html', departments=departments, roles=roles)
@@ -298,30 +400,24 @@ def register():
             flash('请选择角色', 'warning')
             return render_template('auth/register.html', departments=departments, roles=roles)
         
-        # 获取角色代码
         role = Role.query.get(role_id)
         if not role:
             flash('角色不存在', 'error')
             return render_template('auth/register.html', departments=departments, roles=roles)
         
-        # [v1.4] 处理部门选择
-        # 总经理和物流经理可以选择"全部部门"（传'all'或空都表示全部部门）
         if role.code in ['general_manager', 'logistics_manager']:
-            # 总经理、物流经理：部门可选，'all'或空值都表示全部部门
             if department_id == 'all':
                 final_department_id = None
             elif department_id and department_id.isdigit():
                 final_department_id = int(department_id)
             else:
-                final_department_id = None  # 默认为全部部门
+                final_department_id = None
         else:
-            # 其他角色：必须选择具体部门
             if not department_id or not department_id.isdigit():
                 flash('请选择所属部门', 'warning')
                 return render_template('auth/register.html', departments=departments, roles=roles)
             final_department_id = int(department_id)
         
-        # 创建用户
         user, error = AuthService.register_user(
             username=username,
             real_name=real_name,
@@ -341,33 +437,158 @@ def register():
     return render_template('auth/register.html', departments=departments, roles=roles)
 
 
+@auth_bp.route('/register/qc', methods=['GET', 'POST'])
+def register_qc():
+    """Description."""
+    if 'user_id' in session:
+        return redirect(url_for('qc.index'))
+    
+    roles = Role.query.filter(Role.code.in_(['qc_controller', 'qc_inspector'])).order_by(Role.level.desc()).all()
+    
+    if request.method == 'POST':
+        username = request.form.get('username', '').strip()
+        real_name = request.form.get('real_name', '').strip()
+        role_id = request.form.get('role_id', '').strip()
+        email = request.form.get('email', '').strip()
+        phone = request.form.get('phone', '').strip() or None
+        
+        if not username:
+            flash('请输入用户名', 'warning')
+            return render_template('auth/register_qc.html', roles=roles)
+        
+        if not real_name:
+            flash('请输入真实姓名', 'warning')
+            return render_template('auth/register_qc.html', roles=roles)
+        
+        if not role_id:
+            flash('请选择角色', 'warning')
+            return render_template('auth/register_qc.html', roles=roles)
+        
+        role = Role.query.get(role_id)
+        if not role or role.code not in ['qc_controller', 'qc_inspector']:
+            flash('角色不存在或无效', 'error')
+            return render_template('auth/register_qc.html', roles=roles)
+        
+        user, error = AuthService.register_qc_user(
+            username=username,
+            real_name=real_name,
+            role_code=role.code,
+            email=email,
+            phone=phone
+        )
+        
+        if error:
+            flash(error, 'error')
+            return render_template('auth/register_qc.html', roles=roles)
+        
+        flash('注册成功！请等待管理员审核', 'success')
+        return redirect(url_for('auth.pending'))
+    
+    return render_template('auth/register_qc.html', roles=roles)
+
+
+@auth_bp.route('/qc-role-apply', methods=['GET', 'POST'])
+@login_required
+def qc_role_apply():
+    """QC role apply page for ERP users."""
+    user = g.current_user
+    
+    existing = QCUserBinding.query.filter_by(user_id=user.id).first()
+    if existing:
+        if existing.is_active:
+            flash('您已拥有 QC 系统权限，请直接登录', 'success')
+            return redirect(url_for('auth.qc_login'))
+        else:
+            flash('您的 QC 角色申请正在审核中，请耐心等待', 'info')
+            return redirect(url_for('auth.qc_login'))
+    
+    if user.role.code in ['superadmin', 'general_manager', 'gm_assistant']:
+        flash('您已拥有 QC 系统访问权限', 'success')
+        return redirect(url_for('qc.index'))
+    
+    roles = Role.query.filter(Role.code.in_(['qc_controller', 'qc_inspector'])).order_by(Role.level.desc()).all()
+    
+    if request.method == 'POST':
+        role_id = request.form.get('role_id', '').strip()
+        if not role_id:
+            flash('请选择 QC 角色', 'warning')
+            return render_template('auth/qc_role_apply.html', roles=roles)
+        
+        role = Role.query.get(role_id)
+        if not role or role.code not in ['qc_controller', 'qc_inspector']:
+            flash('无效的角色选择', 'error')
+            return render_template('auth/qc_role_apply.html', roles=roles)
+        
+        from app import db
+        binding = QCUserBinding(
+            user_id=user.id,
+            role_id=role.id,
+            is_active=False
+        )
+        db.session.add(binding)
+        db.session.commit()
+        
+        flash('QC 角色申请已提交，请等待管理员审核', 'success')
+        return redirect(url_for('auth.qc_login'))
+    
+    return render_template('auth/qc_role_apply.html', roles=roles)
+
+
 @auth_bp.route('/pending')
 def pending():
-    """注册等待审核页面"""
+    """Description."""
     return render_template('auth/pending.html')
 
 
 @auth_bp.route('/logout')
 def logout():
-    """登出"""
+    """Description."""
     session.clear()
     flash('已成功退出登录', 'success')
-    return redirect(url_for('auth.login'))
+    return redirect(url_for('portal.portal'))
+
+
+@auth_bp.route('/switch/erp')
+@login_required
+def switch_to_erp():
+    """Switch current session to ERP subsystem."""
+    user = g.current_user
+    if user.role.code in ['qc_controller', 'qc_inspector']:
+        flash('当前账号仅可用于质量控制系统，不能切换到 ERP 系统', 'warning')
+        return redirect(url_for('qc.index'))
+
+    session['subsystem'] = 'erp'
+    return redirect(url_for('main.index'))
+
+
+@auth_bp.route('/switch/qc')
+@login_required
+def switch_to_qc():
+    """Switch current session to QC subsystem."""
+    user = g.current_user
+
+    if user.role.code in ['superadmin', 'general_manager', 'gm_assistant']:
+        session['subsystem'] = 'qc'
+        return redirect(url_for('qc.index'))
+
+    binding = QCUserBinding.query.filter_by(user_id=user.id, is_active=True).first()
+    if not binding:
+        flash('您当前没有可用的 QC 系统权限', 'warning')
+        return redirect(url_for('main.index'))
+
+    session['subsystem'] = 'qc'
+    return redirect(url_for('qc.index'))
 
 
 @auth_bp.route('/change-password', methods=['GET', 'POST'])
 @login_required
 def change_password():
-    """修改密码（首次登录强制修改）"""
-    from flask import g
+    """Description."""
     user = g.current_user
-    
-    # 如果不是强制修改密码，显示正常修改页面
     is_forced = user.require_password_change
     
     if request.method == 'POST':
         if is_forced:
-            # 强制修改密码
             new_password = request.form.get('new_password', '').strip()
             confirm_password = request.form.get('confirm_password', '').strip()
             
@@ -382,13 +603,12 @@ def change_password():
             success, message = AuthService.force_change_password(user, new_password)
             if success:
                 flash(message, 'success')
-                session.clear()  # 清除session，要求重新登录
+                session.clear()
                 return redirect(url_for('auth.login'))
             else:
                 flash(message, 'error')
                 return render_template('auth/change_password.html', is_forced=is_forced)
         else:
-            # 正常修改密码
             old_password = request.form.get('old_password', '').strip()
             new_password = request.form.get('new_password', '').strip()
             confirm_password = request.form.get('confirm_password', '').strip()
@@ -404,9 +624,13 @@ def change_password():
             success, message = AuthService.change_password(user, old_password, new_password)
             if success:
                 flash(message, 'success')
+                # 根据当前子系统决定跳转
+                if session.get('subsystem') == 'qc':
+                    return redirect(url_for('qc.index'))
                 return redirect(url_for('main.index'))
             else:
                 flash(message, 'error')
                 return render_template('auth/change_password.html', is_forced=is_forced)
     
     return render_template('auth/change_password.html', is_forced=is_forced)
+

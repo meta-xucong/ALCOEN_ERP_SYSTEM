@@ -1,11 +1,12 @@
 """
 用户管理路由
 """
+from datetime import datetime
 from flask import Blueprint, render_template, request, redirect, url_for, flash, g
 from app.services.user_service import UserService
 from app.services.auth_service import AuthService
 from app.services.contract_service import ContractService
-from app.models import User, Role, Department
+from app.models import User, Role, Department, QCUserBinding, db
 from app.utils.decorators import login_required, user_manage_required
 
 user_bp = Blueprint('user', __name__, url_prefix='/user')
@@ -41,7 +42,7 @@ def list_users():
 @user_bp.route('/pending')
 @login_required
 def pending_users():
-    """待审核用户列表"""
+    """待审核用户列表（包含 ERP 新用户和 QC 角色申请）"""
     # 检查权限
     if not g.current_user.has_permission('user_approve'):
         flash('需要用户审核权限', 'error')
@@ -50,9 +51,15 @@ def pending_users():
     page = request.args.get('page', 1, type=int)
     pagination = UserService.get_pending_users(page=page)
     
+    # 查询待审核的 QC 角色申请（已激活的 ERP 用户申请 QC）
+    pending_qc_bindings = QCUserBinding.query.filter_by(is_active=False).order_by(
+        QCUserBinding.created_at.asc()
+    ).all()
+    
     return render_template('user/pending.html',
                          users=pagination.items,
-                         pagination=pagination)
+                         pagination=pagination,
+                         pending_qc_bindings=pending_qc_bindings)
 
 
 @user_bp.route('/<int:user_id>')
@@ -162,6 +169,55 @@ def reject_user(user_id):
     else:
         flash('操作失败', 'error')
     
+    return redirect(url_for('user.pending_users'))
+
+
+@user_bp.route('/qc-binding/<int:binding_id>/approve', methods=['POST'])
+@login_required
+def approve_qc_binding(binding_id):
+    """审核通过 QC 角色申请"""
+    if not g.current_user.has_permission('user_approve'):
+        flash('需要用户审核权限', 'error')
+        return redirect(url_for('main.index'))
+    
+    binding = QCUserBinding.query.get_or_404(binding_id)
+    now = datetime.now()
+    binding.is_active = True
+    binding.approved_by = g.current_user.id
+    binding.approved_at = now
+
+    # QC-only 注册用户在此处一并激活账号
+    if not binding.user.is_active:
+        binding.user.is_active = True
+        binding.user.approved_by = g.current_user.id
+        binding.user.approved_at = now
+
+    db.session.commit()
+    
+    flash(f'已通过 {binding.user.username} 的 QC 角色申请', 'success')
+    return redirect(url_for('user.pending_users'))
+
+
+@user_bp.route('/qc-binding/<int:binding_id>/reject', methods=['POST'])
+@login_required
+def reject_qc_binding(binding_id):
+    """拒绝 QC 角色申请（删除绑定）"""
+    if not g.current_user.has_permission('user_approve'):
+        flash('需要用户审核权限', 'error')
+        return redirect(url_for('main.index'))
+    
+    binding = QCUserBinding.query.get_or_404(binding_id)
+    user = binding.user
+    username = user.username
+    db.session.delete(binding)
+
+    # 对于未激活的 QC-only 注册，拒绝时同步清理用户账号
+    if not user.is_active and user.role.code in ['qc_controller', 'qc_inspector']:
+        db.session.delete(user)
+
+    db.session.commit()
+    
+    flash(f'已拒绝 {username} 的 QC 角色申请', 'success')
     return redirect(url_for('user.pending_users'))
 
 

@@ -5,7 +5,7 @@ from datetime import datetime
 from werkzeug.security import generate_password_hash, check_password_hash
 from flask import current_app
 from app import db
-from app.models import User, Role, VerificationCode, TrustedDevice
+from app.models import User, Role, VerificationCode, TrustedDevice, QCUserBinding
 from app.services.email_service import EmailService
 
 
@@ -45,7 +45,18 @@ class AuthService:
             (user, error_message)
         """
         # 检查用户名是否已存在
-        if User.query.filter_by(username=username).first():
+        existing_user = User.query.filter_by(username=username).first()
+        if existing_user:
+            # 支持“QC-only 用户重新注册 ERP”：以 ERP 信息覆盖
+            if existing_user.role.code in ['qc_controller', 'qc_inspector']:
+                return AuthService._upgrade_qc_user_to_erp(
+                    existing_user=existing_user,
+                    real_name=real_name,
+                    role_code=role_code,
+                    department_id=department_id,
+                    email=email,
+                    phone=phone,
+                )
             return None, '用户名已存在'
         
         # [v1.5] 邮箱必填验证
@@ -86,6 +97,54 @@ class AuthService:
         db.session.commit()
         
         return user, None
+
+    @staticmethod
+    def _upgrade_qc_user_to_erp(
+        existing_user: User,
+        real_name: str,
+        role_code: str,
+        department_id: int = None,
+        email: str = None,
+        phone: str = None,
+    ) -> tuple:
+        """将 QC-only 用户升级为 ERP 注册用户（ERP 信息覆盖）。"""
+        if role_code in ['qc_controller', 'qc_inspector']:
+            return None, '请选择 ERP 角色进行注册'
+
+        if not email:
+            return None, '请填写邮箱地址，用于登录安全验证'
+
+        if not EmailService.validate_email(email):
+            return None, '邮箱格式不正确'
+
+        email_owner = User.query.filter(User.email == email, User.id != existing_user.id).first()
+        if email_owner:
+            return None, '该邮箱已被注册'
+
+        role = Role.query.filter_by(code=role_code).first()
+        if not role:
+            return None, '角色不存在'
+
+        if role_code not in ['logistics_manager', 'general_manager'] and not department_id:
+            return None, '请选择所属部门'
+
+        existing_user.real_name = real_name or existing_user.real_name
+        existing_user.role_id = role.id
+        existing_user.department_id = (
+            department_id if role_code not in ['logistics_manager', 'general_manager'] else None
+        )
+        existing_user.email = email
+        existing_user.phone = phone
+
+        # ERP 注册信息优先：覆盖原 QC 密码并要求首次登录改密
+        existing_user.password_hash = generate_password_hash(AuthService.DEFAULT_PASSWORD)
+        existing_user.is_active = False
+        existing_user.require_password_change = True
+        existing_user.approved_by = None
+        existing_user.approved_at = None
+
+        db.session.commit()
+        return existing_user, None
     
     @staticmethod
     def authenticate(username: str, password: str, user_agent: str = None,
@@ -132,25 +191,21 @@ class AuthService:
                     device_fingerprint=device_fingerprint
                 )
 
-            if device_fingerprint:
-                # 检查是否为受信任设备
-                if EmailService.is_trusted_device(user.id, device_fingerprint):
-                    # 受信任设备，直接登录
-                    return AuthResult(success=True, user=user)
-                
-                # 检查用户是否绑定了邮箱
-                if not user.email:
-                    # 没有邮箱，直接登录（记录警告日志）
-                    current_app.logger.warning(f'用户 {user.username} 未绑定邮箱，跳过两步验证')
-                    return AuthResult(success=True, user=user)
-                
-                # 需要验证码验证
-                return AuthResult(
-                    success=True,
-                    user=user,
-                    require_verify=True,
-                    device_fingerprint=device_fingerprint
-                )
+            # 普通账号也必须绑定邮箱，确保验证码链路一致
+            if not user.email:
+                return AuthResult(message='账号未绑定邮箱，无法完成登录验证，请联系管理员绑定邮箱')
+
+            if device_fingerprint and EmailService.is_trusted_device(user.id, device_fingerprint):
+                # 受信任设备，直接登录
+                return AuthResult(success=True, user=user)
+
+            # 需要验证码验证
+            return AuthResult(
+                success=True,
+                user=user,
+                require_verify=True,
+                device_fingerprint=device_fingerprint
+            )
         
         return AuthResult(success=True, user=user)
     
@@ -230,7 +285,7 @@ class AuthService:
     @staticmethod
     def approve_user(user: User, approver: User) -> bool:
         """
-        审核通过用户
+        审核通过用户。同时激活该用户关联的 QC 绑定（如有）。
         
         Args:
             user: 待审核用户
@@ -242,13 +297,21 @@ class AuthService:
         user.is_active = True
         user.approved_by = approver.id
         user.approved_at = datetime.now()
+        
+        # 同步激活 QC 绑定
+        binding = QCUserBinding.query.filter_by(user_id=user.id).first()
+        if binding:
+            binding.is_active = True
+            binding.approved_by = approver.id
+            binding.approved_at = datetime.now()
+        
         db.session.commit()
         return True
     
     @staticmethod
     def reject_user(user: User) -> bool:
         """
-        审核拒绝用户（删除账号）
+        审核拒绝用户（删除账号）。先清理关联的 QC 绑定。
         
         Args:
             user: 待审核用户
@@ -256,6 +319,8 @@ class AuthService:
         Returns:
             是否成功
         """
+        # 先删除关联 QC 绑定，避免外键约束错误
+        QCUserBinding.query.filter_by(user_id=user.id).delete()
         db.session.delete(user)
         db.session.commit()
         return True
@@ -263,7 +328,7 @@ class AuthService:
     @staticmethod
     def toggle_user_status(user: User) -> bool:
         """
-        切换用户启用/禁用状态
+        切换用户启用/禁用状态，同时同步 QC 绑定状态。
         
         Args:
             user: 用户对象
@@ -272,5 +337,89 @@ class AuthService:
             是否成功
         """
         user.is_active = not user.is_active
+        
+        binding = QCUserBinding.query.filter_by(user_id=user.id).first()
+        if binding:
+            binding.is_active = user.is_active
+        
         db.session.commit()
         return True
+
+
+    @staticmethod
+    def register_qc_user(username: str, real_name: str, role_code: str = 'qc_inspector',
+                        email: str = None, phone: str = None) -> tuple:
+        """
+        注册 QC 用户
+        
+        如果 username 已存在于 ERP 中，则复用该账号并仅创建 qc_user_bindings 记录；
+        如果不存在，则创建新 users 记录和 qc_user_bindings 记录。
+        
+        Args:
+            username: 用户名
+            real_name: 真实姓名
+            role_code: QC 角色代码（默认质量检测员）
+            email: 邮箱
+            phone: 电话
+            
+        Returns:
+            (user, error_message)
+        """
+        from app.models import QCUserBinding
+        
+        existing_user = User.query.filter_by(username=username).first()
+        
+        if existing_user:
+            # 检查是否已有 QC 绑定
+            existing_binding = QCUserBinding.query.filter_by(user_id=existing_user.id).first()
+            if existing_binding:
+                return None, '该账号已申请或已绑定 QC 系统，请勿重复注册'
+            
+            role = Role.query.filter_by(code=role_code).first()
+            if not role:
+                return None, '角色不存在'
+            
+            binding = QCUserBinding(
+                user_id=existing_user.id,
+                role_id=role.id,
+                is_active=False
+            )
+            db.session.add(binding)
+            db.session.commit()
+            return existing_user, None
+        else:
+            # 新用户
+            if not email:
+                return None, '请填写邮箱地址，用于登录安全验证'
+            
+            if not EmailService.validate_email(email):
+                return None, '邮箱格式不正确'
+            
+            if User.query.filter_by(email=email).first():
+                return None, '该邮箱已被注册'
+            
+            role = Role.query.filter_by(code=role_code).first()
+            if not role:
+                return None, '角色不存在'
+            
+            user = User(
+                username=username,
+                password_hash=generate_password_hash(AuthService.DEFAULT_PASSWORD),
+                real_name=real_name,
+                role_id=role.id,
+                email=email,
+                phone=phone,
+                is_active=False,
+                require_password_change=True
+            )
+            db.session.add(user)
+            db.session.flush()
+            
+            binding = QCUserBinding(
+                user_id=user.id,
+                role_id=role.id,
+                is_active=False
+            )
+            db.session.add(binding)
+            db.session.commit()
+            return user, None

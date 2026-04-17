@@ -3,8 +3,12 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 from typing import Dict
+
+# 确保项目根目录在路径中
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import pytest
 

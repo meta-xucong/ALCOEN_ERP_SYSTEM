@@ -1,10 +1,24 @@
-from flask import Blueprint, render_template, g
+from flask import Blueprint, render_template, g, jsonify
 from app.models import Contract, Transaction, Statement
 from app.services.statement_service import StatementService
 from app.utils.decorators import login_required
 from sqlalchemy import func
 
-main_bp = Blueprint('main', __name__)
+main_bp = Blueprint('main', __name__, url_prefix='/erp')
+portal_bp = Blueprint('portal', __name__)
+
+
+@portal_bp.route('/')
+def portal():
+    """系统选择门户页 - 双系统入口"""
+    return render_template('portal.html')
+
+
+@portal_bp.route('/api/companies')
+def api_companies():
+    """API: 获取公司名称列表（用于自动补全）"""
+    companies = StatementService.get_company_list()
+    return {'companies': [{'name': c} for c in companies]}
 
 
 @main_bp.route('/')
@@ -95,10 +109,3 @@ def index():
                          recent_contracts=recent_contracts,
                          recent_statements=recent_statements,
                          companies=companies)
-
-
-@main_bp.route('/api/companies')
-def api_companies():
-    """API: 获取公司名称列表（用于自动补全）"""
-    companies = StatementService.get_company_list()
-    return {'companies': [{'name': c} for c in companies]}

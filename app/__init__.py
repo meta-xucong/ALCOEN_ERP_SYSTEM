@@ -29,7 +29,7 @@ def create_app(config_name='default'):
     db.init_app(app)
     
     # 注册蓝图
-    from app.routes.main import main_bp
+    from app.routes.main import main_bp, portal_bp
     from app.routes.transaction import transaction_bp
     from app.routes.statement import statement_bp
     from app.routes.product import product_bp
@@ -41,7 +41,10 @@ def create_app(config_name='default'):
     from app.routes.theme import theme_bp
     from app.routes.settings import settings_bp
     from app.routes.backup import backup_bp
+    from app.routes.qc import qc_bp
+    app.register_blueprint(portal_bp)
     app.register_blueprint(main_bp)
+    app.register_blueprint(qc_bp)
     app.register_blueprint(transaction_bp, url_prefix='/transaction')
     app.register_blueprint(statement_bp, url_prefix='/statement')
     app.register_blueprint(product_bp, url_prefix='/product')

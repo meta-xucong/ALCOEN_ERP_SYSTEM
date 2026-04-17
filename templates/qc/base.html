@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}ALCOEN QC{% endblock %}</title>
+
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css" rel="stylesheet">
+    <link href="{{ url_for('static', filename='css/alco-glass-theme.css') }}" rel="stylesheet">
+    <link href="{{ url_for('static', filename='css/theme-preferences.css') }}" rel="stylesheet">
+
+    {% block extra_css %}{% endblock %}
+</head>
+<body class="theme-{{ theme.theme }} style-{{ theme.style }}" data-theme="{{ theme.theme }}">
+    {% if theme.bg_type == 'video' %}
+    <div class="video-background">
+        <video autoplay muted loop playsinline>
+            <source src="{{ url_for('static', filename='video/video_main.mp4') }}" type="video/mp4">
+        </video>
+    </div>
+    {% elif theme.bg_type == 'image' %}
+    <div class="image-background" style="background-image: url('{{ url_for('static', filename='img/backgrounds/' + theme.bg_image) }}')"></div>
+    {% else %}
+    <div class="solid-background" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: -2; background: linear-gradient(135deg, #e8f4f8 0%, #d4e9f2 50%, #c5e0ec 100%);"></div>
+    {% endif %}
+
+    {% if theme.bg_type == 'solid' %}
+    <div class="orb orb-1"></div>
+    <div class="orb orb-2"></div>
+    <div class="orb orb-3"></div>
+    {% endif %}
+
+    {% set qc_manager_roles = ['superadmin', 'general_manager', 'gm_assistant'] %}
+    {% set qc_operator_roles = ['qc_controller', 'qc_inspector'] %}
+    {% set role_code = current_user.role.code if current_user and current_user.role else '' %}
+    {% set can_access_qc_orders = current_user and (
+        current_user.is_superadmin
+        or role_code in qc_manager_roles
+        or current_user.has_permission('qc_work_order_create')
+    ) %}
+    {% set can_access_qc_inspection = current_user and (
+        current_user.is_superadmin
+        or role_code in qc_manager_roles
+        or role_code in qc_operator_roles
+        or current_user.has_permission('qc_inspection_perform')
+    ) %}
+    {% set can_access_qc_acceptance = current_user and (
+        current_user.is_superadmin
+        or role_code in qc_manager_roles
+        or role_code in qc_operator_roles
+        or current_user.has_permission('qc_acceptance_perform')
+    ) %}
+    {% set can_access_qc_admin = current_user and (current_user.is_superadmin or role_code == 'general_manager') %}
+
+    <nav class="navbar navbar-expand-lg">
+        <div class="container">
+            <a class="navbar-brand" href="{{ url_for('qc.index') }}">
+                <img src="{{ url_for('static', filename='img/logo.png') }}" alt="ALCOEN"> QC
+            </a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav me-auto">
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('qc.index') }}">
+                            <i class="bi bi-house-door"></i> 首页
+                        </a>
+                    </li>
+                    {% if can_access_qc_orders %}
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('qc.quality_control_list') }}">
+                            <i class="bi bi-clipboard-check"></i> 质量控制
+                        </a>
+                    </li>
+                    {% endif %}
+                    {% if can_access_qc_inspection %}
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('qc.quality_inspection_list') }}">
+                            <i class="bi bi-search"></i> 质量检测
+                        </a>
+                    </li>
+                    {% endif %}
+                    {% if can_access_qc_acceptance %}
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('qc.acceptance_list') }}">
+                            <i class="bi bi-check2-circle"></i> 验收模块
+                        </a>
+                    </li>
+                    {% endif %}
+                    {% if can_access_qc_admin %}
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown">
+                            <i class="bi bi-gear"></i> 系统管理
+                        </a>
+                        <ul class="dropdown-menu">
+                            <li><a class="dropdown-item" href="{{ url_for('qc.qc_admin_users') }}"><i class="bi bi-people"></i> 用户管理</a></li>
+                            <li><a class="dropdown-item" href="{{ url_for('qc.qc_admin_pending') }}"><i class="bi bi-hourglass-split"></i> 待审核用户</a></li>
+                            <li><a class="dropdown-item" href="{{ url_for('qc.qc_admin_roles') }}"><i class="bi bi-shield-lock"></i> 角色权限</a></li>
+                            <li><hr class="dropdown-divider"></li>
+                            <li><a class="dropdown-item" href="{{ url_for('settings.email') }}"><i class="bi bi-envelope-gear"></i> 邮箱管理（共享）</a></li>
+                            <li><a class="dropdown-item" href="{{ url_for('backup.backup_page') }}"><i class="bi bi-database-check"></i> 数据备份（共享）</a></li>
+                        </ul>
+                    </li>
+                    {% endif %}
+                </ul>
+                <ul class="navbar-nav">
+                    {% if current_user %}
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('auth.switch_to_erp') }}">
+                            <i class="bi bi-building"></i> ERP系统
+                        </a>
+                    </li>
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown">
+                            <i class="bi bi-person-circle"></i>
+                            {{ current_user.real_name or current_user.username }}
+                            <span class="badge bg-info">{{ current_user.role.name }}</span>
+                        </a>
+                        <ul class="dropdown-menu dropdown-menu-end">
+                            <li>
+                                <a class="dropdown-item" href="{{ url_for('user.user_profile') }}">
+                                    <i class="bi bi-person"></i> 个人资料
+                                </a>
+                            </li>
+                            <li>
+                                <a class="dropdown-item" href="{{ url_for('theme.settings') }}">
+                                    <i class="bi bi-palette"></i> 界面风格
+                                </a>
+                            </li>
+                            <li>
+                                <a class="dropdown-item" href="{{ url_for('auth.change_password') }}">
+                                    <i class="bi bi-key"></i> 修改密码
+                                </a>
+                            </li>
+                            <li><hr class="dropdown-divider"></li>
+                            <li>
+                                <a class="dropdown-item text-danger" href="{{ url_for('auth.logout') }}">
+                                    <i class="bi bi-box-arrow-right"></i> 退出登录
+                                </a>
+                            </li>
+                        </ul>
+                    </li>
+                    {% else %}
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('auth.qc_login') }}">
+                            <i class="bi bi-box-arrow-in-right"></i> 登录
+                        </a>
+                    </li>
+                    {% endif %}
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container mt-4">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    <div class="alert alert-{{ 'danger' if category == 'error' else category }} alert-dismissible fade show">
+                        {{ message }}
+                        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                    </div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+    </div>
+
+    <main class="container my-4" style="padding-bottom: 60px;">
+        {% block content %}{% endblock %}
+    </main>
+
+    <footer style="position: fixed; bottom: 0; left: 0; right: 0; background: rgba(255, 255, 255, 0.85); backdrop-filter: blur(10px); border-top: 1px solid rgba(255, 255, 255, 0.5); padding: 12px 0; z-index: 1030;">
+        <div class="container text-center">
+            <small style="color: var(--alco-primary); font-weight: 500;">ALCOEN QC V1.0 &copy; 2026</small>
+        </div>
+    </footer>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+
+    {% block extra_js %}{% endblock %}
+</body>
+</html>
