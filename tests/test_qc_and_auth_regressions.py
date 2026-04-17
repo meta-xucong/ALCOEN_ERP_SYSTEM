@@ -1867,3 +1867,44 @@ def test_switch_routes_change_subsystem_context(app, client, login):
     assert "/qc/" in qc_resp.headers.get("Location", "")
     with client.session_transaction() as sess:
         assert sess.get("subsystem") == "qc"
+
+
+def test_portal_cards_switch_systems_for_logged_in_users(app, client):
+    """Portal system cards should use explicit switch routes once the user is logged in."""
+    with app.app_context():
+        dept = Department(name="Portal Switch")
+        db.session.add(dept)
+        db.session.flush()
+
+        superadmin_role = Role(name="Portal SA", code="superadmin", permissions="[]", level=999)
+        db.session.add(superadmin_role)
+        db.session.flush()
+
+        user = User(
+            username="portal_switch_admin",
+            password_hash=generate_password_hash("Pass123!"),
+            real_name="Portal Switch Admin",
+            role_id=superadmin_role.id,
+            department_id=dept.id,
+            email="portal_switch_admin@example.com",
+            is_active=True,
+            is_superadmin=True,
+            require_password_change=False,
+        )
+        db.session.add(user)
+        db.session.commit()
+        user_id = user.id
+
+    with client.session_transaction() as sess:
+        sess["user_id"] = user_id
+        sess["subsystem"] = "qc"
+
+    portal = client.get("/", follow_redirects=False)
+    assert portal.status_code == 200
+    text = portal.get_data(as_text=True)
+    assert "/auth/switch/erp" in text
+    assert "/auth/switch/qc" in text
+
+    erp_resp = client.get("/auth/switch/erp", follow_redirects=False)
+    assert erp_resp.status_code == 302
+    assert "/erp/" in erp_resp.headers.get("Location", "")

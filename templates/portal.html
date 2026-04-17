@@ -219,7 +219,7 @@
         
         <div class="row g-4 justify-content-center">
             <div class="col-md-5">
-                <a href="{{ url_for('auth.login') }}" class="system-card">
+                <a href="{{ url_for('auth.switch_to_erp') if current_user else url_for('auth.login') }}" class="system-card">
                     <div class="system-icon erp">
                         <i class="bi bi-building"></i>
                     </div>
@@ -231,7 +231,7 @@
                 </a>
             </div>
             <div class="col-md-5">
-                <a href="{{ url_for('auth.qc_login') }}" class="system-card">
+                <a href="{{ url_for('auth.switch_to_qc') if current_user else url_for('auth.qc_login') }}" class="system-card">
                     <div class="system-icon qc">
                         <i class="bi bi-shield-check"></i>
                     </div>
