@@ -141,7 +141,7 @@ def qc_admin_toggle_user(user_id: int):
     if blocked:
         return blocked
 
-    user = UserService.get_user_by_id(user_id)
+    user = UserService.get_user_by_id(user_id, include_qc=True)
     if not user:
         flash('用户不存在', 'error')
         return redirect(url_for('qc.qc_admin_users'))
@@ -162,7 +162,7 @@ def qc_admin_reset_password(user_id: int):
     if blocked:
         return blocked
 
-    user = UserService.get_user_by_id(user_id)
+    user = UserService.get_user_by_id(user_id, include_qc=True)
     if not user:
         flash('用户不存在', 'error')
         return redirect(url_for('qc.qc_admin_users'))
@@ -205,7 +205,7 @@ def qc_admin_approve_user(user_id: int):
     if blocked:
         return blocked
 
-    user = UserService.get_user_by_id(user_id)
+    user = UserService.get_user_by_id(user_id, include_qc=True)
     if not user:
         flash('用户不存在', 'error')
         return redirect(url_for('qc.qc_admin_pending'))
@@ -223,7 +223,7 @@ def qc_admin_reject_user(user_id: int):
     if blocked:
         return blocked
 
-    user = UserService.get_user_by_id(user_id)
+    user = UserService.get_user_by_id(user_id, include_qc=True)
     if not user:
         flash('用户不存在', 'error')
         return redirect(url_for('qc.qc_admin_pending'))

@@ -1908,3 +1908,309 @@ def test_portal_cards_switch_systems_for_logged_in_users(app, client):
     erp_resp = client.get("/auth/switch/erp", follow_redirects=False)
     assert erp_resp.status_code == 302
     assert "/erp/" in erp_resp.headers.get("Location", "")
+
+
+
+def test_erp_pending_page_hides_qc_only_registrations(app, client, login):
+    """ERP pending page should only show ERP registrations, never QC-only applicants."""
+    with app.app_context():
+        dept = Department(name="Pending ERP")
+        db.session.add(dept)
+        db.session.flush()
+
+        superadmin_role = Role(name="ERP Pending SA", code="superadmin", permissions="[]", level=999)
+        sales_role = Role(name="ERP Pending Sales", code="sales_manager", permissions='["contract_view"]', level=20)
+        qc_role = Role(name="ERP Pending QC", code="qc_controller", permissions='["qc_dashboard"]', level=55)
+        db.session.add_all([superadmin_role, sales_role, qc_role])
+        db.session.flush()
+
+        admin = User(
+            username="pending_admin",
+            password_hash=generate_password_hash("Pass123!"),
+            real_name="Pending Admin",
+            role_id=superadmin_role.id,
+            department_id=dept.id,
+            email="pending_admin@example.com",
+            is_active=True,
+            is_superadmin=True,
+            require_password_change=False,
+        )
+        erp_pending = User(
+            username="erp_pending_visible",
+            password_hash=generate_password_hash("Pass123!"),
+            real_name="ERP Pending",
+            role_id=sales_role.id,
+            department_id=dept.id,
+            email="erp_pending_visible@example.com",
+            is_active=False,
+            require_password_change=False,
+        )
+        qc_pending = User(
+            username="qc_pending_hidden",
+            password_hash=generate_password_hash("Pass123!"),
+            real_name="QC Pending",
+            role_id=qc_role.id,
+            email="qc_pending_hidden@example.com",
+            is_active=False,
+            require_password_change=False,
+        )
+        db.session.add_all([admin, erp_pending, qc_pending])
+        db.session.flush()
+        db.session.add(
+            QCUserBinding(
+                user_id=qc_pending.id,
+                role_id=qc_role.id,
+                is_active=False,
+            )
+        )
+        db.session.commit()
+        admin_id = admin.id
+
+    login(admin_id)
+    response = client.get('/user/pending', follow_redirects=False)
+    assert response.status_code == 200
+    text = response.get_data(as_text=True)
+    assert 'ERP 新用户注册申请' in text
+    assert 'QC 角色申请' not in text
+    assert 'erp_pending_visible' in text
+    assert 'qc_pending_hidden' not in text
+
+
+
+def test_erp_role_management_hides_qc_roles(app, client, login):
+    """ERP role management should not render QC-only roles."""
+    with app.app_context():
+        dept = Department(name="Role Scope")
+        db.session.add(dept)
+        db.session.flush()
+
+        superadmin_role = Role(name="Role Scope SA", code="superadmin", permissions="[]", level=999)
+        sales_role = Role(name="Role Scope Sales", code="sales_manager", permissions='["contract_view"]', level=20)
+        qc_role = Role(name="Role Scope QC Inspector", code="qc_inspector", permissions='["qc_dashboard"]', level=45)
+        db.session.add_all([superadmin_role, sales_role, qc_role])
+        db.session.flush()
+
+        admin = User(
+            username="role_scope_admin",
+            password_hash=generate_password_hash("Pass123!"),
+            real_name="Role Scope Admin",
+            role_id=superadmin_role.id,
+            department_id=dept.id,
+            email="role_scope_admin@example.com",
+            is_active=True,
+            is_superadmin=True,
+            require_password_change=False,
+        )
+        db.session.add(admin)
+        db.session.commit()
+        admin_id = admin.id
+        qc_role_id = qc_role.id
+
+    login(admin_id)
+    response = client.get('/role/', follow_redirects=False)
+    assert response.status_code == 200
+    text = response.get_data(as_text=True)
+    assert 'Role Scope Sales' in text
+    assert 'Role Scope QC Inspector' not in text
+
+    blocked = client.get(f'/role/{qc_role_id}/edit', follow_redirects=False)
+    assert blocked.status_code == 302
+    assert '/role/' in blocked.headers.get('Location', '')
+
+
+
+def test_erp_register_page_excludes_qc_roles_and_blocks_manual_submission(app, client):
+    """ERP registration should hide QC roles and reject forged QC role submissions."""
+    with app.app_context():
+        dept = Department(name="Register Scope")
+        db.session.add(dept)
+        db.session.flush()
+
+        sales_role = Role(name="Register Scope Sales", code="sales_manager", permissions='["contract_view"]', level=20)
+        qc_role = Role(name="Register Scope QC Controller", code="qc_controller", permissions='["qc_dashboard"]', level=55)
+        db.session.add_all([sales_role, qc_role])
+        db.session.commit()
+        dept_id = dept.id
+        qc_role_id = qc_role.id
+
+    page = client.get('/auth/register', follow_redirects=False)
+    assert page.status_code == 200
+    text = page.get_data(as_text=True)
+    assert 'Register Scope Sales' in text
+    assert 'Register Scope QC Controller' not in text
+
+    response = client.post(
+        '/auth/register',
+        data={
+            'username': 'erp_forged_qc_role',
+            'real_name': 'Forged QC Role',
+            'role_id': str(qc_role_id),
+            'department_id': str(dept_id),
+            'email': 'erp_forged_qc_role@example.com',
+            'phone': '13800001111',
+        },
+        follow_redirects=False,
+    )
+    assert response.status_code == 200
+
+    with app.app_context():
+        assert User.query.filter_by(username='erp_forged_qc_role').first() is None
+
+
+
+def test_erp_cannot_manage_qc_only_users_by_direct_url(app, client, login):
+    """ERP management routes should reject direct access to QC-only accounts."""
+    with app.app_context():
+        dept = Department(name="Manage Scope")
+        db.session.add(dept)
+        db.session.flush()
+
+        superadmin_role = Role(name="Manage Scope SA", code="superadmin", permissions="[]", level=999)
+        qc_role = Role(name="Manage Scope QC", code="qc_inspector", permissions='["qc_dashboard"]', level=45)
+        db.session.add_all([superadmin_role, qc_role])
+        db.session.flush()
+
+        admin = User(
+            username="manage_scope_admin",
+            password_hash=generate_password_hash("Pass123!"),
+            real_name="Manage Scope Admin",
+            role_id=superadmin_role.id,
+            department_id=dept.id,
+            email="manage_scope_admin@example.com",
+            is_active=True,
+            is_superadmin=True,
+            require_password_change=False,
+        )
+        qc_user = User(
+            username="manage_scope_qc_only",
+            password_hash=generate_password_hash("Pass123!"),
+            real_name="Manage Scope QC",
+            role_id=qc_role.id,
+            email="manage_scope_qc@example.com",
+            is_active=True,
+            require_password_change=False,
+        )
+        db.session.add_all([admin, qc_user])
+        db.session.flush()
+        db.session.add(
+            QCUserBinding(
+                user_id=qc_user.id,
+                role_id=qc_role.id,
+                is_active=True,
+            )
+        )
+        db.session.commit()
+        admin_id = admin.id
+        qc_user_id = qc_user.id
+
+    login(admin_id)
+    detail = client.get(f'/user/{qc_user_id}', follow_redirects=False)
+    assert detail.status_code == 302
+    assert '/user/' in detail.headers.get('Location', '')
+
+    delete_resp = client.post(f'/user/{qc_user_id}/delete', follow_redirects=False)
+    assert delete_resp.status_code == 302
+    assert '/user/' in delete_resp.headers.get('Location', '')
+
+    with app.app_context():
+        assert User.query.get(qc_user_id) is not None
+
+
+
+def test_qc_admin_can_approve_qc_only_user_after_erp_scope_split(app, client, login):
+    """QC admin routes should still manage QC-only accounts after ERP scoping is tightened."""
+    with app.app_context():
+        dept = Department(name="QC Admin Scope")
+        db.session.add(dept)
+        db.session.flush()
+
+        superadmin_role = Role(name="QC Admin Scope SA", code="superadmin", permissions="[]", level=999)
+        qc_role = Role(name="QC Admin Scope Controller", code="qc_controller", permissions='["qc_dashboard"]', level=55)
+        db.session.add_all([superadmin_role, qc_role])
+        db.session.flush()
+
+        admin = User(
+            username="qc_admin_scope_admin",
+            password_hash=generate_password_hash("Pass123!"),
+            real_name="QC Admin Scope Admin",
+            role_id=superadmin_role.id,
+            department_id=dept.id,
+            email="qc_admin_scope_admin@example.com",
+            is_active=True,
+            is_superadmin=True,
+            require_password_change=False,
+        )
+        pending_qc_user = User(
+            username="qc_admin_scope_pending",
+            password_hash=generate_password_hash("Pass123!"),
+            real_name="QC Pending User",
+            role_id=qc_role.id,
+            email="qc_admin_scope_pending@example.com",
+            is_active=False,
+            require_password_change=True,
+        )
+        db.session.add_all([admin, pending_qc_user])
+        db.session.flush()
+        binding = QCUserBinding(
+            user_id=pending_qc_user.id,
+            role_id=qc_role.id,
+            is_active=False,
+        )
+        db.session.add(binding)
+        db.session.commit()
+        admin_id = admin.id
+        pending_user_id = pending_qc_user.id
+
+    login(admin_id)
+    response = client.post(f'/qc/admin/pending/user/{pending_user_id}/approve', follow_redirects=False)
+    assert response.status_code == 302
+    assert '/qc/admin/pending' in response.headers.get('Location', '')
+
+    with app.app_context():
+        refreshed_user = User.query.get(pending_user_id)
+        refreshed_binding = QCUserBinding.query.filter_by(user_id=pending_user_id).first()
+        assert refreshed_user.is_active is True
+        assert refreshed_binding is not None
+        assert refreshed_binding.is_active is True
+
+
+
+def test_qc_only_user_can_update_profile_after_erp_filtering(app, client, login):
+    """QC-only users should still be able to update their own profile information."""
+    with app.app_context():
+        qc_role = Role(name="QC Profile Inspector", code="qc_inspector", permissions='["qc_dashboard"]', level=45)
+        db.session.add(qc_role)
+        db.session.flush()
+
+        qc_user = User(
+            username="qc_profile_user",
+            password_hash=generate_password_hash("Pass123!"),
+            real_name="QC Profile",
+            role_id=qc_role.id,
+            email="qc_profile_user@example.com",
+            phone="13800002222",
+            is_active=True,
+            require_password_change=False,
+        )
+        db.session.add(qc_user)
+        db.session.commit()
+        qc_user_id = qc_user.id
+
+    login(qc_user_id)
+    response = client.post(
+        '/user/profile',
+        data={
+            'real_name': 'QC Profile Updated',
+            'email': 'qc_profile_updated@example.com',
+            'phone': '13800003333',
+        },
+        follow_redirects=False,
+    )
+    assert response.status_code == 302
+    assert '/user/profile' in response.headers.get('Location', '')
+
+    with app.app_context():
+        refreshed_user = User.query.get(qc_user_id)
+        assert refreshed_user.real_name == 'QC Profile Updated'
+        assert refreshed_user.email == 'qc_profile_updated@example.com'
+        assert refreshed_user.phone == '13800003333'

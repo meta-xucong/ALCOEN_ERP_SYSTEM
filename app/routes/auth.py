@@ -32,6 +32,13 @@ def _get_qc_roles():
     return AuthService.ensure_qc_roles()
 
 
+def _get_erp_roles():
+    """Load ERP registration roles, excluding superadmin and QC-only roles."""
+    return Role.query.filter(
+        Role.code.notin_(('superadmin',) + QC_ROLE_CODES)
+    ).order_by(Role.level.desc()).all()
+
+
 @auth_bp.route('/login', methods=['GET', 'POST'])
 def login():
     """Description."""
@@ -384,7 +391,7 @@ def register():
         return redirect(url_for('main.index'))
     
     departments = Department.query.order_by(Department.name).all()
-    roles = Role.query.filter(Role.code != 'superadmin').order_by(Role.level.desc()).all()
+    roles = _get_erp_roles()
     
     if request.method == 'POST':
         username = request.form.get('username', '').strip()
@@ -407,7 +414,7 @@ def register():
             return render_template('auth/register.html', departments=departments, roles=roles)
         
         role = Role.query.get(role_id)
-        if not role:
+        if not role or role.code in ('superadmin',) + QC_ROLE_CODES:
             flash('角色不存在', 'error')
             return render_template('auth/register.html', departments=departments, roles=roles)
         

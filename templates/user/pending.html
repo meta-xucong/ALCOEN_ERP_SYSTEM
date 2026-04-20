@@ -10,10 +10,9 @@
     </a>
 </div>
 
-<!-- ERP 新用户注册 -->
-<div class="card mb-4">
+<div class="card">
     <div class="card-header bg-light">
-        <h5 class="mb-0"><i class="bi bi-people"></i> ERP 新用户注册</h5>
+        <h5 class="mb-0"><i class="bi bi-people"></i> ERP 新用户注册申请</h5>
     </div>
     <div class="card-body p-0">
         {% if users %}
@@ -67,8 +66,7 @@
                 </tbody>
             </table>
         </div>
-        
-        <!-- 分页 -->
+
         {% if pagination.pages > 1 %}
         <div class="card-footer">
             <nav>
@@ -78,7 +76,7 @@
                         <a class="page-link" href="{{ url_for('user.pending_users', page=pagination.prev_num) }}">上一页</a>
                     </li>
                     {% endif %}
-                    
+
                     {% for page_num in pagination.iter_pages(left_edge=2, left_current=2, right_current=3, right_edge=2) %}
                         {% if page_num %}
                             {% if page_num == pagination.page %}
@@ -92,7 +90,7 @@
                             <li class="page-item disabled"><span class="page-link">...</span></li>
                         {% endif %}
                     {% endfor %}
-                    
+
                     {% if pagination.has_next %}
                     <li class="page-item">
                         <a class="page-link" href="{{ url_for('user.pending_users', page=pagination.next_num) }}">下一页</a>
@@ -102,65 +100,10 @@
             </nav>
         </div>
         {% endif %}
-        
         {% else %}
         <div class="text-center py-4 text-muted">
             <i class="bi bi-check-circle fs-4 text-success"></i>
             <p class="mt-2 mb-0">没有待审核的 ERP 新用户</p>
-        </div>
-        {% endif %}
-    </div>
-</div>
-
-<!-- QC 角色申请 -->
-<div class="card">
-    <div class="card-header bg-light">
-        <h5 class="mb-0"><i class="bi bi-clipboard-check"></i> QC 角色申请</h5>
-    </div>
-    <div class="card-body p-0">
-        {% if pending_qc_bindings %}
-        <div class="table-responsive">
-            <table class="table table-hover mb-0">
-                <thead class="table-light">
-                    <tr>
-                        <th>用户名</th>
-                        <th>真实姓名</th>
-                        <th>ERP 角色</th>
-                        <th>申请 QC 角色</th>
-                        <th>申请时间</th>
-                        <th class="text-center">操作</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for binding in pending_qc_bindings %}
-                    <tr>
-                        <td><strong>{{ binding.user.username }}</strong></td>
-                        <td>{{ binding.user.real_name }}</td>
-                        <td><span class="badge bg-secondary">{{ binding.user.role.name }}</span></td>
-                        <td><span class="badge bg-primary">{{ binding.role.name }}</span></td>
-                        <td>{{ binding.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
-                        <td class="text-center">
-                            <form method="POST" action="{{ url_for('user.approve_qc_binding', binding_id=binding.id) }}" class="d-inline">
-                                <button type="submit" class="btn btn-sm btn-success">
-                                    <i class="bi bi-check-circle"></i> 通过
-                                </button>
-                            </form>
-                            <form method="POST" action="{{ url_for('user.reject_qc_binding', binding_id=binding.id) }}" class="d-inline"
-                                  onsubmit="return confirm('确定要拒绝该 QC 角色申请吗？');">
-                                <button type="submit" class="btn btn-sm btn-danger">
-                                    <i class="bi bi-x-circle"></i> 拒绝
-                                </button>
-                            </form>
-                        </td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
-        {% else %}
-        <div class="text-center py-4 text-muted">
-            <i class="bi bi-check-circle fs-4 text-success"></i>
-            <p class="mt-2 mb-0">没有待审核的 QC 角色申请</p>
         </div>
         {% endif %}
     </div>

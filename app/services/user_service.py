@@ -1,101 +1,92 @@
-"""
-用户管理服务类
-"""
-from datetime import datetime
+﻿"""用户管理服务类。"""
+
+from __future__ import annotations
+
 from app import db
-from app.models import User, Role
+from app.models import Role, User
 
 
 class UserService:
-    """用户管理服务"""
-    
-    @staticmethod
-    def get_user_list(page=1, per_page=20, role_code=None, status=None, keyword=None):
-        """
-        获取用户列表
-        
-        Args:
-            page: 页码
-            per_page: 每页数量
-            role_code: 角色筛选
-            status: 状态筛选 (active/inactive/pending)
-            keyword: 关键词搜索
-            
-        Returns:
-            Pagination 对象
-        """
-        query = User.query.join(Role)
+    """用户管理服务。"""
 
-        # ERP 用户管理列表默认不展示 QC-only 账号
-        query = query.filter(~Role.code.in_(['qc_controller', 'qc_inspector']))
-        
-        # 角色筛选
+    QC_ROLE_CODES = ("qc_controller", "qc_inspector")
+
+    @staticmethod
+    def is_qc_role_code(role_code: str | None) -> bool:
+        """Whether the role code belongs to the QC-only role set."""
+        return role_code in UserService.QC_ROLE_CODES
+
+    @staticmethod
+    def is_qc_only_user(user: User | None) -> bool:
+        """Whether the user should stay hidden from ERP system-management views."""
+        return bool(user and user.role and UserService.is_qc_role_code(user.role.code))
+
+    @staticmethod
+    def _apply_erp_scope(query, include_qc: bool = False):
+        """Hide QC-only rows from ERP-facing queries unless explicitly requested."""
+        if include_qc:
+            return query
+        return query.filter(~Role.code.in_(UserService.QC_ROLE_CODES))
+
+    @staticmethod
+    def get_user_list(page=1, per_page=20, role_code=None, status=None, keyword=None, include_qc=False):
+        """获取用户列表。"""
+        query = UserService._apply_erp_scope(User.query.join(Role), include_qc=include_qc)
+
         if role_code:
             role = Role.query.filter_by(code=role_code).first()
-            if role:
+            if not role:
+                query = query.filter(db.text('1=0'))
+            elif include_qc or not UserService.is_qc_role_code(role.code):
                 query = query.filter(User.role_id == role.id)
-        
-        # 状态筛选
+            else:
+                query = query.filter(db.text('1=0'))
+
         if status == 'active':
-            query = query.filter(User.is_active == True)
+            query = query.filter(User.is_active.is_(True))
         elif status == 'inactive':
-            query = query.filter(User.is_active == False)
+            query = query.filter(User.is_active.is_(False))
         elif status == 'pending':
-            query = query.filter(User.is_active == False, User.approved_at.is_(None))
-        
-        # 关键词搜索
+            query = query.filter(User.is_active.is_(False), User.approved_at.is_(None))
+
         if keyword:
             query = query.filter(
                 db.or_(
                     User.username.contains(keyword),
                     User.real_name.contains(keyword),
-                    User.email.contains(keyword)
+                    User.email.contains(keyword),
                 )
             )
-        
-        return query.order_by(User.created_at.desc()).paginate(
-            page=page, per_page=per_page, error_out=False
+
+        return query.order_by(User.created_at.desc()).paginate(page=page, per_page=per_page, error_out=False)
+
+    @staticmethod
+    def get_pending_users(page=1, per_page=20, include_qc=False):
+        """获取待审核用户列表。"""
+        query = UserService._apply_erp_scope(User.query.join(Role), include_qc=include_qc).filter(
+            User.is_active.is_(False),
+            User.approved_at.is_(None),
         )
-    
+        return query.order_by(User.created_at.asc()).paginate(page=page, per_page=per_page, error_out=False)
+
     @staticmethod
-    def get_pending_users(page=1, per_page=20):
-        """
-        获取待审核用户列表
-        
-        Returns:
-            Pagination 对象
-        """
-        return User.query.join(Role).filter(
-            ~Role.code.in_(['qc_controller', 'qc_inspector']),
-            User.is_active == False,
-            User.approved_at.is_(None)
-        ).order_by(User.created_at.asc()).paginate(
-            page=page, per_page=per_page, error_out=False
-        )
-    
+    def get_user_by_id(user_id, include_qc=False):
+        """根据 ID 获取用户。"""
+        user = User.query.get(user_id)
+        if not include_qc and UserService.is_qc_only_user(user):
+            return None
+        return user
+
     @staticmethod
-    def get_user_by_id(user_id):
-        """根据ID获取用户"""
-        return User.query.get(user_id)
-    
-    @staticmethod
-    def update_user(user_id, data):
-        """
-        更新用户信息
-        
-        Args:
-            user_id: 用户ID
-            data: 更新数据字典
-            
-        Returns:
-            (success, message)
-        """
+    def update_user(user_id, data, include_qc=False):
+        """更新用户信息。"""
         user = User.query.get(user_id)
         if not user:
             return False, '用户不存在'
-        
+        if not include_qc and UserService.is_qc_only_user(user):
+            return False, '该账号仅属于 QC 系统，请在 QC 系统中管理'
+
         try:
-            # 更新字段
             if 'real_name' in data:
                 user.real_name = data['real_name']
             if 'email' in data:
@@ -103,79 +94,71 @@ class UserService:
             if 'phone' in data:
                 user.phone = data['phone']
             if 'role_id' in data:
+                role = Role.query.get(data['role_id'])
+                if not role:
+                    return False, '角色不存在'
+                if not include_qc and UserService.is_qc_role_code(role.code):
+                    return False, 'QC 专属角色不能在 ERP 系统中分配'
                 user.role_id = data['role_id']
             if 'department_id' in data:
                 user.department_id = data['department_id']
-            
+
             db.session.commit()
             return True, '更新成功'
-        except Exception as e:
+        except Exception as exc:
             db.session.rollback()
-            return False, f'更新失败: {str(e)}'
-    
+            return False, f'更新失败: {exc}'
+
     @staticmethod
-    def delete_user(user_id):
-        """
-        删除用户
-        
-        Args:
-            user_id: 用户ID
-            
-        Returns:
-            (success, message)
-        """
+    def delete_user(user_id, include_qc=False):
+        """删除用户。"""
         user = User.query.get(user_id)
         if not user:
             return False, '用户不存在'
-        
-        # 不能删除超级管理员
+        if not include_qc and UserService.is_qc_only_user(user):
+            return False, '该账号仅属于 QC 系统，请在 QC 系统中删除'
         if user.is_superadmin:
             return False, '不能删除超级管理员账号'
-        
+
         try:
             db.session.delete(user)
             db.session.commit()
             return True, '删除成功'
-        except Exception as e:
+        except Exception as exc:
             db.session.rollback()
-            return False, f'删除失败: {str(e)}'
-    
+            return False, f'删除失败: {exc}'
+
     @staticmethod
-    def get_all_roles():
-        """获取所有角色列表"""
-        return Role.query.order_by(Role.level.desc()).all()
-    
+    def get_all_roles(include_qc=False):
+        """获取角色列表。"""
+        query = Role.query
+        if not include_qc:
+            query = query.filter(~Role.code.in_(UserService.QC_ROLE_CODES))
+        return query.order_by(Role.level.desc()).all()
+
     @staticmethod
-    def get_role_by_id(role_id):
-        """根据ID获取角色"""
-        return Role.query.get(role_id)
-    
+    def get_role_by_id(role_id, include_qc=False):
+        """根据 ID 获取角色。"""
+        role = Role.query.get(role_id)
+        if role and not include_qc and UserService.is_qc_role_code(role.code):
+            return None
+        return role
+
     @staticmethod
     def update_role_permissions(role_id, permissions):
-        """
-        更新角色权限
-        
-        Args:
-            role_id: 角色ID
-            permissions: 权限列表
-            
-        Returns:
-            (success, message)
-        """
+        """更新角色权限。"""
         import json
-        
+
         role = Role.query.get(role_id)
         if not role:
             return False, '角色不存在'
-        
-        # 不能修改超级管理员权限
         if role.code == 'superadmin':
             return False, '不能修改超级管理员权限'
-        
+
         try:
             role.permissions = json.dumps(permissions)
             db.session.commit()
             return True, '权限更新成功'
-        except Exception as e:
+        except Exception as exc:
             db.session.rollback()
-            return False, f'更新失败: {str(e)}'
+            return False, f'更新失败: {exc}'

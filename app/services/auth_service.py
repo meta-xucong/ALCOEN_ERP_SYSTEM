@@ -100,6 +100,9 @@ class AuthService:
         Returns:
             (user, error_message)
         """
+        if role_code in ['superadmin', 'qc_controller', 'qc_inspector']:
+            return None, '请选择 ERP 系统角色进行注册'
+
         # 检查用户名是否已存在
         existing_user = User.query.filter_by(username=username).first()
         if existing_user:
