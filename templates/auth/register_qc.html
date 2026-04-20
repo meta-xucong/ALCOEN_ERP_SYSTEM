@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
@@ -17,13 +17,13 @@
         }
         .register-container {
             width: 100%;
-            max-width: 480px;
+            max-width: 520px;
             padding: 20px;
         }
         .register-card {
             background: white;
             border-radius: 16px;
-            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
             padding: 35px;
         }
         .register-header {
@@ -39,6 +39,7 @@
         .register-header p {
             color: #666;
             font-size: 14px;
+            margin-bottom: 0;
         }
         .form-label {
             font-weight: 500;
@@ -91,14 +92,17 @@
             border-left: 4px solid #667eea;
         }
         .info-box p {
-            margin: 0;
+            margin: 0 0 6px;
             font-size: 13px;
             color: #666;
+        }
+        .info-box p:last-child {
+            margin-bottom: 0;
         }
         .footer {
             text-align: center;
             margin-top: 20px;
-            color: rgba(255,255,255,0.8);
+            color: rgba(255, 255, 255, 0.8);
             font-size: 13px;
         }
         .required::after {
@@ -112,9 +116,9 @@
         <div class="register-card">
             <div class="register-header">
                 <h1><i class="bi bi-person-plus"></i> 注册 QC 账号</h1>
-                <p>质量控制系统账号注册</p>
+                <p>用于质量控制系统的新账号注册</p>
             </div>
-            
+
             {% with messages = get_flashed_messages(with_categories=true) %}
                 {% if messages %}
                     {% for category, message in messages %}
@@ -125,61 +129,70 @@
                     {% endfor %}
                 {% endif %}
             {% endwith %}
-            
+
             <form method="POST" action="" id="registerForm">
                 <div class="mb-3">
                     <label for="username" class="form-label required">用户名</label>
                     <input type="text" class="form-control" id="username" name="username" required>
-                    <small class="text-muted">如已在 ERP 注册过，可直接使用原用户名登录</small>
+                    <small class="text-muted">如果该用户名已经存在于 ERP，请直接从 QC 登录入口登录，首次进入后申请 QC 身份。</small>
                 </div>
-                
+
                 <div class="mb-3">
                     <label for="real_name" class="form-label required">真实姓名</label>
                     <input type="text" class="form-control" id="real_name" name="real_name" required>
                 </div>
-                
+
                 <div class="mb-3">
                     <label for="role_id" class="form-label required">申请角色</label>
                     <select class="form-select" id="role_id" name="role_id" required>
                         <option value="">-- 请选择角色 --</option>
                         {% for role in roles %}
-                        <option value="{{ role.id }}" data-code="{{ role.code }}">{{ role.name }}</option>
+                        <option value="{{ role.id }}" data-code="{{ role.code }}">
+                            {% if role.code == 'qc_controller' %}
+                                质量控制人
+                            {% elif role.code == 'qc_inspector' %}
+                                质量检测人
+                            {% else %}
+                                {{ role.name }}
+                            {% endif %}
+                        </option>
                         {% endfor %}
                     </select>
+                    <small class="text-muted">系统内部角色仍按质控员 / 质检员权限执行，这里展示为你更容易辨认的注册名称。</small>
                 </div>
-                
+
                 <div class="mb-3">
                     <label for="email" class="form-label required">邮箱</label>
                     <input type="email" class="form-control" id="email" name="email" required>
-                    <small class="text-muted">用于登录安全验证，请填写真实有效的邮箱地址</small>
+                    <small class="text-muted">用于登录时接收验证码，请填写真实有效的邮箱。</small>
                 </div>
-                
+
                 <div class="mb-3">
                     <label for="phone" class="form-label">电话</label>
                     <input type="tel" class="form-control" id="phone" name="phone">
                 </div>
-                
+
                 <button type="submit" class="btn btn-primary btn-register">
-                    <i class="bi bi-check-circle"></i> 提 交 注 册
+                    <i class="bi bi-check-circle"></i> 提交注册
                 </button>
             </form>
-            
+
             <div class="info-box">
-                <p><i class="bi bi-info-circle"></i> 注册后需管理员审核通过方可登录</p>
-                <p><i class="bi bi-shield-check"></i> 新设备登录时需通过邮箱验证码验证</p>
-                <p><i class="bi bi-key"></i> 默认密码为 <strong>1234.abcd</strong></p>
+                <p><i class="bi bi-info-circle"></i> 注册后需管理员审核通过，账号才可登录。</p>
+                <p><i class="bi bi-shield-check"></i> 新设备登录时需要通过邮箱验证码完成安全验证。</p>
+                <p><i class="bi bi-key"></i> 初始密码为 <strong>1234.abcd</strong>，首次登录后系统会要求修改。</p>
             </div>
-            
+
             <a href="{{ url_for('auth.qc_login') }}" class="btn btn-back">
                 <i class="bi bi-arrow-left"></i> 返回 QC 登录
             </a>
         </div>
-        
+
         <div class="footer">
-            <p>&copy; 2024 ALCOEN. All rights reserved.</p>
+            <p>&copy; 2026 ALCOEN. All rights reserved.</p>
         </div>
     </div>
-    
+
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>

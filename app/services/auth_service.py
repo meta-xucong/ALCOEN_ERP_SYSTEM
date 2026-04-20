@@ -1,6 +1,7 @@
 """
 认证服务类
 """
+import json
 from datetime import datetime
 from werkzeug.security import generate_password_hash, check_password_hash
 from flask import current_app
@@ -24,8 +25,63 @@ class AuthResult:
 
 class AuthService:
     """认证服务"""
-    
+
     DEFAULT_PASSWORD = '1234.abcd'
+    QC_ROLE_DEFINITIONS = {
+        'qc_controller': {
+            'name': '\u8d28\u91cf\u63a7\u5236\u5458',
+            'description': '\u8d1f\u8d23\u5de5\u4ef6\u8ba2\u5355\u521b\u5efa\u3001\u8d28\u63a7\u6d41\u7a0b\u53d1\u8d77\u53ca\u9a8c\u6536\u786e\u8ba4',
+            'permissions': [
+                'qc_dashboard',
+                'qc_work_order_view',
+                'qc_work_order_create',
+                'qc_work_order_edit',
+                'qc_work_order_delete',
+                'qc_acceptance_perform',
+                'qc_acceptance_rollback',
+            ],
+            'level': 55,
+        },
+        'qc_inspector': {
+            'name': '\u8d28\u91cf\u68c0\u6d4b\u5458',
+            'description': '\u8d1f\u8d23\u5de5\u4ef6\u8ba2\u5355\u5404\u680f\u76ee\u7684\u8d28\u91cf\u68c0\u6d4b',
+            'permissions': [
+                'qc_dashboard',
+                'qc_work_order_view',
+                'qc_inspection_perform',
+            ],
+            'level': 45,
+        },
+    }
+
+    @staticmethod
+    def ensure_qc_roles() -> list[Role]:
+        """Ensure QC-specific roles exist before rendering QC auth flows."""
+        role_codes = tuple(AuthService.QC_ROLE_DEFINITIONS.keys())
+        existing_roles = Role.query.filter(Role.code.in_(role_codes)).all()
+        existing_by_code = {role.code: role for role in existing_roles}
+
+        created = False
+        for role_code, definition in AuthService.QC_ROLE_DEFINITIONS.items():
+            if role_code in existing_by_code:
+                continue
+
+            role = Role(
+                name=definition['name'],
+                code=role_code,
+                description=definition['description'],
+                permissions=json.dumps(definition['permissions'], ensure_ascii=False),
+                level=definition['level'],
+            )
+            db.session.add(role)
+            existing_roles.append(role)
+            existing_by_code[role_code] = role
+            created = True
+
+        if created:
+            db.session.commit()
+
+        return sorted(existing_roles, key=lambda role: role.level, reverse=True)
     
     @staticmethod
     def register_user(username: str, real_name: str, role_code: str = 'sales_manager',
@@ -349,36 +405,21 @@ class AuthService:
     @staticmethod
     def register_qc_user(username: str, real_name: str, role_code: str = 'qc_inspector',
                         email: str = None, phone: str = None) -> tuple:
-        """
-        注册 QC 用户
-        
-        如果 username 已存在于 ERP 中，则复用该账号并仅创建 qc_user_bindings 记录；
-        如果不存在，则创建新 users 记录和 qc_user_bindings 记录。
-        
-        Args:
-            username: 用户名
-            real_name: 真实姓名
-            role_code: QC 角色代码（默认质量检测员）
-            email: 邮箱
-            phone: 电话
-            
-        Returns:
-            (user, error_message)
-        """
+        """Register a QC account or create a pending QC binding for an ERP user."""
         from app.models import QCUserBinding
-        
+
+        AuthService.ensure_qc_roles()
         existing_user = User.query.filter_by(username=username).first()
-        
+
         if existing_user:
-            # 检查是否已有 QC 绑定
             existing_binding = QCUserBinding.query.filter_by(user_id=existing_user.id).first()
             if existing_binding:
-                return None, '该账号已申请或已绑定 QC 系统，请勿重复注册'
-            
+                return None, '\u8be5\u8d26\u53f7\u5df2\u7533\u8bf7\u6216\u5df2\u7ed1\u5b9a QC \u7cfb\u7edf\uff0c\u8bf7\u52ff\u91cd\u590d\u6ce8\u518c'
+
             role = Role.query.filter_by(code=role_code).first()
             if not role:
-                return None, '角色不存在'
-            
+                return None, '\u89d2\u8272\u4e0d\u5b58\u5728'
+
             binding = QCUserBinding(
                 user_id=existing_user.id,
                 role_id=role.id,
@@ -387,39 +428,38 @@ class AuthService:
             db.session.add(binding)
             db.session.commit()
             return existing_user, None
-        else:
-            # 新用户
-            if not email:
-                return None, '请填写邮箱地址，用于登录安全验证'
-            
-            if not EmailService.validate_email(email):
-                return None, '邮箱格式不正确'
-            
-            if User.query.filter_by(email=email).first():
-                return None, '该邮箱已被注册'
-            
-            role = Role.query.filter_by(code=role_code).first()
-            if not role:
-                return None, '角色不存在'
-            
-            user = User(
-                username=username,
-                password_hash=generate_password_hash(AuthService.DEFAULT_PASSWORD),
-                real_name=real_name,
-                role_id=role.id,
-                email=email,
-                phone=phone,
-                is_active=False,
-                require_password_change=True
-            )
-            db.session.add(user)
-            db.session.flush()
-            
-            binding = QCUserBinding(
-                user_id=user.id,
-                role_id=role.id,
-                is_active=False
-            )
-            db.session.add(binding)
-            db.session.commit()
-            return user, None
+
+        if not email:
+            return None, '\u8bf7\u586b\u5199\u90ae\u7bb1\u5730\u5740\uff0c\u7528\u4e8e\u767b\u5f55\u5b89\u5168\u9a8c\u8bc1'
+
+        if not EmailService.validate_email(email):
+            return None, '\u90ae\u7bb1\u683c\u5f0f\u4e0d\u6b63\u786e'
+
+        if User.query.filter_by(email=email).first():
+            return None, '\u8be5\u90ae\u7bb1\u5df2\u88ab\u6ce8\u518c'
+
+        role = Role.query.filter_by(code=role_code).first()
+        if not role:
+            return None, '\u89d2\u8272\u4e0d\u5b58\u5728'
+
+        user = User(
+            username=username,
+            password_hash=generate_password_hash(AuthService.DEFAULT_PASSWORD),
+            real_name=real_name,
+            role_id=role.id,
+            email=email,
+            phone=phone,
+            is_active=False,
+            require_password_change=True
+        )
+        db.session.add(user)
+        db.session.flush()
+
+        binding = QCUserBinding(
+            user_id=user.id,
+            role_id=role.id,
+            is_active=False
+        )
+        db.session.add(binding)
+        db.session.commit()
+        return user, None

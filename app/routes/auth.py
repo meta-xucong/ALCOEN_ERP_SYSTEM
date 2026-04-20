@@ -11,6 +11,7 @@ from app.models import Role, User, Department, VerificationCode, QCUserBinding
 from app.utils.decorators import login_required
 
 auth_bp = Blueprint('auth', __name__, url_prefix='/auth')
+QC_ROLE_CODES = ('qc_controller', 'qc_inspector')
 
 
 def _get_client_ip() -> str:
@@ -24,6 +25,11 @@ def _get_client_ip() -> str:
         return x_real_ip
 
     return request.remote_addr or ''
+
+
+def _get_qc_roles():
+    """Load QC role options, auto-creating the two system roles when missing."""
+    return AuthService.ensure_qc_roles()
 
 
 @auth_bp.route('/login', methods=['GET', 'POST'])
@@ -441,9 +447,20 @@ def register():
 def register_qc():
     """Description."""
     if 'user_id' in session:
-        return redirect(url_for('qc.index'))
-    
-    roles = Role.query.filter(Role.code.in_(['qc_controller', 'qc_inspector'])).order_by(Role.level.desc()).all()
+        user = User.query.get(session['user_id'])
+        if not user:
+            session.clear()
+            return redirect(url_for('auth.qc_login'))
+
+        if user.role.code in ['superadmin', 'general_manager', 'gm_assistant']:
+            return redirect(url_for('qc.index'))
+
+        binding = QCUserBinding.query.filter_by(user_id=user.id).first()
+        if binding and binding.is_active:
+            return redirect(url_for('qc.index'))
+        return redirect(url_for('auth.qc_role_apply'))
+
+    roles = _get_qc_roles()
     
     if request.method == 'POST':
         username = request.form.get('username', '').strip()
@@ -465,7 +482,7 @@ def register_qc():
             return render_template('auth/register_qc.html', roles=roles)
         
         role = Role.query.get(role_id)
-        if not role or role.code not in ['qc_controller', 'qc_inspector']:
+        if not role or role.code not in QC_ROLE_CODES:
             flash('角色不存在或无效', 'error')
             return render_template('auth/register_qc.html', roles=roles)
         
@@ -506,7 +523,7 @@ def qc_role_apply():
         flash('您已拥有 QC 系统访问权限', 'success')
         return redirect(url_for('qc.index'))
     
-    roles = Role.query.filter(Role.code.in_(['qc_controller', 'qc_inspector'])).order_by(Role.level.desc()).all()
+    roles = _get_qc_roles()
     
     if request.method == 'POST':
         role_id = request.form.get('role_id', '').strip()
@@ -515,7 +532,7 @@ def qc_role_apply():
             return render_template('auth/qc_role_apply.html', roles=roles)
         
         role = Role.query.get(role_id)
-        if not role or role.code not in ['qc_controller', 'qc_inspector']:
+        if not role or role.code not in QC_ROLE_CODES:
             flash('无效的角色选择', 'error')
             return render_template('auth/qc_role_apply.html', roles=roles)
         

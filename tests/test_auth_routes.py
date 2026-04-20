@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 from werkzeug.security import generate_password_hash
 
 from app import db
-from app.models import Role, User, Department, TrustedDevice
+from app.models import Role, User, Department, TrustedDevice, QCUserBinding
 from app.services.email_service import EmailService
 
 
@@ -42,6 +42,206 @@ def test_register_creates_pending_user(app, client, base_data):
         assert user is not None
         assert user.is_active is False
         assert user.require_password_change is True
+
+
+def test_qc_register_page_bootstraps_roles_and_lists_options(app, client):
+    """QC register page should recreate missing QC roles and show both role options."""
+    resp = client.get("/auth/register/qc")
+
+    assert resp.status_code == 200
+    text = resp.get_data(as_text=True)
+    assert "质量控制人" in text
+    assert "质量检测人" in text
+
+    with app.app_context():
+        roles = Role.query.filter(Role.code.in_(["qc_controller", "qc_inspector"])).all()
+        assert {role.code for role in roles} == {"qc_controller", "qc_inspector"}
+
+
+def test_logged_in_erp_user_visiting_qc_register_redirects_to_role_apply(app, client):
+    """ERP users without QC access should be redirected to the QC role-apply flow."""
+    with app.app_context():
+        dept = Department(name="ERP Team")
+        db.session.add(dept)
+        db.session.flush()
+
+        role = Role(
+            name="Sales Manager",
+            code="sales_manager_case_qc_register",
+            permissions='["contract_view"]',
+            level=20,
+        )
+        db.session.add(role)
+        db.session.flush()
+
+        user = User(
+            username="erp_only_for_qc_register",
+            password_hash=generate_password_hash("Pass123!"),
+            real_name="ERP Only",
+            role_id=role.id,
+            department_id=dept.id,
+            email="erp_only_for_qc_register@example.com",
+            is_active=True,
+            require_password_change=False,
+        )
+        db.session.add(user)
+        db.session.commit()
+        user_id = user.id
+
+    with client.session_transaction() as sess:
+        sess["user_id"] = user_id
+
+    resp = client.get("/auth/register/qc", follow_redirects=False)
+
+    assert resp.status_code == 302
+    assert "/auth/qc-role-apply" in resp.headers.get("Location", "")
+
+
+def test_qc_role_apply_page_bootstraps_roles_and_lists_options(app, client):
+    """ERP users applying for QC access should always see both QC role options."""
+    with app.app_context():
+        dept = Department(name="ERP Apply")
+        db.session.add(dept)
+        db.session.flush()
+
+        role = Role(
+            name="Department PM",
+            code="department_pm_case_qc_apply",
+            permissions='["contract_view"]',
+            level=60,
+        )
+        db.session.add(role)
+        db.session.flush()
+
+        user = User(
+            username="erp_apply_user",
+            password_hash=generate_password_hash("Pass123!"),
+            real_name="ERP Apply User",
+            role_id=role.id,
+            department_id=dept.id,
+            email="erp_apply_user@example.com",
+            is_active=True,
+            require_password_change=False,
+        )
+        db.session.add(user)
+        db.session.commit()
+        user_id = user.id
+
+    with client.session_transaction() as sess:
+        sess["user_id"] = user_id
+
+    resp = client.get("/auth/qc-role-apply")
+
+    assert resp.status_code == 200
+    text = resp.get_data(as_text=True)
+    assert "质量控制人" in text
+    assert "质量检测人" in text
+
+
+def test_qc_register_existing_erp_user_creates_pending_binding(app, client):
+    """Submitting QC registration with an existing ERP username should create only a QC binding."""
+    with app.app_context():
+        dept = Department(name="ERP Existing")
+        db.session.add(dept)
+        db.session.flush()
+
+        erp_role = Role(
+            name="Sales Existing",
+            code="sales_manager_case_existing_qc",
+            permissions='["contract_view"]',
+            level=20,
+        )
+        db.session.add(erp_role)
+        db.session.flush()
+
+        user = User(
+            username="same_name_qc_apply",
+            password_hash=generate_password_hash("Pass123!"),
+            real_name="Existing ERP User",
+            role_id=erp_role.id,
+            department_id=dept.id,
+            email="same_name_qc_apply@example.com",
+            is_active=True,
+            require_password_change=False,
+        )
+        db.session.add(user)
+        db.session.commit()
+
+    client.get("/auth/register/qc")
+
+    with app.app_context():
+        qc_role_id = next(
+            role.id
+            for role in Role.query.filter(Role.code.in_(["qc_controller", "qc_inspector"])).all()
+            if role.code == "qc_controller"
+        )
+
+    resp = client.post(
+        "/auth/register/qc",
+        data={
+            "username": "same_name_qc_apply",
+            "real_name": "Existing ERP User",
+            "role_id": str(qc_role_id),
+            "email": "ignored@example.com",
+            "phone": "13900000000",
+        },
+        follow_redirects=False,
+    )
+
+    assert resp.status_code == 302
+    assert "/auth/pending" in resp.headers.get("Location", "")
+
+    with app.app_context():
+        users = User.query.filter_by(username="same_name_qc_apply").all()
+        assert len(users) == 1
+        binding = QCUserBinding.query.filter_by(user_id=users[0].id).first()
+        assert binding is not None
+        assert binding.is_active is False
+
+
+def test_qc_register_new_user_creates_pending_user_and_binding(app, client):
+    """Submitting QC registration for a new user should create a pending QC-only account."""
+    resp = client.post(
+        "/auth/register/qc",
+        data={
+            "username": "fresh_qc_user",
+            "real_name": "Fresh QC User",
+            "role_id": "999999",
+            "email": "fresh_qc_user@example.com",
+            "phone": "13911112222",
+        },
+        follow_redirects=False,
+    )
+
+    assert resp.status_code == 200
+    assert "角色不存在或无效" in resp.get_data(as_text=True)
+
+    with app.app_context():
+        qc_roles = {role.code: role.id for role in Role.query.filter(Role.code.in_(["qc_controller", "qc_inspector"])).all()}
+
+    resp = client.post(
+        "/auth/register/qc",
+        data={
+            "username": "fresh_qc_user",
+            "real_name": "Fresh QC User",
+            "role_id": str(qc_roles["qc_inspector"]),
+            "email": "fresh_qc_user@example.com",
+            "phone": "13911112222",
+        },
+        follow_redirects=False,
+    )
+
+    assert resp.status_code == 302
+    assert "/auth/pending" in resp.headers.get("Location", "")
+
+    with app.app_context():
+        user = User.query.filter_by(username="fresh_qc_user").first()
+        assert user is not None
+        assert user.role.code == "qc_inspector"
+        assert user.is_active is False
+        binding = QCUserBinding.query.filter_by(user_id=user.id).first()
+        assert binding is not None
+        assert binding.role.code == "qc_inspector"
 
 
 def test_superadmin_always_requires_verify_even_if_trusted_device(app, client, monkeypatch):
