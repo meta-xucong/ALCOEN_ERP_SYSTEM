@@ -1,6 +1,7 @@
 import os
-from flask import Flask
+from flask import Flask, send_from_directory
 from flask_sqlalchemy import SQLAlchemy
+from sqlalchemy import inspect
 from config import config
 
 # 尝试加载 .env 文件（如果存在）
@@ -16,11 +17,66 @@ except ImportError:
 db = SQLAlchemy()
 
 
+def _run_lightweight_schema_upgrades():
+    """Apply additive QC schema upgrades for SQLite deployments without Alembic."""
+    inspector = inspect(db.engine)
+
+    if inspector.has_table('qc_work_orders'):
+        order_columns = {column['name'] for column in inspector.get_columns('qc_work_orders')}
+        alter_statements = []
+        if 'workpiece_id' not in order_columns:
+            alter_statements.append('ALTER TABLE qc_work_orders ADD COLUMN workpiece_id INTEGER')
+        if 'drawing_note_file_path' not in order_columns:
+            alter_statements.append('ALTER TABLE qc_work_orders ADD COLUMN drawing_note_file_path VARCHAR(500)')
+        if 'drawing_note_file_type' not in order_columns:
+            alter_statements.append('ALTER TABLE qc_work_orders ADD COLUMN drawing_note_file_type VARCHAR(50)')
+        if 'drawing_note_original_name' not in order_columns:
+            alter_statements.append('ALTER TABLE qc_work_orders ADD COLUMN drawing_note_original_name VARCHAR(255)')
+        if 'guide_certificate_file_path' not in order_columns:
+            alter_statements.append('ALTER TABLE qc_work_orders ADD COLUMN guide_certificate_file_path VARCHAR(500)')
+        if 'guide_certificate_file_type' not in order_columns:
+            alter_statements.append('ALTER TABLE qc_work_orders ADD COLUMN guide_certificate_file_type VARCHAR(50)')
+        if 'guide_certificate_original_name' not in order_columns:
+            alter_statements.append('ALTER TABLE qc_work_orders ADD COLUMN guide_certificate_original_name VARCHAR(255)')
+        if 'remark_note_file_path' not in order_columns:
+            alter_statements.append('ALTER TABLE qc_work_orders ADD COLUMN remark_note_file_path VARCHAR(500)')
+        if 'remark_note_file_type' not in order_columns:
+            alter_statements.append('ALTER TABLE qc_work_orders ADD COLUMN remark_note_file_type VARCHAR(50)')
+        if 'remark_note_original_name' not in order_columns:
+            alter_statements.append('ALTER TABLE qc_work_orders ADD COLUMN remark_note_original_name VARCHAR(255)')
+        if alter_statements:
+            with db.engine.begin() as connection:
+                for statement in alter_statements:
+                    connection.exec_driver_sql(statement)
+
+    if inspector.has_table('qc_inspection_records'):
+        inspection_columns = {column['name'] for column in inspector.get_columns('qc_inspection_records')}
+        alter_statements = []
+        if 'report_file_path' not in inspection_columns:
+            alter_statements.append(
+                'ALTER TABLE qc_inspection_records ADD COLUMN report_file_path VARCHAR(500)'
+            )
+        if 'report_file_type' not in inspection_columns:
+            alter_statements.append(
+                'ALTER TABLE qc_inspection_records ADD COLUMN report_file_type VARCHAR(50)'
+            )
+        if 'report_original_name' not in inspection_columns:
+            alter_statements.append(
+                'ALTER TABLE qc_inspection_records ADD COLUMN report_original_name VARCHAR(255)'
+            )
+        if alter_statements:
+            with db.engine.begin() as connection:
+                for statement in alter_statements:
+                    connection.exec_driver_sql(statement)
+
+
 def create_app(config_name='default'):
     """创建Flask应用实例"""
     app = Flask(__name__, 
                 template_folder='../templates',
                 static_folder='../static')
+
+    uploads_root = os.path.join(app.static_folder, 'uploads')
     
     # 加载配置
     app.config.from_object(config[config_name])
@@ -65,6 +121,11 @@ def create_app(config_name='default'):
             response.headers['Pragma'] = 'no-cache'
             response.headers['Expires'] = '0'
         return response
+
+    @app.route('/uploads/<path:filename>')
+    def uploaded_file(filename):
+        """Serve uploaded files stored under the static/uploads directory."""
+        return send_from_directory(uploads_root, filename)
     
     # 注册模板全局变量
     @app.context_processor
@@ -125,5 +186,8 @@ def create_app(config_name='default'):
     # 创建数据库表
     with app.app_context():
         db.create_all()
+        _run_lightweight_schema_upgrades()
+        from app.services.auth_service import AuthService
+        AuthService.ensure_qc_roles()
     
     return app

@@ -6,7 +6,15 @@ from datetime import datetime
 from werkzeug.security import generate_password_hash, check_password_hash
 from flask import current_app
 from app import db
-from app.models import User, Role, VerificationCode, TrustedDevice, QCUserBinding
+from app.models import (
+    User,
+    Role,
+    VerificationCode,
+    TrustedDevice,
+    QCUserBinding,
+    QC_ROLE_CODES,
+    QC_ROLE_PERMISSION_CODES,
+)
 from app.services.email_service import EmailService
 
 
@@ -29,29 +37,33 @@ class AuthService:
     DEFAULT_PASSWORD = '1234.abcd'
     QC_ROLE_DEFINITIONS = {
         'qc_controller': {
-            'name': '\u8d28\u91cf\u63a7\u5236\u5458',
+            'name': '\u8d28\u91cf\u63a7\u5236\u4eba',
             'description': '\u8d1f\u8d23\u5de5\u4ef6\u8ba2\u5355\u521b\u5efa\u3001\u8d28\u63a7\u6d41\u7a0b\u53d1\u8d77\u53ca\u9a8c\u6536\u786e\u8ba4',
-            'permissions': [
-                'qc_dashboard',
-                'qc_work_order_view',
-                'qc_work_order_create',
-                'qc_work_order_edit',
-                'qc_work_order_delete',
-                'qc_acceptance_perform',
-                'qc_acceptance_rollback',
-            ],
+            'permissions': list(QC_ROLE_PERMISSION_CODES['qc_controller']),
             'level': 55,
         },
         'qc_inspector': {
-            'name': '\u8d28\u91cf\u68c0\u6d4b\u5458',
-            'description': '\u8d1f\u8d23\u5de5\u4ef6\u8ba2\u5355\u5404\u680f\u76ee\u7684\u8d28\u91cf\u68c0\u6d4b',
-            'permissions': [
-                'qc_dashboard',
-                'qc_work_order_view',
-                'qc_inspection_perform',
-            ],
+            'name': '\u4f9b\u5e94\u5546',
+            'description': '\u8d1f\u8d23\u5de5\u4ef6\u8ba2\u5355\u5404\u680f\u76ee\u7684\u4f9b\u5e94\u5546\u81ea\u68c0\u3001\u4e0a\u4f20\u5408\u683c\u62a5\u544a\u53ca\u914d\u5408\u9a8c\u6536',
+            'permissions': list(QC_ROLE_PERMISSION_CODES['qc_inspector']),
             'level': 45,
         },
+    }
+    LEGACY_QC_ROLE_PERMISSION_CODES = {
+        'qc_controller': (
+            'qc_dashboard',
+            'qc_work_order_view',
+            'qc_work_order_create',
+            'qc_work_order_edit',
+            'qc_work_order_delete',
+            'qc_acceptance_perform',
+            'qc_acceptance_rollback',
+        ),
+        'qc_inspector': (
+            'qc_dashboard',
+            'qc_work_order_view',
+            'qc_inspection_perform',
+        ),
     }
 
     @staticmethod
@@ -61,9 +73,26 @@ class AuthService:
         existing_roles = Role.query.filter(Role.code.in_(role_codes)).all()
         existing_by_code = {role.code: role for role in existing_roles}
 
-        created = False
+        changed = False
         for role_code, definition in AuthService.QC_ROLE_DEFINITIONS.items():
             if role_code in existing_by_code:
+                role = existing_by_code[role_code]
+                current_permissions = set(role.get_permission_codes())
+                legacy_permissions = set(AuthService.LEGACY_QC_ROLE_PERMISSION_CODES.get(role_code, ()))
+                new_permissions = list(definition['permissions'])
+
+                if role.name != definition['name']:
+                    role.name = definition['name']
+                    changed = True
+                if role.description != definition['description']:
+                    role.description = definition['description']
+                    changed = True
+                if role.level != definition['level']:
+                    role.level = definition['level']
+                    changed = True
+                if current_permissions == legacy_permissions:
+                    role.permissions = json.dumps(new_permissions, ensure_ascii=False)
+                    changed = True
                 continue
 
             role = Role(
@@ -76,9 +105,9 @@ class AuthService:
             db.session.add(role)
             existing_roles.append(role)
             existing_by_code[role_code] = role
-            created = True
+            changed = True
 
-        if created:
+        if changed:
             db.session.commit()
 
         return sorted(existing_roles, key=lambda role: role.level, reverse=True)
@@ -100,22 +129,15 @@ class AuthService:
         Returns:
             (user, error_message)
         """
-        if role_code in ['superadmin', 'qc_controller', 'qc_inspector']:
+        if role_code in ('superadmin',) + QC_ROLE_CODES:
             return None, '请选择 ERP 系统角色进行注册'
 
         # 检查用户名是否已存在
         existing_user = User.query.filter_by(username=username).first()
         if existing_user:
             # 支持“QC-only 用户重新注册 ERP”：以 ERP 信息覆盖
-            if existing_user.role.code in ['qc_controller', 'qc_inspector']:
-                return AuthService._upgrade_qc_user_to_erp(
-                    existing_user=existing_user,
-                    real_name=real_name,
-                    role_code=role_code,
-                    department_id=department_id,
-                    email=email,
-                    phone=phone,
-                )
+            if existing_user.role.code in QC_ROLE_CODES:
+                return None, '该用户名已被 QC 系统账号占用，请使用其他用户名'
             return None, '用户名已存在'
         
         # [v1.5] 邮箱必填验证
@@ -415,22 +437,9 @@ class AuthService:
         existing_user = User.query.filter_by(username=username).first()
 
         if existing_user:
-            existing_binding = QCUserBinding.query.filter_by(user_id=existing_user.id).first()
-            if existing_binding:
-                return None, '\u8be5\u8d26\u53f7\u5df2\u7533\u8bf7\u6216\u5df2\u7ed1\u5b9a QC \u7cfb\u7edf\uff0c\u8bf7\u52ff\u91cd\u590d\u6ce8\u518c'
-
-            role = Role.query.filter_by(code=role_code).first()
-            if not role:
-                return None, '\u89d2\u8272\u4e0d\u5b58\u5728'
-
-            binding = QCUserBinding(
-                user_id=existing_user.id,
-                role_id=role.id,
-                is_active=False
-            )
-            db.session.add(binding)
-            db.session.commit()
-            return existing_user, None
+            if existing_user.role.code in QC_ROLE_CODES:
+                return None, '该 QC 用户名已存在，请直接登录 QC 系统'
+            return None, '该用户名已在 ERP 系统中存在，请登录 ERP 后通过“QC 角色申请”进入 QC 系统'
 
         if not email:
             return None, '\u8bf7\u586b\u5199\u90ae\u7bb1\u5730\u5740\uff0c\u7528\u4e8e\u767b\u5f55\u5b89\u5168\u9a8c\u8bc1'

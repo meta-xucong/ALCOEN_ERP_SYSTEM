@@ -51,7 +51,7 @@ def test_qc_register_page_bootstraps_roles_and_lists_options(app, client):
     assert resp.status_code == 200
     text = resp.get_data(as_text=True)
     assert "质量控制人" in text
-    assert "质量检测人" in text
+    assert "供应商" in text
 
     with app.app_context():
         roles = Role.query.filter(Role.code.in_(["qc_controller", "qc_inspector"])).all()
@@ -135,11 +135,11 @@ def test_qc_role_apply_page_bootstraps_roles_and_lists_options(app, client):
     assert resp.status_code == 200
     text = resp.get_data(as_text=True)
     assert "质量控制人" in text
-    assert "质量检测人" in text
+    assert "供应商" in text
 
 
-def test_qc_register_existing_erp_user_creates_pending_binding(app, client):
-    """Submitting QC registration with an existing ERP username should create only a QC binding."""
+def test_qc_register_existing_erp_user_is_rejected(app, client):
+    """Submitting QC registration with an existing ERP username should be rejected."""
     with app.app_context():
         dept = Department(name="ERP Existing")
         db.session.add(dept)
@@ -188,15 +188,14 @@ def test_qc_register_existing_erp_user_creates_pending_binding(app, client):
         follow_redirects=False,
     )
 
-    assert resp.status_code == 302
-    assert "/auth/pending" in resp.headers.get("Location", "")
+    assert resp.status_code == 200
+    assert "ERP" in resp.get_data(as_text=True)
 
     with app.app_context():
         users = User.query.filter_by(username="same_name_qc_apply").all()
         assert len(users) == 1
         binding = QCUserBinding.query.filter_by(user_id=users[0].id).first()
-        assert binding is not None
-        assert binding.is_active is False
+        assert binding is None
 
 
 def test_qc_register_new_user_creates_pending_user_and_binding(app, client):

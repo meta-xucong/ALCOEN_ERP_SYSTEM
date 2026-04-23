@@ -4,7 +4,7 @@ import json
 
 from flask import Blueprint, flash, g, redirect, render_template, request, url_for
 
-from app.models import PERMISSIONS
+from app.models import ERP_PERMISSIONS
 from app.services.user_service import UserService
 from app.utils.decorators import login_required
 
@@ -20,7 +20,7 @@ def list_roles():
         return redirect(url_for('main.index'))
 
     roles = UserService.get_all_roles()
-    return render_template('role/list.html', roles=roles, permissions=PERMISSIONS)
+    return render_template('role/list.html', roles=roles, permissions=ERP_PERMISSIONS)
 
 
 @role_bp.route('/<int:role_id>/edit', methods=['GET', 'POST'])
@@ -42,7 +42,7 @@ def edit_role(role_id: int):
 
     if request.method == 'POST':
         selected_permissions = request.form.getlist('permissions')
-        success, message = UserService.update_role_permissions(role_id, selected_permissions)
+        success, message = UserService.update_role_permissions(role_id, selected_permissions, scope='erp')
         flash(message, 'success' if success else 'error')
         if success:
             return redirect(url_for('role.list_roles'))
@@ -57,6 +57,6 @@ def edit_role(role_id: int):
     return render_template(
         'role/edit.html',
         role=role,
-        permissions=PERMISSIONS,
+        permissions=ERP_PERMISSIONS,
         current_permissions=current_permissions,
     )

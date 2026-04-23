@@ -151,14 +151,14 @@
                             {% if role.code == 'qc_controller' %}
                                 质量控制人
                             {% elif role.code == 'qc_inspector' %}
-                                质量检测人
+                                供应商
                             {% else %}
                                 {{ role.name }}
                             {% endif %}
                         </option>
                         {% endfor %}
                     </select>
-                    <small class="text-muted">系统内部角色仍按质控员 / 质检员权限执行，这里展示为你更容易辨认的注册名称。</small>
+                    <small class="text-muted">系统内部仍沿用质控人与供应商两类 QC 权限，这里展示的是实际业务身份名称。</small>
                 </div>
 
                 <div class="mb-3">

@@ -7,7 +7,7 @@
     <h1 class="d-flex align-items-center gap-3 mb-0">
         <i class="bi bi-clipboard-check text-gradient" style="font-size: 2rem; color: #198754;"></i>
         <span class="text-gradient" style="font-weight: 700; font-size: 2rem;">工件订单详情</span>
-        {% set status_info = order.get_status_display() %}
+        {% set status_info = order.get_acceptance_status_display() if order.status in ['inspection_completed', 'accepted'] else order.get_status_display() %}
         <span class="badge {{ status_info.badge }} fs-6">{{ status_info.text }}</span>
     </h1>
     <div class="d-flex gap-2">
@@ -17,7 +17,7 @@
         </a>
         {% endif %}
         {% if order.can_be_deleted_by(current_user) %}
-        <form method="POST" action="{{ url_for('qc.quality_control_delete', order_id=order.id) }}" onsubmit="return confirm('确定要删除这个工件订单吗？删除后不可恢复。');">
+        <form method="POST" action="{{ url_for('qc.quality_control_delete', order_id=order.id) }}" onsubmit="return confirm('确定要删除这个工件订单吗？');">
             <button type="submit" class="btn btn-outline-danger">
                 <i class="bi bi-trash"></i> 删除
             </button>
@@ -31,11 +31,13 @@
 
 {% if order.status == 'rejected' %}
 <div class="alert alert-danger mb-4">
-    <i class="bi bi-x-octagon-fill"></i> 该工件订单曾在质检环节被判定为不合格，请优先处理标记为红色叉号的条目后再重新提交。
+    <i class="bi bi-x-octagon-fill"></i> 该工件订单曾被判定为不合格，请优先处理标红项目后重新提交。
+    {% if order.rejection_reason %}
+    <div class="mt-2 small">回退原因：{{ order.rejection_reason }}</div>
+    {% endif %}
 </div>
 {% endif %}
 
-<!-- 基础信息 -->
 <div class="card mb-4">
     <div class="card-header bg-primary text-white">
         <h5 class="mb-0"><i class="bi bi-info-circle"></i> 基础信息</h5>
@@ -55,181 +57,198 @@
                 <div class="fw-medium fs-5">{{ order.quantity }}</div>
             </div>
             <div class="col-md-3 mb-3">
-                <label class="text-muted small">质量控制负责人</label>
+                <label class="text-muted small">质控人</label>
                 <div class="fw-medium fs-5">{{ order.controller.real_name or order.controller.username }}</div>
             </div>
         </div>
-        {% if order.inspector %}
         <div class="row">
+            {% if order.workpiece %}
             <div class="col-md-3 mb-3">
-                <label class="text-muted small">分配质检员</label>
+                <label class="text-muted small">来源工件</label>
+                <div class="fw-medium fs-5">{{ order.workpiece.workpiece_code }}</div>
+            </div>
+            {% endif %}
+            {% if order.inspector %}
+            <div class="col-md-3 mb-3">
+                <label class="text-muted small">目标供应商</label>
                 <div class="fw-medium fs-5">{{ order.inspector.real_name or order.inspector.username }}</div>
             </div>
+            {% endif %}
         </div>
-        {% endif %}
     </div>
 </div>
 
-<!-- 图纸 -->
 <div class="card mb-4">
     <div class="card-header bg-info text-white">
         <h5 class="mb-0"><i class="bi bi-image"></i> 图纸</h5>
     </div>
     <div class="card-body">
-        {% set has_drawing = false %}
-        {% for att in order.attachments %}
-            {% if att.attach_type == 'drawing' %}
-                {% set record = inspection_records_by_attachment.get(att.id) %}
-                {% set has_drawing = true %}
-                <div class="mb-3">
-                    <div class="d-flex justify-content-between align-items-start mb-2">
-                        <p class="text-muted mb-0">{{ att.file_path.split('/')[-1] }}</p>
-                        {% if record and record.result == 'fail' %}
-                        <span class="badge bg-danger"><i class="bi bi-x-lg"></i> 不合格</span>
-                        {% endif %}
-                    </div>
-                    {% if att.is_image %}
-                    <img src="{{ url_for('static', filename='uploads/qc/' ~ order.id ~ '/' ~ att.file_path) }}" class="img-thumbnail" style="max-height: 300px;">
-                    {% else %}
-                    <a href="{{ url_for('static', filename='uploads/qc/' ~ order.id ~ '/' ~ att.file_path) }}" target="_blank" class="btn btn-outline-primary btn-sm">
-                        <i class="bi bi-download"></i> 下载查看
-                    </a>
-                    {% endif %}
-                    {% if record and record.remark %}
-                    <div class="alert alert-danger py-2 mt-2 mb-0">质检备注：{{ record.remark }}</div>
+        {% set drawing = order.drawing_attachment %}
+        {% if drawing %}
+            {% set record = inspection_records_by_attachment.get(drawing.id) %}
+            <div class="mb-3">
+                <div class="d-flex justify-content-between align-items-start mb-2">
+                    <p class="text-muted mb-0">{{ drawing.file_path.split('/')[-1] }}</p>
+                    {% if record and record.result == 'fail' %}
+                    <span class="badge bg-danger"><i class="bi bi-x-lg"></i> 不合格</span>
                     {% endif %}
                 </div>
-            {% endif %}
-        {% endfor %}
-        {% if not has_drawing %}
+                {% if drawing.is_image %}
+                <img src="{{ drawing.file_url }}" class="img-thumbnail" style="max-height: 300px;" alt="图纸">
+                {% else %}
+                <a href="{{ drawing.file_url }}" target="_blank" class="btn btn-outline-primary btn-sm">
+                    <i class="bi bi-download"></i> 下载查看
+                </a>
+                {% endif %}
+
+                {% if order.drawing_note_file_path %}
+                <div class="mt-3">
+                    <label class="text-muted small d-block">图纸批注信息</label>
+                    <a href="{{ order.drawing_note_file_url }}" target="_blank" class="btn btn-outline-secondary btn-sm">
+                        <i class="bi bi-file-earmark-arrow-down"></i> {{ order.drawing_note_filename }}
+                    </a>
+                </div>
+                {% endif %}
+
+                {% if record and record.report_file_path %}
+                <div class="mt-3">
+                    <label class="text-muted small d-block">图纸确认函</label>
+                    <a href="{{ record.report_url }}" target="_blank" class="btn btn-outline-success btn-sm">
+                        <i class="bi bi-file-earmark-arrow-down"></i> {{ record.report_filename }}
+                    </a>
+                </div>
+                {% endif %}
+
+                {% if record and record.remark %}
+                <div class="alert alert-danger py-2 mt-3 mb-0">质检备注：{{ record.remark }}</div>
+                {% endif %}
+            </div>
+        {% else %}
         <p class="text-muted mb-0">未上传图纸</p>
         {% endif %}
     </div>
 </div>
 
-<!-- 作业指导书 -->
-<div class="card mb-4">
-    <div class="card-header bg-info text-white">
-        <h5 class="mb-0"><i class="bi bi-file-earmark-text"></i> 作业指导书</h5>
-    </div>
-    <div class="card-body">
-        {% set has_instruction = false %}
-        {% for att in order.attachments %}
-            {% if att.attach_type == 'instruction' %}
-                {% set record = inspection_records_by_attachment.get(att.id) %}
-                {% set has_instruction = true %}
-                <div class="mb-3">
-                    <div class="d-flex justify-content-between align-items-start mb-2">
-                        <p class="text-muted mb-0">{{ att.file_path.split('/')[-1] }}</p>
-                        {% if record and record.result == 'fail' %}
-                        <span class="badge bg-danger"><i class="bi bi-x-lg"></i> 不合格</span>
-                        {% endif %}
-                    </div>
-                    {% if att.is_image %}
-                    <img src="{{ url_for('static', filename='uploads/qc/' ~ order.id ~ '/' ~ att.file_path) }}" class="img-thumbnail" style="max-height: 300px;">
-                    {% else %}
-                    <a href="{{ url_for('static', filename='uploads/qc/' ~ order.id ~ '/' ~ att.file_path) }}" target="_blank" class="btn btn-outline-primary btn-sm">
-                        <i class="bi bi-download"></i> 下载查看
-                    </a>
-                    {% endif %}
-                    {% if record and record.remark %}
-                    <div class="alert alert-danger py-2 mt-2 mb-0">质检备注：{{ record.remark }}</div>
-                    {% endif %}
-                </div>
-            {% endif %}
-        {% endfor %}
-        {% if not has_instruction %}
-        <p class="text-muted mb-0">未上传作业指导书</p>
-        {% endif %}
-    </div>
-</div>
-
-<!-- 检测点 -->
 <div class="card mb-4">
     <div class="card-header bg-warning text-dark">
-        <h5 class="mb-0"><i class="bi bi-list-check"></i> 检测点</h5>
+        <h5 class="mb-0"><i class="bi bi-list-check"></i> 作业指导书</h5>
     </div>
     <div class="card-body">
-        {% set has_points = false %}
-        {% for att in order.attachments %}
-            {% if att.attach_type == 'inspection_point' %}
-                {% set record = inspection_records_by_attachment.get(att.id) %}
-                {% set has_points = true %}
-                <div class="border rounded p-3 mb-3 {% if record and record.result == 'fail' %}border-danger bg-danger-subtle{% endif %}">
-                    <div class="d-flex justify-content-between align-items-start">
-                        <div>
-                            <h6 class="fw-bold d-flex align-items-center gap-2">
-                                <span>{{ att.title or '未命名检测点' }}</span>
-                                {% if record and record.result == 'fail' %}
-                                <span class="badge bg-danger"><i class="bi bi-x-lg"></i> 不合格</span>
-                                {% endif %}
-                            </h6>
-                            <p class="text-muted mb-2">{{ att.content or '' }}</p>
-                            {% if att.is_image %}
-                            <img src="{{ url_for('static', filename='uploads/qc/' ~ order.id ~ '/' ~ att.file_path) }}" class="img-thumbnail" style="max-height: 200px;">
-                            {% elif att.file_path %}
-                            <a href="{{ url_for('static', filename='uploads/qc/' ~ order.id ~ '/' ~ att.file_path) }}" target="_blank" class="btn btn-outline-primary btn-sm">
+        {% for attachment in order.guide_attachments %}
+            {% set record = inspection_records_by_attachment.get(attachment.id) %}
+            <div class="border rounded p-3 mb-3 {% if record and record.result == 'fail' %}border-danger bg-danger-subtle{% endif %}">
+                <div class="d-flex justify-content-between align-items-start">
+                    <div>
+                        <h6 class="fw-bold d-flex align-items-center gap-2">
+                            <span>{{ attachment.display_title }}</span>
+                            {% if record and record.result == 'fail' %}
+                            <span class="badge bg-danger"><i class="bi bi-x-lg"></i> 不合格</span>
+                            {% endif %}
+                        </h6>
+                        <p class="text-muted mb-2">{{ attachment.content or '' }}</p>
+                        {% if attachment.file_path %}
+                            {% if attachment.is_image %}
+                            <img src="{{ attachment.file_url }}" class="img-thumbnail" style="max-height: 220px;" alt="{{ attachment.display_title }}">
+                            {% else %}
+                            <a href="{{ attachment.file_url }}" target="_blank" class="btn btn-outline-primary btn-sm">
                                 <i class="bi bi-download"></i> 下载查看
                             </a>
                             {% endif %}
-                            {% if record and record.remark %}
-                            <div class="alert alert-danger py-2 mt-2 mb-0">质检备注：{{ record.remark }}</div>
-                            {% endif %}
+                        {% endif %}
+
+                        {% if loop.first and order.guide_certificate_file_path %}
+                        <div class="mt-3">
+                            <label class="text-muted small d-block">生产凭证</label>
+                            <a href="{{ order.guide_certificate_file_url }}" target="_blank" class="btn btn-outline-secondary btn-sm">
+                                <i class="bi bi-file-earmark-arrow-down"></i> {{ order.guide_certificate_filename }}
+                            </a>
                         </div>
-                        <span class="badge bg-secondary">必填</span>
+                        {% endif %}
+
+                        {% if record and record.report_file_path %}
+                        <div class="mt-3">
+                            <label class="text-muted small d-block">合格报告</label>
+                            <a href="{{ record.report_url }}" target="_blank" class="btn btn-outline-success btn-sm">
+                                <i class="bi bi-file-earmark-arrow-down"></i> {{ record.report_filename }}
+                            </a>
+                        </div>
+                        {% endif %}
+
+                        {% if record and record.remark %}
+                        <div class="alert alert-danger py-2 mt-3 mb-0">质检备注：{{ record.remark }}</div>
+                        {% endif %}
                     </div>
+                    <span class="badge bg-secondary">必填</span>
                 </div>
-            {% endif %}
+            </div>
+        {% else %}
+        <p class="text-muted mb-0">未配置作业指导书</p>
         {% endfor %}
-        {% if not has_points %}
-        <p class="text-muted mb-0">未添加检测点</p>
-        {% endif %}
     </div>
 </div>
 
-<!-- 备注 -->
 <div class="card mb-4">
     <div class="card-header bg-secondary text-white">
         <h5 class="mb-0"><i class="bi bi-sticky"></i> 备注</h5>
     </div>
     <div class="card-body">
-        {% set has_remarks = false %}
-        {% for att in order.attachments %}
-            {% if att.attach_type == 'remark' %}
-                {% set record = inspection_records_by_attachment.get(att.id) %}
-                {% set has_remarks = true %}
-                <div class="border rounded p-3 mb-3 {% if record and record.result == 'fail' %}border-danger bg-danger-subtle{% endif %}">
-                    <div class="d-flex justify-content-between align-items-start mb-2">
-                        <div class="d-flex gap-2">
-                            <span class="badge {{ 'bg-danger' if att.is_required else 'bg-light text-dark' }}">{{ '必填' if att.is_required else '选填' }}</span>
-                            {% if record and record.result == 'fail' %}
-                            <span class="badge bg-danger"><i class="bi bi-x-lg"></i> 不合格</span>
-                            {% endif %}
-                        </div>
-                    </div>
-                    <p class="text-muted mb-2">{{ att.content or '' }}</p>
-                    {% if att.file_path %}
-                        {% if att.is_image %}
-                        <img src="{{ url_for('static', filename='uploads/qc/' ~ order.id ~ '/' ~ att.file_path) }}" class="img-thumbnail" style="max-height: 200px;">
-                        {% else %}
-                        <a href="{{ url_for('static', filename='uploads/qc/' ~ order.id ~ '/' ~ att.file_path) }}" target="_blank" class="btn btn-outline-primary btn-sm">
-                            <i class="bi bi-download"></i> 下载查看
-                        </a>
+        {% for attachment in order.remark_attachments %}
+            {% set record = inspection_records_by_attachment.get(attachment.id) %}
+            <div class="border rounded p-3 mb-3 {% if record and record.result == 'fail' %}border-danger bg-danger-subtle{% endif %}">
+                <div class="d-flex justify-content-between align-items-start mb-2">
+                    <div class="d-flex gap-2">
+                        <span class="badge {{ 'bg-danger' if attachment.is_required else 'bg-light text-dark' }}">{{ '必填' if attachment.is_required else '选填' }}</span>
+                        {% if record and record.result == 'fail' %}
+                        <span class="badge bg-danger"><i class="bi bi-x-lg"></i> 不合格</span>
                         {% endif %}
-                    {% endif %}
-                    {% if record and record.remark %}
-                    <div class="alert alert-danger py-2 mt-2 mb-0">质检备注：{{ record.remark }}</div>
-                    {% endif %}
+                    </div>
                 </div>
-            {% endif %}
-        {% endfor %}
-        {% if not has_remarks %}
+                <p class="text-muted mb-2">{{ attachment.content or '' }}</p>
+                {% if attachment.file_path %}
+                    {% if attachment.is_image %}
+                    <img src="{{ attachment.file_url }}" class="img-thumbnail" style="max-height: 220px;" alt="备注附件">
+                    {% else %}
+                    <a href="{{ attachment.file_url }}" target="_blank" class="btn btn-outline-primary btn-sm">
+                        <i class="bi bi-download"></i> 下载查看
+                    </a>
+                    {% endif %}
+                {% endif %}
+
+                {% if loop.first and order.remark_note_file_path %}
+                <div class="mt-3">
+                    <label class="text-muted small d-block">备注批注信息</label>
+                    <a href="{{ order.remark_note_file_url }}" target="_blank" class="btn btn-outline-secondary btn-sm">
+                        <i class="bi bi-file-earmark-arrow-down"></i> {{ order.remark_note_filename }}
+                    </a>
+                </div>
+                {% endif %}
+
+                {% if record and record.report_file_path %}
+                <div class="mt-3">
+                    <a href="{{ record.report_url }}" target="_blank" class="btn btn-outline-success btn-sm">
+                        <i class="bi bi-file-earmark-arrow-down"></i> {{ record.report_filename }}
+                    </a>
+                </div>
+                {% endif %}
+
+                {% if record and record.remark %}
+                <div class="alert alert-danger py-2 mt-3 mb-0">质检备注：{{ record.remark }}</div>
+                {% endif %}
+            </div>
+        {% else %}
         <p class="text-muted mb-0">未添加备注</p>
+        {% if order.remark_note_file_path %}
+        <div class="mt-3">
+            <label class="text-muted small d-block">备注批注信息</label>
+            <a href="{{ order.remark_note_file_url }}" target="_blank" class="btn btn-outline-secondary btn-sm">
+                <i class="bi bi-file-earmark-arrow-down"></i> {{ order.remark_note_filename }}
+            </a>
+        </div>
         {% endif %}
+        {% endfor %}
     </div>
 </div>
 
-<!-- 完成区域 -->
 {% if order.status in ['draft', 'qc_pending', 'rejected'] and order.can_be_edited_by(current_user) %}
 <div class="card border-primary">
     <div class="card-header bg-primary text-white">
@@ -239,28 +258,28 @@
         <form method="POST" action="{{ url_for('qc.quality_control_complete', order_id=order.id) }}">
             <div class="row align-items-end">
                 <div class="col-md-6 mb-3">
-                    <label class="form-label">选择质量检测员 <span class="text-danger">*</span></label>
+                    <label class="form-label">选择目标供应商 <span class="text-danger">*</span></label>
                     <select name="inspector_id" class="form-select" required>
                         <option value="">-- 请选择 --</option>
-                        {% for inspector in inspectors %}
-                        <option value="{{ inspector.id }}" {% if order.inspector_id == inspector.id %}selected{% endif %}>
-                            {{ inspector.real_name or inspector.username }}
+                        {% for supplier in suppliers %}
+                        <option value="{{ supplier.id }}" {% if order.inspector_id == supplier.id %}selected{% endif %}>
+                            {{ supplier.real_name or supplier.username }}
                         </option>
                         {% endfor %}
                     </select>
                 </div>
                 <div class="col-md-6 mb-3">
                     <button type="submit" class="btn btn-success btn-lg w-100">
-                        <i class="bi bi-check-circle"></i> 完成并推送至质检
+                        <i class="bi bi-check-circle"></i> 完成并推送至质量检测
                     </button>
                 </div>
             </div>
             {% if order.status == 'rejected' %}
-            <div class="alert alert-warning">
-                <i class="bi bi-exclamation-triangle"></i> 此订单曾因质检不合格被退回，请确认修改无误后再提交。
+            <div class="alert alert-warning mb-0">
+                <i class="bi bi-exclamation-triangle"></i> 该订单曾因质检不合格被退回，请确认修正无误后再提交。
             </div>
             {% elif order.status == 'draft' %}
-            <div class="alert alert-secondary">
+            <div class="alert alert-secondary mb-0">
                 <i class="bi bi-info-circle"></i> 当前为草稿状态，仅您和系统管理员可见。点击完成后将进入质量检测模块。
             </div>
             {% endif %}
