@@ -22,7 +22,7 @@
     {% elif theme.bg_type == 'image' %}
     <div class="image-background" style="background-image: url('{{ url_for('static', filename='img/backgrounds/' + theme.bg_image) }}')"></div>
     {% else %}
-    <div class="solid-background" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: -2; background: linear-gradient(135deg, #e8f4f8 0%, #d4e9f2 50%, #c5e0ec 100%);"></div>
+    <div class="solid-background" style="position: fixed; inset: 0; z-index: -2; background: linear-gradient(135deg, #e8f4f8 0%, #d4e9f2 50%, #c5e0ec 100%);"></div>
     {% endif %}
 
     {% if theme.bg_type == 'solid' %}
@@ -34,22 +34,37 @@
     {% set qc_manager_roles = ['superadmin', 'general_manager', 'gm_assistant'] %}
     {% set qc_operator_roles = ['qc_controller', 'qc_inspector'] %}
     {% set role_code = current_user.role.code if current_user and current_user.role else '' %}
+    {% set can_access_qc_workpieces = current_user and (
+        current_user.is_superadmin
+        or (role_code in ['general_manager', 'gm_assistant', 'qc_controller'] and (
+            current_user.has_qc_permission('qc_workpiece_view')
+            or current_user.has_qc_permission('qc_workpiece_create')
+            or current_user.has_qc_permission('qc_workpiece_edit')
+            or current_user.has_qc_permission('qc_workpiece_delete')
+        ))
+    ) %}
     {% set can_access_qc_orders = current_user and (
         current_user.is_superadmin
-        or role_code in qc_manager_roles
-        or current_user.has_permission('qc_work_order_create')
+        or (role_code in ['general_manager', 'gm_assistant', 'qc_controller'] and (
+            current_user.has_qc_permission('qc_work_order_view')
+            or current_user.has_qc_permission('qc_work_order_create')
+            or current_user.has_qc_permission('qc_work_order_edit')
+            or current_user.has_qc_permission('qc_work_order_delete')
+        ))
     ) %}
     {% set can_access_qc_inspection = current_user and (
         current_user.is_superadmin
-        or role_code in qc_manager_roles
-        or role_code in qc_operator_roles
-        or current_user.has_permission('qc_inspection_perform')
+        or (role_code in qc_manager_roles + qc_operator_roles and (
+            current_user.has_qc_permission('qc_inspection_view')
+            or current_user.has_qc_permission('qc_inspection_perform')
+        ))
     ) %}
     {% set can_access_qc_acceptance = current_user and (
         current_user.is_superadmin
-        or role_code in qc_manager_roles
-        or role_code in qc_operator_roles
-        or current_user.has_permission('qc_acceptance_perform')
+        or (role_code in qc_manager_roles + qc_operator_roles and (
+            current_user.has_qc_permission('qc_acceptance_perform')
+            or current_user.has_qc_permission('qc_acceptance_rollback')
+        ))
     ) %}
     {% set can_access_qc_admin = current_user and (current_user.is_superadmin or role_code == 'general_manager') %}
 
@@ -68,6 +83,13 @@
                             <i class="bi bi-house-door"></i> 首页
                         </a>
                     </li>
+                    {% if can_access_qc_workpieces %}
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('qc.workpiece_list') }}">
+                            <i class="bi bi-box-seam"></i> 工件库
+                        </a>
+                    </li>
+                    {% endif %}
                     {% if can_access_qc_orders %}
                     <li class="nav-item">
                         <a class="nav-link" href="{{ url_for('qc.quality_control_list') }}">
@@ -109,37 +131,21 @@
                     {% if current_user %}
                     <li class="nav-item">
                         <a class="nav-link" href="{{ url_for('auth.switch_to_erp') }}">
-                            <i class="bi bi-building"></i> ERP系统
+                            <i class="bi bi-building"></i> ERP 系统
                         </a>
                     </li>
                     <li class="nav-item dropdown">
                         <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown">
                             <i class="bi bi-person-circle"></i>
                             {{ current_user.real_name or current_user.username }}
-                            <span class="badge bg-info">{{ current_user.role.name }}</span>
+                            <span class="badge bg-info">{{ current_user.role.display_name if current_user.role else '' }}</span>
                         </a>
                         <ul class="dropdown-menu dropdown-menu-end">
-                            <li>
-                                <a class="dropdown-item" href="{{ url_for('user.user_profile') }}">
-                                    <i class="bi bi-person"></i> 个人资料
-                                </a>
-                            </li>
-                            <li>
-                                <a class="dropdown-item" href="{{ url_for('theme.settings') }}">
-                                    <i class="bi bi-palette"></i> 界面风格
-                                </a>
-                            </li>
-                            <li>
-                                <a class="dropdown-item" href="{{ url_for('auth.change_password') }}">
-                                    <i class="bi bi-key"></i> 修改密码
-                                </a>
-                            </li>
+                            <li><a class="dropdown-item" href="{{ url_for('user.user_profile') }}"><i class="bi bi-person"></i> 个人资料</a></li>
+                            <li><a class="dropdown-item" href="{{ url_for('theme.settings') }}"><i class="bi bi-palette"></i> 界面风格</a></li>
+                            <li><a class="dropdown-item" href="{{ url_for('auth.change_password') }}"><i class="bi bi-key"></i> 修改密码</a></li>
                             <li><hr class="dropdown-divider"></li>
-                            <li>
-                                <a class="dropdown-item text-danger" href="{{ url_for('auth.logout') }}">
-                                    <i class="bi bi-box-arrow-right"></i> 退出登录
-                                </a>
-                            </li>
+                            <li><a class="dropdown-item text-danger" href="{{ url_for('auth.logout') }}"><i class="bi bi-box-arrow-right"></i> 退出登录</a></li>
                         </ul>
                     </li>
                     {% else %}

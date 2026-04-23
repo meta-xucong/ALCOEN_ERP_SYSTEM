@@ -2,18 +2,26 @@
 
 {% block title %}验收确认 - ALCOEN QC{% endblock %}
 
+{% block extra_css %}
+<style>
+    .truncate-name {
+        max-width: 220px;
+    }
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-4">
     <h1 class="d-flex align-items-center gap-3 mb-0">
         <i class="bi bi-check2-circle text-gradient" style="font-size: 2rem; color: #20c997;"></i>
         <span class="text-gradient" style="font-weight: 700; font-size: 2rem;">验收确认</span>
-        {% set status_info = order.get_status_display() %}
+        {% set status_info = order.get_acceptance_status_display() %}
         <span class="badge {{ status_info.badge }} fs-6">{{ status_info.text }}</span>
     </h1>
     <div class="d-flex gap-2">
         {% if order.status == 'accepted' %}
         <a href="{{ url_for('qc.acceptance_print', order_id=order.id) }}" target="_blank" class="btn btn-outline-success">
-            <i class="bi bi-printer"></i> 打印验收清单
+            <i class="bi bi-printer"></i> 打印验收单
         </a>
         {% endif %}
         <a href="{{ url_for('qc.acceptance_list') }}" class="btn btn-outline-secondary">
@@ -22,7 +30,48 @@
     </div>
 </div>
 
-<!-- 基础信息 -->
+{% if order.drawing_note_file_path or order.guide_certificate_file_path or order.remark_note_file_path %}
+<div class="card mb-4">
+    <div class="card-header bg-light">
+        <h5 class="mb-0"><i class="bi bi-paperclip"></i> 质量控制补充文件</h5>
+    </div>
+    <div class="card-body">
+        <div class="row g-3">
+            <div class="col-md-4">
+                <label class="text-muted small d-block mb-2">图纸批注信息</label>
+                {% if order.drawing_note_file_path %}
+                <a href="{{ order.drawing_note_file_url }}" target="_blank" class="d-inline-block text-truncate truncate-name" title="{{ order.drawing_note_filename }}">
+                    {{ order.drawing_note_filename }}
+                </a>
+                {% else %}
+                <span class="text-muted">-</span>
+                {% endif %}
+            </div>
+            <div class="col-md-4">
+                <label class="text-muted small d-block mb-2">作业指导书生产凭证</label>
+                {% if order.guide_certificate_file_path %}
+                <a href="{{ order.guide_certificate_file_url }}" target="_blank" class="d-inline-block text-truncate truncate-name" title="{{ order.guide_certificate_filename }}">
+                    {{ order.guide_certificate_filename }}
+                </a>
+                {% else %}
+                <span class="text-muted">-</span>
+                {% endif %}
+            </div>
+            <div class="col-md-4">
+                <label class="text-muted small d-block mb-2">备注批注信息</label>
+                {% if order.remark_note_file_path %}
+                <a href="{{ order.remark_note_file_url }}" target="_blank" class="d-inline-block text-truncate truncate-name" title="{{ order.remark_note_filename }}">
+                    {{ order.remark_note_filename }}
+                </a>
+                {% else %}
+                <span class="text-muted">-</span>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
 <div class="card mb-4">
     <div class="card-header bg-primary text-white">
         <h5 class="mb-0"><i class="bi bi-info-circle"></i> 基础信息</h5>
@@ -42,14 +91,14 @@
                 <div class="fw-medium fs-5">{{ order.quantity }}</div>
             </div>
             <div class="col-md-3 mb-3">
-                <label class="text-muted small">质控负责人</label>
+                <label class="text-muted small">质控人</label>
                 <div class="fw-medium fs-5">{{ order.controller.real_name or order.controller.username }}</div>
             </div>
         </div>
         {% if order.inspector %}
         <div class="row">
             <div class="col-md-3 mb-3">
-                <label class="text-muted small">质检员</label>
+                <label class="text-muted small">供应商</label>
                 <div class="fw-medium fs-5">{{ order.inspector.real_name or order.inspector.username }}</div>
             </div>
         </div>
@@ -57,7 +106,6 @@
     </div>
 </div>
 
-<!-- 各栏目汇总表格 -->
 <div class="card mb-4">
     <div class="card-header bg-light">
         <h5 class="mb-0"><i class="bi bi-list-check"></i> 质检记录汇总</h5>
@@ -69,46 +117,52 @@
                     <tr>
                         <th>栏目</th>
                         <th>内容/文件名</th>
+                        <th>合格报告</th>
                         <th class="text-center">质检结果</th>
                         <th>质检备注</th>
                     </tr>
                 </thead>
                 <tbody>
-                    {% for att in order.attachments %}
-                    {% set record = inspection_records_by_attachment.get(att.id) %}
+                    {% for attachment in order.ordered_attachments %}
+                    {% set record = inspection_records_by_attachment.get(attachment.id) %}
                     <tr>
                         <td>
-                            {% if att.attach_type == 'drawing' %}
+                            {% if attachment.attach_type == 'drawing' %}
                                 <i class="bi bi-image"></i> 图纸
-                            {% elif att.attach_type == 'instruction' %}
-                                <i class="bi bi-file-earmark-text"></i> 作业指导书
-                            {% elif att.attach_type == 'inspection_point' %}
-                                <i class="bi bi-list-check"></i> {{ att.title or '检测点' }}
-                            {% elif att.attach_type == 'remark' %}
+                            {% elif attachment.attach_type == 'remark' %}
                                 <i class="bi bi-sticky"></i> 备注
+                            {% else %}
+                                <i class="bi bi-list-check"></i> {{ attachment.display_title }}
                             {% endif %}
                         </td>
                         <td>
-                            {% if att.attach_type == 'inspection_point' %}
-                                {{ att.content or '' }}
-                            {% elif att.attach_type == 'remark' %}
-                                {{ att.content or '' }}
+                            <span class="d-inline-block text-truncate truncate-name" title="{{ attachment.content or attachment.file_path.split('/')[-1] }}">
+                                {{ attachment.content or attachment.file_path.split('/')[-1] }}
+                            </span>
+                        </td>
+                        <td>
+                            {% if record and record.report_file_path %}
+                            <a href="{{ record.report_url }}" target="_blank" class="d-inline-block text-truncate truncate-name" title="{{ record.report_filename }}">
+                                {{ record.report_filename }}
+                            </a>
                             {% else %}
-                                {{ att.file_path.split('/')[-1] }}
+                            <span class="text-muted">-</span>
                             {% endif %}
                         </td>
                         <td class="text-center">
                             {% if record %}
                                 {% if record.result == 'pass' %}
                                 <span class="badge bg-success"><i class="bi bi-check-lg"></i> 通过</span>
-                                {% else %}
+                                {% elif record.result == 'fail' %}
                                 <span class="badge bg-danger"><i class="bi bi-x-lg"></i> 不通过</span>
+                                {% else %}
+                                <span class="badge bg-secondary">草稿</span>
                                 {% endif %}
                             {% else %}
                             <span class="badge bg-secondary">-</span>
                             {% endif %}
                         </td>
-                        <td class="text-muted">{{ record.remark or '' }}</td>
+                        <td class="text-muted">{{ record.remark or '' if record else '' }}</td>
                     </tr>
                     {% endfor %}
                 </tbody>
@@ -117,8 +171,7 @@
     </div>
 </div>
 
-<!-- 双签确认区 -->
-{% if order.status == 'inspection_completed' %}
+{% if order.status in ['inspection_completed', 'accepted'] %}
 <div class="card mb-4 border-success">
     <div class="card-header bg-success text-white">
         <h5 class="mb-0"><i class="bi bi-pen"></i> 验收签字</h5>
@@ -128,7 +181,7 @@
             <div class="col-md-6 mb-3">
                 <div class="card h-100 {{ 'border-success' if 'qc_controller' in signatures else 'border-secondary' }}">
                     <div class="card-body text-center">
-                        <h6 class="card-title">质控员验收确认</h6>
+                        <h6 class="card-title">质控人确认</h6>
                         {% if 'qc_controller' in signatures %}
                             <div class="text-success mb-2">
                                 <i class="bi bi-check-circle-fill" style="font-size: 2rem;"></i>
@@ -140,10 +193,10 @@
                                 <i class="bi bi-circle" style="font-size: 2rem;"></i>
                             </div>
                             <p class="text-muted">待确认</p>
-                            {% if current_user.role.code == 'qc_controller' and order.controller_id == current_user.id %}
+                            {% if order.status == 'inspection_completed' and ((current_user.role.code == 'qc_controller' and order.controller_id == current_user.id and current_user.has_qc_permission('qc_acceptance_perform')) or current_user.is_superadmin or (current_user.role.code in ['general_manager', 'gm_assistant'] and current_user.has_qc_permission('qc_acceptance_perform'))) %}
                             <form method="POST" action="{{ url_for('qc.acceptance_sign', order_id=order.id) }}">
                                 <button type="submit" class="btn btn-success">
-                                    <i class="bi bi-check-lg"></i> 质控员已验收
+                                    <i class="bi bi-check-lg"></i> 点击确认
                                 </button>
                             </form>
                             {% endif %}
@@ -154,7 +207,7 @@
             <div class="col-md-6 mb-3">
                 <div class="card h-100 {{ 'border-success' if 'qc_inspector' in signatures else 'border-secondary' }}">
                     <div class="card-body text-center">
-                        <h6 class="card-title">质检员验收确认</h6>
+                        <h6 class="card-title">供应商确认</h6>
                         {% if 'qc_inspector' in signatures %}
                             <div class="text-success mb-2">
                                 <i class="bi bi-check-circle-fill" style="font-size: 2rem;"></i>
@@ -166,10 +219,10 @@
                                 <i class="bi bi-circle" style="font-size: 2rem;"></i>
                             </div>
                             <p class="text-muted">待确认</p>
-                            {% if current_user.role.code == 'qc_inspector' and order.inspector_id == current_user.id %}
+                            {% if order.status == 'inspection_completed' and ((current_user.role.code == 'qc_inspector' and order.inspector_id == current_user.id and current_user.has_qc_permission('qc_acceptance_perform')) or current_user.is_superadmin or (current_user.role.code in ['general_manager', 'gm_assistant'] and current_user.has_qc_permission('qc_acceptance_perform'))) %}
                             <form method="POST" action="{{ url_for('qc.acceptance_sign', order_id=order.id) }}">
                                 <button type="submit" class="btn btn-success">
-                                    <i class="bi bi-check-lg"></i> 质检员已验收
+                                    <i class="bi bi-check-lg"></i> 点击确认
                                 </button>
                             </form>
                             {% endif %}
@@ -178,22 +231,25 @@
                 </div>
             </div>
         </div>
+        {% if current_user.is_superadmin or current_user.role.code in ['general_manager', 'gm_assistant'] %}
+        <div class="alert alert-info mb-0">
+            <i class="bi bi-info-circle"></i> 管理员、总经理、总经理助理可代双方完成确认。
+        </div>
+        {% endif %}
     </div>
 </div>
 {% endif %}
 
-<!-- 管理操作区 -->
 {% if order.status in ['inspection_completed', 'accepted'] %}
-    {% if current_user.role.code == 'qc_controller' and order.controller_id == current_user.id %}
+    {% if (current_user.role.code == 'qc_controller' and order.controller_id == current_user.id and current_user.has_qc_permission('qc_acceptance_rollback')) or current_user.is_superadmin or (current_user.role.code in ['general_manager', 'gm_assistant'] and current_user.has_qc_permission('qc_acceptance_rollback')) %}
     <div class="d-flex gap-2">
         <button type="button" class="btn btn-warning" data-bs-toggle="modal" data-bs-target="#rollbackModal">
-            <i class="bi bi-arrow-counterclockwise"></i> 撤销验收，退回修改
+            <i class="bi bi-arrow-counterclockwise"></i> 撤销验收并回退
         </button>
     </div>
     {% endif %}
 {% endif %}
 
-<!-- 回退模态框 -->
 {% if order.status in ['inspection_completed', 'accepted'] %}
 <div class="modal fade" id="rollbackModal" tabindex="-1">
     <div class="modal-dialog">

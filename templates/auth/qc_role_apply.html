@@ -142,14 +142,14 @@
                             {% if role.code == 'qc_controller' %}
                                 质量控制人
                             {% elif role.code == 'qc_inspector' %}
-                                质量检测人
+                                供应商
                             {% else %}
                                 {{ role.name }}
                             {% endif %}
                         </option>
                         {% endfor %}
                     </select>
-                    <small class="text-muted">提交后将进入管理员审核。系统内部权限仍按质控员 / 质检员执行。</small>
+                    <small class="text-muted">提交后将进入管理员审核。系统内部权限会严格按质控人与供应商配置执行。</small>
                 </div>
 
                 <button type="submit" class="btn btn-primary btn-submit">

@@ -42,10 +42,13 @@
 }
 
 .product-row .product-name-input,
-.product-row .product-model-input,
 .transaction-row .trans-product-name,
 .transaction-row .trans-product-model {
-    max-width: 200px;
+    max-width: none;
+}
+
+.product-row .product-model-input {
+    max-width: 240px;
 }
 
 .product-row .product-qty,
@@ -54,7 +57,7 @@
 }
 
 .product-row .product-remark {
-    max-width: none;
+    max-width: 360px;
 }
 
 .product-row .row.align-items-end,
@@ -519,23 +522,25 @@
                     </button>
                 </div>
             </div>
-            <div class="col-md-2">
+            <div class="col-md-5">
                 <label class="form-label">产品名称</label>
                 <input type="text" class="form-control product-name-input" name="product_{index}_name">
             </div>
-            <div class="col-md-2">
+            <div class="col-md-3">
                 <label class="form-label">型号</label>
                 <input type="text" class="form-control product-model-input" name="product_{index}_model">
             </div>
+            <div class="col-md-1">
+                <label class="form-label">单位</label>
+                <input type="text" class="form-control product-unit-input" name="product_{index}_unit" value="个">
+            </div>
+        </div>
+        <div class="row mt-3 align-items-end">
             <div class="col-md-2">
                 <label class="form-label">数量 *</label>
                 <input type="number" class="form-control product-qty wide-number-input" name="product_{index}_quantity" 
                        step="0.01" min="0" inputmode="decimal"
                        required onchange="calculateProductTotal(this)">
-            </div>
-            <div class="col-md-1">
-                <label class="form-label">单位</label>
-                <input type="text" class="form-control product-unit-input" name="product_{index}_unit" value="个">
             </div>
             <div class="col-md-2">
                 <label class="form-label">单价 *</label>
@@ -547,7 +552,7 @@
                 <input type="number" class="form-control product-total wide-number-input" name="product_{index}_total" 
                        readonly step="0.01">
             </div>
-            <div class="col-md-9">
+            <div class="col-md-5">
                 <label class="form-label">备注</label>
                 <input type="text" class="form-control product-remark" name="product_{index}_remark" maxlength="100">
             </div>
@@ -683,13 +688,13 @@ function normalizeProductRowLayout(row) {
     const totalCol = row.querySelector('.product-total')?.closest('[class*="col-"]');
     const remarkCol = row.querySelector('.product-remark')?.closest('[class*="col-"]');
     if (codeCol) codeCol.className = 'col-md-3';
-    if (nameCol) nameCol.className = 'col-md-2';
-    if (modelCol) modelCol.className = 'col-md-2';
+    if (nameCol) nameCol.className = 'col-md-5';
+    if (modelCol) modelCol.className = 'col-md-3';
     if (qtyCol) qtyCol.className = 'col-md-2';
     if (unitCol) unitCol.className = 'col-md-1';
     if (priceCol) priceCol.className = 'col-md-2';
     if (totalCol) totalCol.className = 'col-md-3';
-    if (remarkCol) remarkCol.className = 'col-md-9';
+    if (remarkCol) remarkCol.className = 'col-md-5';
 }
 
 function normalizeTransactionRowLayout(row) {

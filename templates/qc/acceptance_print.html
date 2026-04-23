@@ -17,10 +17,6 @@
             border-bottom: 2px solid #1e3a5f;
             padding-bottom: 20px;
         }
-        .print-header img {
-            height: 50px;
-            margin-bottom: 10px;
-        }
         .print-title {
             font-size: 1.75rem;
             font-weight: 700;
@@ -61,7 +57,6 @@
         @media print {
             body { padding: 20px; }
             .no-print { display: none !important; }
-            .page-break { page-break-before: always; }
         }
     </style>
 </head>
@@ -98,45 +93,67 @@
             <div>{{ order.accepted_at.strftime('%Y年%m月%d日') if order.accepted_at else '-' }}</div>
         </div>
         <div class="info-item">
-            <label>质量控制负责人</label>
+            <label>质控人</label>
             <div>{{ order.controller.real_name or order.controller.username }}</div>
         </div>
         <div class="info-item">
-            <label>质量检测员</label>
+            <label>供应商</label>
             <div>{{ order.inspector.real_name or order.inspector.username if order.inspector else '-' }}</div>
         </div>
     </div>
+
+    {% if order.drawing_note_file_path or order.guide_certificate_file_path or order.remark_note_file_path %}
+    <div class="section-title">质量控制补充文件</div>
+    <table class="table table-bordered mb-4">
+        <thead class="table-light">
+            <tr>
+                <th style="width: 33%;">图纸批注信息</th>
+                <th style="width: 34%;">作业指导书生产凭证</th>
+                <th style="width: 33%;">备注批注信息</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td>{{ order.drawing_note_filename or '-' }}</td>
+                <td>{{ order.guide_certificate_filename or '-' }}</td>
+                <td>{{ order.remark_note_filename or '-' }}</td>
+            </tr>
+        </tbody>
+    </table>
+    {% endif %}
 
     <div class="section-title">质检记录明细</div>
     <table class="table table-bordered">
         <thead class="table-light">
             <tr>
-                <th style="width: 25%;">栏目</th>
-                <th style="width: 35%;">内容</th>
-                <th style="width: 15%;" class="text-center">结果</th>
-                <th style="width: 25%;">备注</th>
+                <th style="width: 18%;">栏目</th>
+                <th style="width: 24%;">内容</th>
+                <th style="width: 24%;">合格报告</th>
+                <th style="width: 12%;" class="text-center">结果</th>
+                <th style="width: 22%;">备注</th>
             </tr>
         </thead>
         <tbody>
-            {% for att in order.attachments %}
-            {% set record = inspection_records_by_attachment.get(att.id) %}
+            {% for attachment in order.ordered_attachments %}
+            {% set record = inspection_records_by_attachment.get(attachment.id) %}
             <tr>
                 <td>
-                    {% if att.attach_type == 'drawing' %}图纸
-                    {% elif att.attach_type == 'instruction' %}作业指导书
-                    {% elif att.attach_type == 'inspection_point' %}{{ att.title or '检测点' }}
-                    {% elif att.attach_type == 'remark' %}备注
+                    {% if attachment.attach_type == 'drawing' %}图纸
+                    {% elif attachment.attach_type == 'remark' %}备注
+                    {% else %}{{ attachment.display_title }}
                     {% endif %}
                 </td>
-                <td>{{ att.content or att.file_path.split('/')[-1] }}</td>
+                <td>{{ attachment.content or attachment.file_path.split('/')[-1] }}</td>
+                <td>{{ record.report_filename if record and record.report_file_path else '-' }}</td>
                 <td class="text-center">
                     {% if record %}
-                        {% if record.result == 'pass' %}<span class="text-success">✓ 通过</span>
-                        {% else %}<span class="text-danger">✗ 不通过</span>
+                        {% if record.result == 'pass' %}<span class="text-success">√ 通过</span>
+                        {% elif record.result == 'fail' %}<span class="text-danger">× 不通过</span>
+                        {% else %}<span class="text-muted">草稿</span>
                         {% endif %}
                     {% else %}-{% endif %}
                 </td>
-                <td>{{ record.remark or '' }}</td>
+                <td>{{ record.remark or '' if record else '' }}</td>
             </tr>
             {% endfor %}
         </tbody>
@@ -145,14 +162,14 @@
     <div class="section-title">签字确认区</div>
     <div class="signature-area">
         <div>
-            <p><strong>质量控制员签字：</strong></p>
+            <p><strong>质控人签字：</strong></p>
             <div class="signature-box"></div>
-            <p class="text-muted small">日期：__________</p>
+            <p class="text-muted small">日期：_________</p>
         </div>
         <div>
-            <p><strong>质量检测员签字：</strong></p>
+            <p><strong>供应商签字：</strong></p>
             <div class="signature-box"></div>
-            <p class="text-muted small">日期：__________</p>
+            <p class="text-muted small">日期：_________</p>
         </div>
     </div>
 

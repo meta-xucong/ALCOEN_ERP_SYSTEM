@@ -2,14 +2,24 @@
 
 from __future__ import annotations
 
+import json
+
 from app import db
-from app.models import Role, User
+from app.models import (
+    ERP_PERMISSIONS,
+    QC_ADMIN_ROLE_CODES,
+    QC_PERMISSIONS,
+    QC_ROLE_CODES as QC_ONLY_ROLE_CODES,
+    QC_ROLE_EDITABLE_PERMISSIONS,
+    Role,
+    User,
+)
 
 
 class UserService:
     """用户管理服务。"""
 
-    QC_ROLE_CODES = ("qc_controller", "qc_inspector")
+    QC_ROLE_CODES = QC_ONLY_ROLE_CODES
 
     @staticmethod
     def is_qc_role_code(role_code: str | None) -> bool:
@@ -145,10 +155,8 @@ class UserService:
         return role
 
     @staticmethod
-    def update_role_permissions(role_id, permissions):
+    def update_role_permissions(role_id, permissions, scope='erp'):
         """更新角色权限。"""
-        import json
-
         role = Role.query.get(role_id)
         if not role:
             return False, '角色不存在'
@@ -156,7 +164,27 @@ class UserService:
             return False, '不能修改超级管理员权限'
 
         try:
-            role.permissions = json.dumps(permissions)
+            current_permissions = role.get_permission_codes()
+
+            if scope == 'qc':
+                allowed_permissions = set(QC_ROLE_EDITABLE_PERMISSIONS.get(role.code, {}).keys())
+                preserved_permissions = [
+                    permission_code for permission_code in current_permissions
+                    if permission_code not in QC_PERMISSIONS
+                ]
+            else:
+                allowed_permissions = set(ERP_PERMISSIONS.keys())
+                preserved_permissions = [
+                    permission_code for permission_code in current_permissions
+                    if permission_code in QC_PERMISSIONS
+                ]
+
+            normalized_permissions = []
+            for permission_code in permissions:
+                if permission_code in allowed_permissions and permission_code not in normalized_permissions:
+                    normalized_permissions.append(permission_code)
+
+            role.permissions = json.dumps(preserved_permissions + normalized_permissions, ensure_ascii=False)
             db.session.commit()
             return True, '权限更新成功'
         except Exception as exc:

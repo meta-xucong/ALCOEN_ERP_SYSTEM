@@ -7,11 +7,10 @@ from flask import Blueprint, render_template, request, redirect, url_for, flash,
 from app import db
 from app.services.auth_service import AuthService
 from app.services.email_service import EmailService
-from app.models import Role, User, Department, VerificationCode, QCUserBinding
+from app.models import Role, User, Department, VerificationCode, QCUserBinding, QC_ROLE_CODES
 from app.utils.decorators import login_required
 
 auth_bp = Blueprint('auth', __name__, url_prefix='/auth')
-QC_ROLE_CODES = ('qc_controller', 'qc_inspector')
 
 
 def _get_client_ip() -> str:
@@ -657,4 +656,3 @@ def change_password():
                 return render_template('auth/change_password.html', is_forced=is_forced)
     
     return render_template('auth/change_password.html', is_forced=is_forced)
-

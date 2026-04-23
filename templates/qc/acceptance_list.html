@@ -41,13 +41,13 @@
                         <th class="text-center">数量</th>
                         <th class="text-center">状态</th>
                         <th class="text-center">质检结果</th>
-                        <th class="text-end">完成时间</th>
+                        <th class="text-end">更新时间</th>
                         <th class="text-center">操作</th>
                     </tr>
                 </thead>
                 <tbody>
                     {% for order in orders %}
-                    {% set status_info = order.get_status_display() %}
+                    {% set status_info = order.get_acceptance_status_display() %}
                     <tr>
                         <td class="fw-medium">{{ order.batch_no }}</td>
                         <td>{{ order.workpiece_name }}</td>
@@ -57,17 +57,9 @@
                         </td>
                         <td class="text-center">
                             {% if order.status == 'accepted' %}
-                            <span class="badge bg-success"><i class="bi bi-check"></i> 全部通过</span>
+                            <span class="badge bg-success"><i class="bi bi-check"></i> 双方已确认</span>
                             {% else %}
-                                {% if order.inspection_records %}
-                                    {% if order.inspection_records | selectattr('result', 'equalto', 'fail') | list | length > 0 %}
-                                    <span class="badge bg-danger"><i class="bi bi-x"></i> 存在不合格项</span>
-                                    {% else %}
-                                    <span class="badge bg-success"><i class="bi bi-check"></i> 全部通过</span>
-                                    {% endif %}
-                                {% else %}
-                                <span class="badge bg-secondary">-</span>
-                                {% endif %}
+                            <span class="badge bg-warning text-dark"><i class="bi bi-hourglass-split"></i> 待确认</span>
                             {% endif %}
                         </td>
                         <td class="text-end">
@@ -99,7 +91,7 @@
                 </tbody>
             </table>
         </div>
-        
+
         {% if pagination and pagination.pages > 1 %}
         <div class="card-footer">
             <nav aria-label="Page navigation">
@@ -111,7 +103,7 @@
                     {% else %}
                     <li class="page-item disabled"><span class="page-link">上一页</span></li>
                     {% endif %}
-                    
+
                     {% for p in pagination.iter_pages(left_edge=1, right_edge=1, left_current=2, right_current=2) %}
                         {% if p %}
                             {% if p == pagination.page %}
@@ -125,7 +117,7 @@
                             <li class="page-item disabled"><span class="page-link">...</span></li>
                         {% endif %}
                     {% endfor %}
-                    
+
                     {% if pagination.has_next %}
                     <li class="page-item">
                         <a class="page-link" href="{{ url_for('qc.acceptance_list', page=pagination.next_num, keyword=keyword) }}">下一页</a>

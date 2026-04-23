@@ -477,6 +477,31 @@ class Role(db.Model):
     
     def __repr__(self):
         return f'<Role {self.code}>'
+
+    @property
+    def display_name(self) -> str:
+        """Return a user-facing role name for shared ERP/QC templates."""
+        if self.code == 'qc_inspector':
+            return '供应商'
+        return self.name
+
+    def get_permission_codes(self) -> list[str]:
+        """Return the stored permission codes for the role."""
+        import json
+
+        if not self.permissions:
+            return []
+
+        try:
+            permissions = json.loads(self.permissions)
+        except (json.JSONDecodeError, TypeError):
+            return []
+
+        return permissions if isinstance(permissions, list) else []
+
+    def has_qc_permission(self, permission_code: str) -> bool:
+        """Check QC permissions strictly against the stored role configuration."""
+        return permission_code in QC_PERMISSIONS and permission_code in self.get_permission_codes()
     
     def has_permission(self, permission_code: str) -> bool:
         """检查角色是否有指定权限"""
@@ -580,6 +605,12 @@ class User(db.Model):
         if self.is_superadmin:
             return True
         return self.role.has_permission(permission_code)
+
+    def has_qc_permission(self, permission_code: str) -> bool:
+        """Check QC permissions without ERP-specific role shortcuts."""
+        if self.is_superadmin:
+            return True
+        return bool(self.role and self.role.has_qc_permission(permission_code))
     
     def can_view_financial(self) -> bool:
         """是否可以查看资金信息（物流经理脱敏）"""
@@ -701,7 +732,7 @@ class User(db.Model):
 
 
 # 权限定义常量
-PERMISSIONS = {
+ERP_PERMISSIONS = {
     # 合同模块
     'contract_view': '查看合同',
     'contract_create': '创建合同',
@@ -736,17 +767,104 @@ PERMISSIONS = {
     'user_manage': '管理用户',
     'user_approve': '审核注册用户',
     'role_manage': '管理角色权限',
-    
-    # QC 模块
+}
+
+QC_PERMISSIONS = {
     'qc_dashboard': 'QC仪表盘',
+    'qc_workpiece_view': '查看工件库',
+    'qc_workpiece_create': '新增工件',
+    'qc_workpiece_edit': '编辑工件',
+    'qc_workpiece_delete': '删除工件',
     'qc_work_order_view': '查看工件订单',
     'qc_work_order_create': '创建工件订单',
     'qc_work_order_edit': '编辑工件订单',
     'qc_work_order_delete': '删除工件订单',
+    'qc_inspection_view': '查看质量检测',
     'qc_inspection_perform': '执行质量检测',
     'qc_acceptance_perform': '执行验收确认',
     'qc_acceptance_rollback': '验收回退/撤销',
 }
+
+PERMISSIONS = {**ERP_PERMISSIONS, **QC_PERMISSIONS}
+
+QC_ROLE_CODES = ('qc_controller', 'qc_inspector')
+QC_MANAGER_ROLE_CODES = ('general_manager', 'gm_assistant')
+QC_ADMIN_ROLE_CODES = QC_MANAGER_ROLE_CODES + QC_ROLE_CODES
+
+QC_DEFAULT_PERMISSION_CODES = {
+    'general_manager': (
+        'qc_dashboard',
+        'qc_workpiece_view',
+        'qc_workpiece_create',
+        'qc_workpiece_edit',
+        'qc_workpiece_delete',
+        'qc_work_order_view',
+        'qc_work_order_create',
+        'qc_work_order_edit',
+        'qc_work_order_delete',
+        'qc_inspection_view',
+        'qc_inspection_perform',
+        'qc_acceptance_perform',
+        'qc_acceptance_rollback',
+    ),
+    'gm_assistant': (
+        'qc_dashboard',
+        'qc_workpiece_view',
+        'qc_workpiece_create',
+        'qc_workpiece_edit',
+        'qc_workpiece_delete',
+        'qc_work_order_view',
+        'qc_work_order_create',
+        'qc_work_order_edit',
+        'qc_work_order_delete',
+        'qc_inspection_view',
+        'qc_inspection_perform',
+        'qc_acceptance_perform',
+        'qc_acceptance_rollback',
+    ),
+    'qc_controller': (
+        'qc_dashboard',
+        'qc_workpiece_view',
+        'qc_workpiece_create',
+        'qc_workpiece_edit',
+        'qc_workpiece_delete',
+        'qc_work_order_view',
+        'qc_work_order_create',
+        'qc_work_order_edit',
+        'qc_work_order_delete',
+        'qc_inspection_view',
+        'qc_acceptance_perform',
+        'qc_acceptance_rollback',
+    ),
+    'qc_inspector': (
+        'qc_dashboard',
+        'qc_inspection_view',
+        'qc_inspection_perform',
+        'qc_acceptance_perform',
+    ),
+}
+
+QC_ROLE_PERMISSION_CODES = {
+    role_code: QC_DEFAULT_PERMISSION_CODES[role_code]
+    for role_code in QC_ROLE_CODES
+}
+
+QC_ROLE_EDITABLE_PERMISSIONS = {
+    role_code: {permission_code: PERMISSIONS[permission_code] for permission_code in permission_codes}
+    for role_code, permission_codes in QC_DEFAULT_PERMISSION_CODES.items()
+}
+
+QC_GUIDE_ATTACHMENT_TYPES = ('inspection_point', 'instruction')
+
+
+def normalize_qc_guide_title(title: str | None, index: int | None = None) -> str:
+    """Normalize legacy detection-point labels into work-instruction labels."""
+    normalized = (title or '').strip().replace('检测点', '作业指导书')
+    if normalized:
+        return normalized
+    if index is not None:
+        return f'作业指导书{index}'
+    return '作业指导书'
 
 
 # ==================== v1.5: 邮箱验证码系统 ====================
@@ -942,10 +1060,19 @@ QC_STATUS_DISPLAY = {
     'qc_pending': {'text': '质控未完成', 'badge': 'bg-secondary'},
     'qc_completed': {'text': '质控已完成', 'badge': 'bg-info'},
     'inspection_pending': {'text': '质检未完成', 'badge': 'bg-warning'},
-    'inspection_completed': {'text': '质检已完成', 'badge': 'bg-primary'},
-    'accepted': {'text': '验收已完成', 'badge': 'bg-success'},
+    'inspection_completed': {'text': '待验收确认', 'badge': 'bg-primary'},
+    'accepted': {'text': '质检已完成', 'badge': 'bg-success'},
     'rejected': {'text': '质检不合格', 'badge': 'bg-danger'},
 }
+
+
+def get_qc_signer_role_display(role_code: str) -> str:
+    """Return the user-facing QC signer role label."""
+    if role_code == 'qc_controller':
+        return '质控人'
+    if role_code == 'qc_inspector':
+        return '供应商'
+    return role_code
 
 
 class QCUserBinding(db.Model):
@@ -969,12 +1096,50 @@ class QCUserBinding(db.Model):
         return f'<QCUserBinding {self.user_id}:{self.role_id}>'
 
 
+class QCWorkpiece(db.Model):
+    """QC 工件库主表。"""
+    __tablename__ = 'qc_workpieces'
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    workpiece_code: Mapped[str] = mapped_column(String(100), unique=True, nullable=False, index=True)
+    workpiece_name: Mapped[str] = mapped_column(String(200), nullable=False, index=True)
+    creator_id: Mapped[int] = mapped_column(ForeignKey('users.id'), nullable=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now, onupdate=datetime.now)
+
+    creator: Mapped['User'] = relationship(foreign_keys=[creator_id])
+    attachments: Mapped[list['QCWorkpieceAttachment']] = relationship(
+        back_populates='workpiece',
+        cascade='all, delete-orphan',
+        order_by='QCWorkpieceAttachment.sort_order'
+    )
+    work_orders: Mapped[list['QCWorkOrder']] = relationship(back_populates='workpiece')
+
+    def __repr__(self):
+        return f'<QCWorkpiece {self.workpiece_code}>'
+
+    @property
+    def drawing_attachment(self) -> 'QCWorkpieceAttachment | None':
+        return next((attachment for attachment in self.attachments if attachment.attach_type == 'drawing'), None)
+
+    @property
+    def guide_attachments(self) -> list['QCWorkpieceAttachment']:
+        guides = [attachment for attachment in self.attachments if attachment.attach_type in QC_GUIDE_ATTACHMENT_TYPES]
+        return sorted(guides, key=lambda attachment: (attachment.sort_order, attachment.id))
+
+    @property
+    def remark_attachments(self) -> list['QCWorkpieceAttachment']:
+        remarks = [attachment for attachment in self.attachments if attachment.attach_type == 'remark']
+        return sorted(remarks, key=lambda attachment: (attachment.sort_order, attachment.id))
+
+
 class QCWorkOrder(db.Model):
     """QC 工件订单主表"""
     __tablename__ = 'qc_work_orders'
     
     id: Mapped[int] = mapped_column(primary_key=True)
     batch_no: Mapped[str] = mapped_column(String(100), unique=True, nullable=False, index=True)
+    workpiece_id: Mapped[int] = mapped_column(ForeignKey('qc_workpieces.id', ondelete='SET NULL'), nullable=True, index=True)
     workpiece_name: Mapped[str] = mapped_column(String(200), nullable=False)
     quantity: Mapped[float] = mapped_column(Float, nullable=False)
     controller_id: Mapped[int] = mapped_column(ForeignKey('users.id'), nullable=False)
@@ -985,9 +1150,19 @@ class QCWorkOrder(db.Model):
     accepted_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
     rejected_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
     rejection_reason: Mapped[str] = mapped_column(Text, nullable=True)
+    drawing_note_file_path: Mapped[str] = mapped_column(String(500), nullable=True)
+    drawing_note_file_type: Mapped[str] = mapped_column(String(50), nullable=True)
+    drawing_note_original_name: Mapped[str] = mapped_column(String(255), nullable=True)
+    guide_certificate_file_path: Mapped[str] = mapped_column(String(500), nullable=True)
+    guide_certificate_file_type: Mapped[str] = mapped_column(String(50), nullable=True)
+    guide_certificate_original_name: Mapped[str] = mapped_column(String(255), nullable=True)
+    remark_note_file_path: Mapped[str] = mapped_column(String(500), nullable=True)
+    remark_note_file_type: Mapped[str] = mapped_column(String(50), nullable=True)
+    remark_note_original_name: Mapped[str] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now, onupdate=datetime.now)
     
+    workpiece: Mapped['QCWorkpiece'] = relationship(back_populates='work_orders')
     controller: Mapped['User'] = relationship(foreign_keys=[controller_id])
     inspector: Mapped['User'] = relationship(foreign_keys=[inspector_id])
     attachments: Mapped[list['QCWorkOrderAttachment']] = relationship(
@@ -1012,38 +1187,216 @@ class QCWorkOrder(db.Model):
     def get_status_display(self) -> dict:
         """获取状态显示信息"""
         return QC_STATUS_DISPLAY.get(self.status, QC_STATUS_DISPLAY['qc_pending'])
+
+    def get_acceptance_status_display(self) -> dict:
+        """Return a user-facing acceptance progress badge."""
+        if self.status == 'accepted':
+            return QC_STATUS_DISPLAY['accepted']
+
+        if self.status == 'inspection_completed':
+            roles_signed = {signature.signer_role for signature in self.signatures}
+            if roles_signed:
+                return {'text': '待另一方确认', 'badge': 'bg-warning'}
+            return QC_STATUS_DISPLAY['inspection_completed']
+
+        return self.get_status_display()
+
+    @property
+    def drawing_attachment(self) -> 'QCWorkOrderAttachment | None':
+        return next((attachment for attachment in self.attachments if attachment.attach_type == 'drawing'), None)
+
+    @property
+    def guide_attachments(self) -> list['QCWorkOrderAttachment']:
+        guides = [attachment for attachment in self.attachments if attachment.attach_type in QC_GUIDE_ATTACHMENT_TYPES]
+        return sorted(guides, key=lambda attachment: (attachment.sort_order, attachment.id))
+
+    @property
+    def remark_attachments(self) -> list['QCWorkOrderAttachment']:
+        remarks = [attachment for attachment in self.attachments if attachment.attach_type == 'remark']
+        return sorted(remarks, key=lambda attachment: (attachment.sort_order, attachment.id))
+
+    @property
+    def non_remark_attachments(self) -> list['QCWorkOrderAttachment']:
+        attachments = [attachment for attachment in self.attachments if attachment.attach_type != 'remark']
+        return sorted(attachments, key=lambda attachment: (attachment.sort_order, attachment.id))
+
+    @property
+    def ordered_attachments(self) -> list['QCWorkOrderAttachment']:
+        """Return attachments in the UI order: drawing, guides, then remarks."""
+        ordered: list['QCWorkOrderAttachment'] = []
+        if self.drawing_attachment:
+            ordered.append(self.drawing_attachment)
+        ordered.extend(self.guide_attachments)
+        ordered.extend(self.remark_attachments)
+
+        remaining = [
+            attachment
+            for attachment in self.attachments
+            if attachment not in ordered
+        ]
+        ordered.extend(sorted(remaining, key=lambda attachment: (attachment.sort_order, attachment.id)))
+        return ordered
+
+    def _build_order_file_url(self, relative_path: str | None) -> str:
+        if not relative_path:
+            return ''
+        return f'/uploads/qc/{self.id}/{relative_path}'
+
+    @staticmethod
+    def _display_filename(original_name: str | None, relative_path: str | None) -> str:
+        if original_name:
+            return original_name
+        if relative_path:
+            return relative_path.split('/')[-1]
+        return ''
+
+    @property
+    def drawing_note_file_url(self) -> str:
+        return self._build_order_file_url(self.drawing_note_file_path)
+
+    @property
+    def drawing_note_filename(self) -> str:
+        return self._display_filename(self.drawing_note_original_name, self.drawing_note_file_path)
+
+    @property
+    def guide_certificate_file_url(self) -> str:
+        return self._build_order_file_url(self.guide_certificate_file_path)
+
+    @property
+    def guide_certificate_filename(self) -> str:
+        return self._display_filename(self.guide_certificate_original_name, self.guide_certificate_file_path)
+
+    @property
+    def remark_note_file_url(self) -> str:
+        return self._build_order_file_url(self.remark_note_file_path)
+
+    @property
+    def remark_note_filename(self) -> str:
+        return self._display_filename(self.remark_note_original_name, self.remark_note_file_path)
     
     def can_be_edited_by(self, user: 'User') -> bool:
         """判断指定用户是否可以编辑此订单"""
         if user.is_superadmin:
             return True
-        if user.role.code == 'qc_controller' and self.controller_id == user.id:
+        if user.role.code in QC_MANAGER_ROLE_CODES and user.has_qc_permission('qc_work_order_edit'):
+            return self.status in ['draft', 'qc_pending', 'rejected']
+        if user.role.code == 'qc_controller' and user.has_qc_permission('qc_work_order_edit') and self.controller_id == user.id:
             return self.status in ['draft', 'qc_pending', 'rejected']
         return False
 
     def can_be_deleted_by(self, user: 'User') -> bool:
         """判断指定用户是否可以删除此订单"""
-        if user.is_superadmin or user.role.code in ['general_manager', 'gm_assistant']:
+        if user.is_superadmin:
             return True
-        if user.role.code == 'qc_controller' and self.controller_id == user.id:
+        if user.role.code in QC_MANAGER_ROLE_CODES and user.has_qc_permission('qc_work_order_delete'):
+            return True
+        if user.role.code == 'qc_controller' and user.has_qc_permission('qc_work_order_delete') and self.controller_id == user.id:
             return True
         return False
     
     def can_be_viewed_by(self, user: 'User') -> bool:
         """判断指定用户是否有权查看此订单"""
         if self.status == 'draft':
-            return user.is_superadmin or self.controller_id == user.id
-        if user.is_superadmin or user.role.code in ['general_manager', 'gm_assistant']:
+            return user.is_superadmin or (
+                user.role.code == 'qc_controller'
+                and self.controller_id == user.id
+                and any(
+                    user.has_qc_permission(permission_code)
+                    for permission_code in (
+                        'qc_work_order_view',
+                        'qc_work_order_create',
+                        'qc_work_order_edit',
+                        'qc_work_order_delete',
+                    )
+                )
+            )
+        if user.is_superadmin:
             return True
+        if user.role.code in QC_MANAGER_ROLE_CODES:
+            return any(
+                user.has_qc_permission(permission_code)
+                for permission_code in (
+                    'qc_work_order_view',
+                    'qc_work_order_create',
+                    'qc_work_order_edit',
+                    'qc_work_order_delete',
+                    'qc_inspection_view',
+                    'qc_inspection_perform',
+                    'qc_acceptance_perform',
+                    'qc_acceptance_rollback',
+                )
+            )
         if user.role.code == 'qc_controller' and self.controller_id == user.id:
-            return True
+            return any(
+                user.has_qc_permission(permission_code)
+                for permission_code in (
+                    'qc_work_order_view',
+                    'qc_work_order_create',
+                    'qc_work_order_edit',
+                    'qc_work_order_delete',
+                    'qc_inspection_view',
+                    'qc_acceptance_perform',
+                    'qc_acceptance_rollback',
+                )
+            )
         if user.role.code == 'qc_inspector' and self.inspector_id == user.id:
-            return True
+            return any(
+                user.has_qc_permission(permission_code)
+                for permission_code in (
+                    'qc_inspection_view',
+                    'qc_inspection_perform',
+                    'qc_acceptance_perform',
+                )
+            )
         return False
 
 
+class QCWorkpieceAttachment(db.Model):
+    """QC 工件库附件表。"""
+    __tablename__ = 'qc_workpiece_attachments'
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    workpiece_id: Mapped[int] = mapped_column(ForeignKey('qc_workpieces.id', ondelete='CASCADE'), nullable=False)
+    attach_type: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
+    title: Mapped[str] = mapped_column(String(255), nullable=True)
+    content: Mapped[str] = mapped_column(Text, nullable=True)
+    file_path: Mapped[str] = mapped_column(String(500), nullable=False)
+    file_type: Mapped[str] = mapped_column(String(50), nullable=True)
+    is_required: Mapped[bool] = mapped_column(default=True)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+
+    workpiece: Mapped['QCWorkpiece'] = relationship(back_populates='attachments')
+
+    @property
+    def file_url(self) -> str:
+        """获取文件访问 URL。"""
+        if not self.file_path:
+            return ''
+        return f'/uploads/qc/workpieces/{self.workpiece_id}/{self.file_path}'
+
+    @property
+    def is_image(self) -> bool:
+        """是否是图片文件。"""
+        if not self.file_type:
+            return False
+        return self.file_type.lower() in ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp']
+
+    @property
+    def display_title(self) -> str:
+        """Return a normalized attachment title."""
+        if self.attach_type == 'drawing':
+            return '图纸'
+        if self.attach_type in QC_GUIDE_ATTACHMENT_TYPES:
+            return normalize_qc_guide_title(self.title, self.sort_order + 1)
+        return self.title or '备注'
+
+    def __repr__(self):
+        return f'<QCWorkpieceAttachment {self.workpiece_id}:{self.attach_type}>'
+
+
 class QCWorkOrderAttachment(db.Model):
-    """QC 工件订单附件表 - 图纸、作业指导书、检测点、备注"""
+    """QC 工件订单附件表 - 图纸、作业指导书、备注"""
     __tablename__ = 'qc_work_order_attachments'
     
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -1066,6 +1419,8 @@ class QCWorkOrderAttachment(db.Model):
     @property
     def file_url(self) -> str:
         """获取文件访问URL"""
+        if not self.file_path:
+            return ''
         return f'/uploads/qc/{self.work_order_id}/{self.file_path}'
     
     @property
@@ -1074,6 +1429,38 @@ class QCWorkOrderAttachment(db.Model):
         if not self.file_type:
             return False
         return self.file_type.lower() in ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp']
+
+    @property
+    def display_title(self) -> str:
+        """Return a normalized attachment title."""
+        if self.attach_type == 'drawing':
+            return '图纸'
+        if self.attach_type in QC_GUIDE_ATTACHMENT_TYPES:
+            return normalize_qc_guide_title(self.title, self.sort_order + 1)
+        return self.title or '备注'
+
+    @property
+    def requires_report(self) -> bool:
+        """Whether the inspection row requires a qualified-report upload."""
+        return self.attach_type in QC_GUIDE_ATTACHMENT_TYPES
+
+    @property
+    def report_label(self) -> str:
+        """Return the report-column label for the inspection page."""
+        if self.attach_type == 'drawing':
+            return '图纸确认函（可选）'
+        if self.attach_type in QC_GUIDE_ATTACHMENT_TYPES:
+            return '合格报告'
+        return ''
+
+    @property
+    def extra_file_label(self) -> str:
+        """Return the label used by section-level supplemental uploads."""
+        if self.attach_type == 'remark':
+            return '批注信息'
+        if self.attach_type in QC_GUIDE_ATTACHMENT_TYPES:
+            return '生产凭证'
+        return '批注信息'
     
     def __repr__(self):
         return f'<QCWorkOrderAttachment {self.work_order_id}:{self.attach_type}>'
@@ -1087,8 +1474,11 @@ class QCInspectionRecord(db.Model):
     work_order_id: Mapped[int] = mapped_column(ForeignKey('qc_work_orders.id', ondelete='CASCADE'), nullable=False)
     inspector_id: Mapped[int] = mapped_column(ForeignKey('users.id'), nullable=False)
     attachment_id: Mapped[int] = mapped_column(ForeignKey('qc_work_order_attachments.id'), nullable=False)
-    result: Mapped[str] = mapped_column(String(20), nullable=False)
+    result: Mapped[str] = mapped_column(String(20), nullable=False, default='draft')
     remark: Mapped[str] = mapped_column(Text, nullable=True)
+    report_file_path: Mapped[str] = mapped_column(String(500), nullable=True)
+    report_file_type: Mapped[str] = mapped_column(String(50), nullable=True)
+    report_original_name: Mapped[str] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now, onupdate=datetime.now)
     
@@ -1107,6 +1497,28 @@ class QCInspectionRecord(db.Model):
     def is_fail(self) -> bool:
         return self.result == 'fail'
 
+    @property
+    def is_draft(self) -> bool:
+        return self.result == 'draft'
+
+    @property
+    def has_report(self) -> bool:
+        return bool(self.report_file_path)
+
+    @property
+    def report_filename(self) -> str:
+        if self.report_original_name:
+            return self.report_original_name
+        if self.report_file_path:
+            return self.report_file_path.split('/')[-1]
+        return ''
+
+    @property
+    def report_url(self) -> str:
+        if not self.report_file_path:
+            return ''
+        return f'/uploads/qc/{self.work_order_id}/{self.report_file_path}'
+
 
 class QCAcceptanceSignature(db.Model):
     """QC 验收签字记录表"""
@@ -1121,5 +1533,9 @@ class QCAcceptanceSignature(db.Model):
     work_order: Mapped['QCWorkOrder'] = relationship(back_populates='signatures')
     signer: Mapped['User'] = relationship(foreign_keys=[signer_id])
     
+    @property
+    def signer_role_display(self) -> str:
+        return get_qc_signer_role_display(self.signer_role)
+
     def __repr__(self):
         return f'<QCAcceptanceSignature {self.work_order_id}:{self.signer_role}>'

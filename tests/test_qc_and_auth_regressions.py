@@ -4,13 +4,30 @@ from __future__ import annotations
 
 import io
 import json
+from pathlib import Path
 import pytest
+from werkzeug.datastructures import FileStorage
 from werkzeug.security import generate_password_hash
 
 from app import db
-from app.models import Department, QCUserBinding, QCWorkOrder, QCWorkOrderAttachment, Role, User
+from app.models import (
+    Department,
+    QCInspectionRecord,
+    QCUserBinding,
+    QCWorkOrder,
+    QCWorkOrderAttachment,
+    QCWorkpiece,
+    QCWorkpieceAttachment,
+    Role,
+    User,
+)
 from app.services.auth_service import AuthService
 from app.services.qc_service import QCService
+
+
+def _report_file(name: str = "report.png") -> FileStorage:
+    """Create an in-memory qualified-report upload."""
+    return FileStorage(stream=io.BytesIO(b"report-bytes"), filename=name, content_type="image/png")
 
 
 def _seed_qc_users() -> tuple[int, int, int]:
@@ -25,10 +42,15 @@ def _seed_qc_users() -> tuple[int, int, int]:
         permissions=json.dumps(
             [
                 "qc_dashboard",
+                "qc_workpiece_view",
+                "qc_workpiece_create",
+                "qc_workpiece_edit",
+                "qc_workpiece_delete",
                 "qc_work_order_view",
                 "qc_work_order_create",
                 "qc_work_order_edit",
                 "qc_work_order_delete",
+                "qc_inspection_view",
                 "qc_acceptance_perform",
                 "qc_acceptance_rollback",
             ]
@@ -41,8 +63,9 @@ def _seed_qc_users() -> tuple[int, int, int]:
         permissions=json.dumps(
             [
                 "qc_dashboard",
-                "qc_work_order_view",
+                "qc_inspection_view",
                 "qc_inspection_perform",
+                "qc_acceptance_perform",
             ]
         ),
         level=45,
@@ -185,14 +208,13 @@ def test_quality_control_edit_updates_attachments(app, client, login, monkeypatc
         instruction = QCWorkOrderAttachment.query.filter_by(
             work_order_id=order_id, attach_type="instruction"
         ).first()
-        assert instruction is not None
-        assert instruction.file_path == "instructions/updated_new_instruction.png"
+        assert instruction is None
 
         inspection_point = QCWorkOrderAttachment.query.filter_by(
             work_order_id=order_id, attach_type="inspection_point"
         ).first()
         assert inspection_point is not None
-        assert inspection_point.title == "新检测点"
+        assert inspection_point.title == "新作业指导书"
         assert inspection_point.content == "新检测说明"
         assert inspection_point.file_path == "inspection_points/updated_new_point.png"
 
@@ -328,8 +350,8 @@ def test_quality_control_new_handles_sparse_dynamic_indexes(app, client, login, 
             work_order_id=order.id, attach_type="inspection_point"
         ).order_by(QCWorkOrderAttachment.sort_order.asc()).all()
         assert len(points) == 2
-        assert points[0].title == "检测点A"
-        assert points[1].title == "检测点B"
+        assert points[0].title == "作业指导书A"
+        assert points[1].title == "作业指导书B"
 
         remarks = QCWorkOrderAttachment.query.filter_by(
             work_order_id=order.id, attach_type="remark"
@@ -427,6 +449,7 @@ def test_rejected_records_remain_after_controller_resubmit(app):
                     "attachment_id": att.id,
                     "result": "fail" if att.attach_type == "inspection_point" else "pass",
                     "remark": "failed point" if att.attach_type == "inspection_point" else "",
+                    "report_file": _report_file(f"rejected_{att.id}.png"),
                 }
             )
         QCService.submit_inspection(order.id, results, inspector)
@@ -449,13 +472,13 @@ def test_qc_managers_are_read_only_for_qc_work_orders(app):
         general_manager_role = Role(
             name="General Manager",
             code="general_manager",
-            permissions='["contract_view"]',
+            permissions='["qc_work_order_view"]',
             level=90,
         )
         gm_assistant_role = Role(
             name="GM Assistant",
             code="gm_assistant",
-            permissions='["contract_view"]',
+            permissions='["qc_work_order_view"]',
             level=80,
         )
         qc_controller_role = Role(
@@ -517,10 +540,10 @@ def test_qc_managers_are_read_only_for_qc_work_orders(app):
         assert QCService.can_edit_work_order(gm_assistant, order) is False
         assert order.can_be_viewed_by(gm_assistant) is True
         assert order.can_be_edited_by(gm_assistant) is False
-        assert QCService.can_delete_work_order(general_manager, order) is True
-        assert QCService.can_delete_work_order(gm_assistant, order) is True
-        assert order.can_be_deleted_by(general_manager) is True
-        assert order.can_be_deleted_by(gm_assistant) is True
+        assert QCService.can_delete_work_order(general_manager, order) is False
+        assert QCService.can_delete_work_order(gm_assistant, order) is False
+        assert order.can_be_deleted_by(general_manager) is False
+        assert order.can_be_deleted_by(gm_assistant) is False
 
 
 def test_qc_delete_permissions_match_role_rules(app):
@@ -531,9 +554,9 @@ def test_qc_delete_permissions_match_role_rules(app):
         db.session.flush()
 
         super_role = Role(name="Super", code="superadmin", permissions="[]", level=999)
-        gm_role = Role(name="GM", code="general_manager", permissions='["contract_view"]', level=90)
-        assistant_role = Role(name="Assistant", code="gm_assistant", permissions='["contract_view"]', level=80)
-        controller_role = Role(name="Controller", code="qc_controller", permissions='["qc_work_order_create"]', level=55)
+        gm_role = Role(name="GM", code="general_manager", permissions='["qc_work_order_view","qc_work_order_delete"]', level=90)
+        assistant_role = Role(name="Assistant", code="gm_assistant", permissions='["qc_work_order_view","qc_work_order_delete"]', level=80)
+        controller_role = Role(name="Controller", code="qc_controller", permissions='["qc_work_order_create","qc_work_order_delete"]', level=55)
         inspector_role = Role(name="Inspector", code="qc_inspector", permissions='["qc_inspection_perform"]', level=45)
         db.session.add_all([super_role, gm_role, assistant_role, controller_role, inspector_role])
         db.session.flush()
@@ -622,8 +645,8 @@ def test_qc_delete_route_honors_role_permissions(app, client, login):
         db.session.add(dept)
         db.session.flush()
 
-        gm_role = Role(name="GM", code="general_manager", permissions='["contract_view"]', level=90)
-        controller_role = Role(name="Controller", code="qc_controller", permissions='["qc_work_order_create"]', level=55)
+        gm_role = Role(name="GM", code="general_manager", permissions='["qc_work_order_view","qc_work_order_delete"]', level=90)
+        controller_role = Role(name="Controller", code="qc_controller", permissions='["qc_work_order_create","qc_work_order_delete"]', level=55)
         inspector_role = Role(name="Inspector", code="qc_inspector", permissions='["qc_inspection_perform"]', level=45)
         db.session.add_all([gm_role, controller_role, inspector_role])
         db.session.flush()
@@ -704,7 +727,7 @@ def test_gm_assistant_dashboard_links_to_qc_order_list_and_detail(app, client, l
         gm_assistant_role = Role(
             name="GM Assistant",
             code="gm_assistant",
-            permissions='["contract_view"]',
+            permissions='["qc_work_order_view"]',
             level=80,
         )
         qc_controller_role = Role(
@@ -882,8 +905,8 @@ def test_qc_detail_pages_handle_empty_inspection_records(app, client, login):
     assert acceptance_print.status_code == 200
 
 
-def test_qc_only_user_hidden_from_erp_list_and_can_upgrade_to_erp(app, client, login):
-    """QC-only users are hidden from ERP list and can be re-registered as ERP users."""
+def test_qc_only_user_hidden_from_erp_list_and_cannot_register_into_erp(app, client, login):
+    """QC-only users are hidden from ERP list and cannot be re-registered into ERP."""
     with app.app_context():
         dept = Department(name="ERP")
         db.session.add(dept)
@@ -949,13 +972,9 @@ def test_qc_only_user_hidden_from_erp_list_and_can_upgrade_to_erp(app, client, l
             email="erp_version@example.com",
             phone="13800000000",
         )
-        assert error is None
-        assert user is not None
-        assert user.role.code == "sales_manager"
-        assert user.real_name == "ERP Version"
-        assert user.email == "erp_version@example.com"
-        assert user.is_active is False
-        assert user.require_password_change is True
+        assert user is None
+        assert error is not None
+        assert "QC" in error
 
 
 def test_complete_quality_control_requires_active_qc_inspector(app):
@@ -1042,7 +1061,7 @@ def test_complete_quality_control_requires_active_qc_inspector(app):
         controller = User.query.get(controller_id)
         valid_inspector = User.query.get(inspector_id)
 
-        with pytest.raises(ValueError, match="质量检测员角色"):
+        with pytest.raises(ValueError, match="供应商角色"):
             QCService.complete_quality_control(order.id, wrong_role_user.id, controller)
 
         with pytest.raises(ValueError, match="已激活"):
@@ -1110,25 +1129,25 @@ def test_submit_inspection_requires_full_and_unique_results(app):
         attachments = QCWorkOrderAttachment.query.filter_by(work_order_id=order.id).all()
 
         partial_results = [
-            {"attachment_id": attachments[0].id, "result": "pass", "remark": ""},
-            {"attachment_id": attachments[1].id, "result": "pass", "remark": ""},
+            {"attachment_id": attachments[0].id, "result": "pass", "remark": "", "report_file": _report_file("partial_0.png")},
+            {"attachment_id": attachments[1].id, "result": "pass", "remark": "", "report_file": _report_file("partial_1.png")},
         ]
-        with pytest.raises(ValueError, match="完成所有附件"):
+        with pytest.raises(ValueError, match="完成所有项目"):
             QCService.submit_inspection(order.id, partial_results, inspector)
 
         duplicate_results = [
-            {"attachment_id": attachments[0].id, "result": "pass", "remark": ""},
-            {"attachment_id": attachments[1].id, "result": "pass", "remark": ""},
-            {"attachment_id": attachments[1].id, "result": "fail", "remark": "dup"},
-            {"attachment_id": attachments[2].id, "result": "pass", "remark": ""},
+            {"attachment_id": attachments[0].id, "result": "pass", "remark": "", "report_file": _report_file("dup_0.png")},
+            {"attachment_id": attachments[1].id, "result": "pass", "remark": "", "report_file": _report_file("dup_1.png")},
+            {"attachment_id": attachments[1].id, "result": "fail", "remark": "dup", "report_file": _report_file("dup_2.png")},
+            {"attachment_id": attachments[2].id, "result": "pass", "remark": "", "report_file": _report_file("dup_3.png")},
         ]
         with pytest.raises(ValueError, match="重复"):
             QCService.submit_inspection(order.id, duplicate_results, inspector)
 
         valid_results = [
-            {"attachment_id": attachments[0].id, "result": "pass", "remark": ""},
-            {"attachment_id": attachments[1].id, "result": "pass", "remark": ""},
-            {"attachment_id": attachments[2].id, "result": "pass", "remark": ""},
+            {"attachment_id": attachments[0].id, "result": "pass", "remark": "", "report_file": _report_file("valid_0.png")},
+            {"attachment_id": attachments[1].id, "result": "pass", "remark": "", "report_file": _report_file("valid_1.png")},
+            {"attachment_id": attachments[2].id, "result": "pass", "remark": "", "report_file": _report_file("valid_2.png")},
         ]
         updated = QCService.submit_inspection(order.id, valid_results, inspector)
         assert updated.status == "inspection_completed"
@@ -1402,13 +1421,13 @@ def test_qc_manager_navigation_and_admin_visibility(app, client, login):
         gm_role = Role(
             name="General Manager",
             code="general_manager",
-            permissions='["contract_view"]',
+            permissions='["qc_work_order_view","qc_inspection_view","qc_acceptance_perform"]',
             level=90,
         )
         gm_assistant_role = Role(
             name="GM Assistant",
             code="gm_assistant",
-            permissions='["contract_view"]',
+            permissions='["qc_work_order_view","qc_inspection_view","qc_acceptance_perform"]',
             level=80,
         )
         db.session.add_all([gm_role, gm_assistant_role])
@@ -1536,10 +1555,12 @@ def test_inspection_pass_redirects_to_acceptance_with_empty_remarks(app, client,
     for attachment_id in attachment_ids:
         payload[f"result_{attachment_id}"] = "pass"
         payload[f"remark_{attachment_id}"] = ""
+        payload[f"report_file_{attachment_id}"] = (io.BytesIO(b"report"), f"report_{attachment_id}.png")
 
     response = client.post(
         f"/qc/quality-inspection/{order_id}",
         data=payload,
+        content_type="multipart/form-data",
         follow_redirects=False,
     )
     assert response.status_code == 302
@@ -1612,10 +1633,12 @@ def test_inspection_fail_redirects_cleanly_and_returns_workflow(app, client, log
     for idx, attachment in enumerate(attachments):
         payload[f"result_{attachment.id}"] = "fail" if idx == 0 else "pass"
         payload[f"remark_{attachment.id}"] = ""
+        payload[f"report_file_{attachment.id}"] = (io.BytesIO(b"report"), f"report_{attachment.id}.png")
 
     response = client.post(
         f"/qc/quality-inspection/{order_id}",
         data=payload,
+        content_type="multipart/form-data",
         follow_redirects=False,
     )
     assert response.status_code == 302
@@ -1727,14 +1750,15 @@ def test_rejected_qc_detail_highlights_failed_items(app, client, login):
         QCService.submit_inspection(
             order.id,
             [
-                {"attachment_id": drawing.id, "result": "pass", "remark": ""},
-                {"attachment_id": point.id, "result": "fail", "remark": "尺寸不符合要求"},
+                {"attachment_id": drawing.id, "result": "pass", "remark": "", "report_file": _report_file("drawing.png")},
+                {"attachment_id": point.id, "result": "fail", "remark": "尺寸不符合要求", "report_file": _report_file("point.png")},
                 {
                     "attachment_id": QCWorkOrderAttachment.query.filter_by(
                         work_order_id=order.id, attach_type="instruction"
                     ).first().id,
                     "result": "pass",
                     "remark": "",
+                    "report_file": _report_file("instruction.png"),
                 },
             ],
             inspector,
@@ -1749,6 +1773,619 @@ def test_rejected_qc_detail_highlights_failed_items(app, client, login):
     assert "尺寸不符合要求" in text
     assert "Fail Point" in text
 
+
+def test_workpiece_library_snapshot_populates_new_work_order(app, client, login, monkeypatch):
+    """Selecting a workpiece should clone its snapshot into the new work order."""
+    with app.app_context():
+        controller_id, inspector_id, _ = _seed_qc_users()
+        controller = User.query.get(controller_id)
+
+        workpiece = QCWorkpiece(
+            workpiece_code="WP-001",
+            workpiece_name="快照工件",
+            creator_id=controller.id,
+        )
+        db.session.add(workpiece)
+        db.session.flush()
+        db.session.add_all(
+            [
+                QCWorkpieceAttachment(
+                    workpiece_id=workpiece.id,
+                    attach_type="drawing",
+                    title="图纸",
+                    content="",
+                    file_path="drawings/workpiece_drawing.png",
+                    file_type="png",
+                    is_required=True,
+                    sort_order=0,
+                ),
+                QCWorkpieceAttachment(
+                    workpiece_id=workpiece.id,
+                    attach_type="inspection_point",
+                    title="作业指导书1",
+                    content="指导说明",
+                    file_path="inspection_points/workpiece_guide.png",
+                    file_type="png",
+                    is_required=True,
+                    sort_order=0,
+                ),
+                QCWorkpieceAttachment(
+                    workpiece_id=workpiece.id,
+                    attach_type="remark",
+                    title=None,
+                    content="工件备注",
+                    file_path="remarks/workpiece_remark.png",
+                    file_type="png",
+                    is_required=False,
+                    sort_order=0,
+                ),
+            ]
+        )
+        db.session.commit()
+        workpiece_id = workpiece.id
+
+    login(controller_id)
+    monkeypatch.setattr(
+        QCService,
+        "_copy_workpiece_file_to_order",
+        lambda workpiece_id, work_order_id, relative_path, attach_type: (
+            f"{QCService._ATTACH_SUBFOLDER_MAP.get(attach_type, 'others')}/copied_{relative_path.split('/')[-1]}",
+            "png",
+        ),
+    )
+
+    response = client.post(
+        "/qc/quality-control/new",
+        data={
+            "submit_action": "draft",
+            "batch_no": "BATCH-WP-001",
+            "workpiece_id": str(workpiece_id),
+            "quantity": "12",
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 302
+    assert "/qc/quality-control/" in response.headers.get("Location", "")
+
+    with app.app_context():
+        order = QCWorkOrder.query.filter_by(batch_no="BATCH-WP-001").first()
+        assert order is not None
+        assert order.workpiece_id == workpiece_id
+        assert order.workpiece_name == "快照工件"
+
+        attachments = QCWorkOrderAttachment.query.filter_by(work_order_id=order.id).all()
+        assert {attachment.attach_type for attachment in attachments} == {"drawing", "inspection_point", "remark"}
+        guide = next(attachment for attachment in attachments if attachment.attach_type == "inspection_point")
+        assert guide.title == "作业指导书1"
+        assert guide.content == "指导说明"
+        assert guide.file_path == "inspection_points/copied_workpiece_guide.png"
+
+
+def test_qc_upload_route_serves_workpiece_files(app, client):
+    """Uploaded QC files should be reachable through the /uploads route."""
+    relative_path = Path("qc/workpieces/999/drawings/route-test.png")
+    target_path = Path(app.static_folder) / "uploads" / relative_path
+    target_path.parent.mkdir(parents=True, exist_ok=True)
+    target_path.write_bytes(b"route-test-bytes")
+
+    try:
+        response = client.get(f"/uploads/{relative_path.as_posix()}")
+        assert response.status_code == 200
+        assert response.data == b"route-test-bytes"
+    finally:
+        try:
+            response.close()
+        except UnboundLocalError:
+            pass
+        if target_path.exists():
+            try:
+                target_path.unlink()
+            except PermissionError:
+                pass
+
+
+def test_new_work_order_persists_section_upload_files(app, client, login, monkeypatch):
+    """Creating a work order should persist drawing/guide/remark supplemental files."""
+    with app.app_context():
+        controller_id, _, _ = _seed_qc_users()
+        controller = User.query.get(controller_id)
+
+        workpiece = QCWorkpiece(
+            workpiece_code="WP-EXTRA-001",
+            workpiece_name="With Extras",
+            creator_id=controller.id,
+        )
+        db.session.add(workpiece)
+        db.session.flush()
+        db.session.add_all(
+            [
+                QCWorkpieceAttachment(
+                    workpiece_id=workpiece.id,
+                    attach_type="drawing",
+                    title="图纸",
+                    content="",
+                    file_path="drawings/workpiece_drawing.png",
+                    file_type="png",
+                    is_required=True,
+                    sort_order=0,
+                ),
+                QCWorkpieceAttachment(
+                    workpiece_id=workpiece.id,
+                    attach_type="inspection_point",
+                    title="作业指导书1",
+                    content="Guide text",
+                    file_path="inspection_points/workpiece_guide.png",
+                    file_type="png",
+                    is_required=True,
+                    sort_order=0,
+                ),
+            ]
+        )
+        db.session.commit()
+        workpiece_id = workpiece.id
+
+    login(controller_id)
+    monkeypatch.setattr(
+        QCService,
+        "_copy_workpiece_file_to_order",
+        lambda workpiece_id, work_order_id, relative_path, attach_type: (
+            f"{QCService._ATTACH_SUBFOLDER_MAP.get(attach_type, 'others')}/copied_{relative_path.split('/')[-1]}",
+            "png",
+        ),
+    )
+    monkeypatch.setattr(
+        QCService,
+        "_save_uploaded_file",
+        lambda file, work_order_id, subfolder: f"{subfolder}/saved_{file.filename}",
+    )
+
+    response = client.post(
+        "/qc/quality-control/new",
+        data={
+            "submit_action": "draft",
+            "batch_no": "BATCH-EXTRA-001",
+            "workpiece_id": str(workpiece_id),
+            "quantity": "5",
+            "drawing_note_file": (io.BytesIO(b"drawing-note"), "drawing-note.png"),
+            "guide_certificate_file": (io.BytesIO(b"guide-proof"), "guide-proof.pdf"),
+            "remark_note_file": (io.BytesIO(b"remark-note"), "remark-note.jpg"),
+        },
+        content_type="multipart/form-data",
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 302
+
+    with app.app_context():
+        order = QCWorkOrder.query.filter_by(batch_no="BATCH-EXTRA-001").first()
+        assert order is not None
+        assert order.drawing_note_file_path == "drawing_notes/saved_drawing-note.png"
+        assert order.guide_certificate_file_path == "guide_certificates/saved_guide-proof.pdf"
+        assert order.remark_note_file_path == "remark_notes/saved_remark-note.jpg"
+        assert order.drawing_note_original_name == "drawing-note.png"
+        assert order.guide_certificate_original_name == "guide-proof.pdf"
+        assert order.remark_note_original_name == "remark-note.jpg"
+
+
+def test_inspection_page_orders_guides_before_remarks(app, client, login):
+    """Inspection page should always render all guides before the remark block."""
+    with app.app_context():
+        controller_id, inspector_id, _ = _seed_qc_users()
+
+        order = QCWorkOrder(
+            batch_no="BATCH-ORDERING-001",
+            workpiece_name="Ordering",
+            quantity=3,
+            controller_id=controller_id,
+            inspector_id=inspector_id,
+            status="qc_completed",
+        )
+        db.session.add(order)
+        db.session.flush()
+        db.session.add_all(
+            [
+                QCWorkOrderAttachment(
+                    work_order_id=order.id,
+                    attach_type="drawing",
+                    title="Drawing",
+                    content="",
+                    file_path="drawings/drawing.png",
+                    file_type="png",
+                    is_required=True,
+                    sort_order=0,
+                ),
+                QCWorkOrderAttachment(
+                    work_order_id=order.id,
+                    attach_type="inspection_point",
+                    title="Guide Alpha",
+                    content="First guide",
+                    file_path="inspection_points/guide-a.png",
+                    file_type="png",
+                    is_required=True,
+                    sort_order=0,
+                ),
+                QCWorkOrderAttachment(
+                    work_order_id=order.id,
+                    attach_type="remark",
+                    title=None,
+                    content="Remark anchor",
+                    file_path="remarks/remark.png",
+                    file_type="png",
+                    is_required=False,
+                    sort_order=0,
+                ),
+                QCWorkOrderAttachment(
+                    work_order_id=order.id,
+                    attach_type="inspection_point",
+                    title="Guide Beta",
+                    content="Second guide",
+                    file_path="inspection_points/guide-b.png",
+                    file_type="png",
+                    is_required=True,
+                    sort_order=1,
+                ),
+            ]
+        )
+        db.session.commit()
+        order_id = order.id
+
+    login(inspector_id)
+    response = client.get(f"/qc/quality-inspection/{order_id}", follow_redirects=False)
+    assert response.status_code == 200
+    text = response.get_data(as_text=True)
+    assert text.find("Guide Alpha") < text.find("Guide Beta")
+    assert text.find("Guide Beta") < text.find("Remark anchor")
+
+
+def test_acceptance_page_shows_section_upload_files(app, client, login):
+    """Acceptance page should show the new section-level supplemental file names."""
+    with app.app_context():
+        controller_id, inspector_id, _ = _seed_qc_users()
+
+        order = QCWorkOrder(
+            batch_no="BATCH-ACCEPT-EXTRA",
+            workpiece_name="Acceptance Extras",
+            quantity=4,
+            controller_id=controller_id,
+            inspector_id=inspector_id,
+            status="inspection_completed",
+            drawing_note_file_path="drawing_notes/drawing-note.png",
+            drawing_note_original_name="drawing-note.png",
+            guide_certificate_file_path="guide_certificates/guide-proof.pdf",
+            guide_certificate_original_name="guide-proof.pdf",
+            remark_note_file_path="remark_notes/remark-note.jpg",
+            remark_note_original_name="remark-note.jpg",
+        )
+        db.session.add(order)
+        db.session.flush()
+        db.session.add(
+            QCWorkOrderAttachment(
+                work_order_id=order.id,
+                attach_type="drawing",
+                title="Drawing",
+                content="",
+                file_path="drawings/drawing.png",
+                file_type="png",
+                is_required=True,
+                sort_order=0,
+            )
+        )
+        db.session.commit()
+        order_id = order.id
+
+    login(controller_id)
+    response = client.get(f"/qc/acceptance/{order_id}", follow_redirects=False)
+    assert response.status_code == 200
+    text = response.get_data(as_text=True)
+    assert "drawing-note.png" in text
+    assert "guide-proof.pdf" in text
+    assert "remark-note.jpg" in text
+
+
+def test_quality_control_detail_shows_section_upload_files(app, client, login):
+    """QC work-order detail page should show the three supplemental file entries."""
+    with app.app_context():
+        controller_id, inspector_id, _ = _seed_qc_users()
+
+        order = QCWorkOrder(
+            batch_no="BATCH-DETAIL-EXTRA",
+            workpiece_name="Detail Extras",
+            quantity=4,
+            controller_id=controller_id,
+            inspector_id=inspector_id,
+            status="qc_pending",
+            drawing_note_file_path="drawing_notes/drawing-note.png",
+            drawing_note_original_name="drawing-note.png",
+            guide_certificate_file_path="guide_certificates/guide-proof.pdf",
+            guide_certificate_original_name="guide-proof.pdf",
+            remark_note_file_path="remark_notes/remark-note.jpg",
+            remark_note_original_name="remark-note.jpg",
+        )
+        db.session.add(order)
+        db.session.flush()
+        db.session.add_all(
+            [
+                QCWorkOrderAttachment(
+                    work_order_id=order.id,
+                    attach_type="drawing",
+                    title="Drawing",
+                    content="",
+                    file_path="drawings/drawing.png",
+                    file_type="png",
+                    is_required=True,
+                    sort_order=0,
+                ),
+                QCWorkOrderAttachment(
+                    work_order_id=order.id,
+                    attach_type="inspection_point",
+                    title="Guide 1",
+                    content="Guide content",
+                    file_path="inspection_points/guide.png",
+                    file_type="png",
+                    is_required=True,
+                    sort_order=0,
+                ),
+                QCWorkOrderAttachment(
+                    work_order_id=order.id,
+                    attach_type="remark",
+                    title=None,
+                    content="Remark content",
+                    file_path="remarks/remark.png",
+                    file_type="png",
+                    is_required=False,
+                    sort_order=0,
+                ),
+            ]
+        )
+        db.session.commit()
+        order_id = order.id
+
+    login(controller_id)
+    response = client.get(f"/qc/quality-control/{order_id}", follow_redirects=False)
+    assert response.status_code == 200
+    text = response.get_data(as_text=True)
+    assert "drawing-note.png" in text
+    assert "guide-proof.pdf" in text
+    assert "remark-note.jpg" in text
+
+
+def test_inspection_page_shows_upload_section_titles(app, client, login):
+    """Inspection page should show the upload-section titles for drawing, guide, and remark."""
+    with app.app_context():
+        controller_id, inspector_id, _ = _seed_qc_users()
+
+        order = QCWorkOrder(
+            batch_no="BATCH-UPLOAD-TITLES",
+            workpiece_name="Upload Titles",
+            quantity=2,
+            controller_id=controller_id,
+            inspector_id=inspector_id,
+            status="qc_completed",
+        )
+        db.session.add(order)
+        db.session.flush()
+        db.session.add_all(
+            [
+                QCWorkOrderAttachment(
+                    work_order_id=order.id,
+                    attach_type="drawing",
+                    title="Drawing",
+                    content="",
+                    file_path="drawings/drawing.png",
+                    file_type="png",
+                    is_required=True,
+                    sort_order=0,
+                ),
+                QCWorkOrderAttachment(
+                    work_order_id=order.id,
+                    attach_type="inspection_point",
+                    title="Guide 1",
+                    content="Guide content",
+                    file_path="inspection_points/guide.png",
+                    file_type="png",
+                    is_required=True,
+                    sort_order=1,
+                ),
+                QCWorkOrderAttachment(
+                    work_order_id=order.id,
+                    attach_type="remark",
+                    title=None,
+                    content="Remark content",
+                    file_path="remarks/remark.png",
+                    file_type="png",
+                    is_required=False,
+                    sort_order=2,
+                ),
+            ]
+        )
+        db.session.commit()
+        order_id = order.id
+
+    login(inspector_id)
+    response = client.get(f"/qc/quality-inspection/{order_id}", follow_redirects=False)
+    assert response.status_code == 200
+    text = response.get_data(as_text=True)
+    assert "图纸确认函（可选）" in text
+    assert "合格报告" in text
+    assert "附加文件" in text
+
+
+def test_inspection_draft_saves_report_and_final_submit_requires_non_remark_reports(app, monkeypatch):
+    """Inspection draft should persist reports, and final submit should require them for non-remark items."""
+    with app.app_context():
+        controller_id, inspector_id, _ = _seed_qc_users()
+        controller = User.query.get(controller_id)
+        inspector = User.query.get(inspector_id)
+
+        order = QCWorkOrder(
+            batch_no="BATCH-DRAFT-REPORT",
+            workpiece_name="Draft Report",
+            quantity=2,
+            controller_id=controller_id,
+            status="qc_pending",
+        )
+        db.session.add(order)
+        db.session.flush()
+        db.session.add_all(
+            [
+                QCWorkOrderAttachment(
+                    work_order_id=order.id,
+                    attach_type="drawing",
+                    title="Drawing",
+                    content="",
+                    file_path="drawings/d.png",
+                    file_type="png",
+                    is_required=True,
+                    sort_order=0,
+                ),
+                QCWorkOrderAttachment(
+                    work_order_id=order.id,
+                    attach_type="inspection_point",
+                    title="Guide 1",
+                    content="Guide content",
+                    file_path="inspection_points/g.png",
+                    file_type="png",
+                    is_required=True,
+                    sort_order=1,
+                ),
+                QCWorkOrderAttachment(
+                    work_order_id=order.id,
+                    attach_type="remark",
+                    title=None,
+                    content="可选备注",
+                    file_path="",
+                    file_type="",
+                    is_required=False,
+                    sort_order=2,
+                ),
+            ]
+        )
+        db.session.commit()
+
+        QCService.complete_quality_control(order.id, inspector_id, controller)
+        drawing = QCWorkOrderAttachment.query.filter_by(work_order_id=order.id, attach_type="drawing").first()
+        guide = QCWorkOrderAttachment.query.filter_by(
+            work_order_id=order.id, attach_type="inspection_point"
+        ).first()
+        remark = QCWorkOrderAttachment.query.filter_by(work_order_id=order.id, attach_type="remark").first()
+
+        monkeypatch.setattr(
+            QCService,
+            "_save_uploaded_file",
+            lambda file, work_order_id, subfolder: f"{subfolder}/saved_{file.filename}",
+        )
+
+        draft_order = QCService.submit_inspection(
+            order.id,
+            [
+                {
+                    "attachment_id": drawing.id,
+                    "result": "pass",
+                    "remark": "先存草稿",
+                    "report_file": _report_file("draft_report.png"),
+                }
+            ],
+            inspector,
+            final_submit=False,
+        )
+        assert draft_order.status == "inspection_pending"
+
+        record = QCInspectionRecord.query.filter_by(work_order_id=order.id, attachment_id=drawing.id).first()
+        assert record is not None
+        assert record.report_file_path == "reports/saved_draft_report.png"
+
+        with pytest.raises(ValueError, match="必须上传合格报告"):
+            QCService.submit_inspection(
+                order.id,
+                [
+                    {"attachment_id": drawing.id, "result": "pass", "remark": "", "report_file": None},
+                    {"attachment_id": guide.id, "result": "pass", "remark": "", "report_file": None},
+                    {"attachment_id": remark.id, "result": "pass", "remark": ""},
+                ],
+                inspector,
+            )
+
+
+def test_final_inspection_allows_drawing_without_confirmation_file(app, monkeypatch):
+    """Drawing confirmation file should be optional on final inspection submit."""
+    with app.app_context():
+        controller_id, inspector_id, _ = _seed_qc_users()
+        controller = User.query.get(controller_id)
+        inspector = User.query.get(inspector_id)
+
+        order = QCWorkOrder(
+            batch_no="BATCH-DRAWING-OPTIONAL",
+            workpiece_name="Drawing Optional",
+            quantity=2,
+            controller_id=controller_id,
+            status="qc_pending",
+        )
+        db.session.add(order)
+        db.session.flush()
+        db.session.add_all(
+            [
+                QCWorkOrderAttachment(
+                    work_order_id=order.id,
+                    attach_type="drawing",
+                    title="Drawing",
+                    content="",
+                    file_path="drawings/d.png",
+                    file_type="png",
+                    is_required=True,
+                    sort_order=0,
+                ),
+                QCWorkOrderAttachment(
+                    work_order_id=order.id,
+                    attach_type="inspection_point",
+                    title="Guide 1",
+                    content="Guide content",
+                    file_path="inspection_points/g.png",
+                    file_type="png",
+                    is_required=True,
+                    sort_order=1,
+                ),
+            ]
+        )
+        db.session.commit()
+
+        QCService.complete_quality_control(order.id, inspector_id, controller)
+        drawing = QCWorkOrderAttachment.query.filter_by(work_order_id=order.id, attach_type="drawing").first()
+        guide = QCWorkOrderAttachment.query.filter_by(work_order_id=order.id, attach_type="inspection_point").first()
+
+        monkeypatch.setattr(
+            QCService,
+            "_save_uploaded_file",
+            lambda file, work_order_id, subfolder: f"{subfolder}/saved_{file.filename}",
+        )
+
+        submitted = QCService.submit_inspection(
+            order.id,
+            [
+                {"attachment_id": drawing.id, "result": "pass", "remark": "", "report_file": None},
+                {
+                    "attachment_id": guide.id,
+                    "result": "pass",
+                    "remark": "",
+                    "report_file": _report_file("guide-report.png"),
+                },
+            ],
+            inspector,
+        )
+
+        assert submitted.status == "inspection_completed"
+        drawing_record = QCInspectionRecord.query.filter_by(
+            work_order_id=order.id,
+            attachment_id=drawing.id,
+        ).first()
+        guide_record = QCInspectionRecord.query.filter_by(
+            work_order_id=order.id,
+            attachment_id=guide.id,
+        ).first()
+        assert drawing_record is not None
+        assert drawing_record.report_file_path in (None, "")
+        assert guide_record is not None
+        assert guide_record.report_file_path == "reports/saved_guide-report.png"
 
 def test_erp_nav_shows_qc_switch_only_for_dual_system_roles(app, client, login):
     """ERP navbar should expose QC switch only to admin, GM and GM assistant."""

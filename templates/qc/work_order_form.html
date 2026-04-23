@@ -2,6 +2,43 @@
 
 {% block title %}{% if is_edit %}编辑{% else %}新增{% endif %}工件订单 - ALCOEN QC{% endblock %}
 
+{% block extra_css %}
+<style>
+    .preview-card {
+        min-height: 180px;
+    }
+    .preview-thumb {
+        max-height: 150px;
+        max-width: 100%;
+        border-radius: 12px;
+        border: 1px solid rgba(0, 0, 0, 0.08);
+    }
+    .preview-empty {
+        color: #6c757d;
+        padding: 2rem 1rem;
+        text-align: center;
+    }
+    .preview-item + .preview-item {
+        margin-top: 1rem;
+    }
+    .section-upload-block {
+        border-top: 1px solid rgba(0, 0, 0, 0.08);
+        margin-top: 1rem;
+        padding-top: 1rem;
+    }
+    .section-upload-label {
+        font-size: 0.875rem;
+        color: #6c757d;
+        margin-bottom: 0.5rem;
+        display: block;
+    }
+    .upload-filename {
+        max-width: 100%;
+        display: inline-block;
+    }
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="row mb-4">
     <div class="col-12">
@@ -15,7 +52,6 @@
 </div>
 
 <form method="POST" action="" id="workOrderForm" enctype="multipart/form-data">
-    <!-- 基础信息 -->
     <div class="card mb-4">
         <div class="card-header bg-primary text-white">
             <h5 class="mb-0"><i class="bi bi-info-circle"></i> 基础信息</h5>
@@ -28,7 +64,15 @@
                 </div>
                 <div class="col-md-4 mb-3">
                     <label class="form-label">工件名称 <span class="text-danger">*</span></label>
-                    <input type="text" class="form-control" name="workpiece_name" value="{{ order.workpiece_name if order else '' }}">
+                    <select class="form-select" name="workpiece_id" id="workpieceSelect">
+                        <option value="">-- 请选择工件 --</option>
+                        {% for workpiece in workpieces %}
+                        <option value="{{ workpiece.id }}" {% if order and order.workpiece_id == workpiece.id %}selected{% endif %}>
+                            {{ workpiece.workpiece_code }} / {{ workpiece.workpiece_name }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                    <input type="hidden" name="workpiece_name" id="workpieceNameInput" value="{{ order.workpiece_name if order else '' }}">
                 </div>
                 <div class="col-md-4 mb-3">
                     <label class="form-label">生产数量 <span class="text-danger">*</span></label>
@@ -37,178 +81,169 @@
             </div>
             <div class="row">
                 <div class="col-md-4 mb-3">
-                    <label class="form-label">质量控制负责人</label>
+                    <label class="form-label">创建人</label>
                     <input type="text" class="form-control" value="{{ current_user.real_name or current_user.username }}" readonly>
                 </div>
                 {% if not is_edit %}
                 <div class="col-md-4 mb-3">
-                    <label class="form-label">目标质量检测员（完成时必选）</label>
+                    <label class="form-label">目标供应商（完成时必选）</label>
                     <select name="inspector_id" class="form-select">
                         <option value="">-- 请选择 --</option>
-                        {% for inspector in inspectors %}
-                        <option value="{{ inspector.id }}">{{ inspector.real_name or inspector.username }}</option>
+                        {% for supplier in suppliers %}
+                        <option value="{{ supplier.id }}">{{ supplier.real_name or supplier.username }}</option>
                         {% endfor %}
                     </select>
                 </div>
+                {% elif order and order.inspector %}
+                <div class="col-md-4 mb-3">
+                    <label class="form-label">当前供应商</label>
+                    <input type="text" class="form-control" value="{{ order.inspector.real_name or order.inspector.username }}" readonly>
+                </div>
                 {% endif %}
             </div>
-        </div>
-    </div>
-
-    <!-- 图纸 -->
-    <div class="card mb-4">
-        <div class="card-header bg-info text-white">
-            <h5 class="mb-0"><i class="bi bi-image"></i> 图纸 <span class="text-danger">*</span></h5>
-        </div>
-        <div class="card-body">
-            {% if order %}
-                {% for att in order.attachments %}
-                    {% if att.attach_type == 'drawing' %}
-                    <div class="mb-3">
-                        <p class="text-muted">当前文件：{{ att.file_path.split('/')[-1] }}</p>
-                        {% if att.is_image %}
-                        <img src="{{ url_for('static', filename='uploads/qc/' ~ att.work_order_id ~ '/' ~ att.file_path) }}" class="img-thumbnail" style="max-height: 200px;">
-                        {% endif %}
-                    </div>
-                    {% endif %}
-                {% endfor %}
-            {% endif %}
-            <input type="file" class="form-control" name="drawing" accept="image/*,application/pdf">
-            <small class="text-muted">支持图片或PDF格式</small>
-        </div>
-    </div>
-
-    <!-- 作业指导书 -->
-    <div class="card mb-4">
-        <div class="card-header bg-info text-white">
-            <h5 class="mb-0"><i class="bi bi-file-earmark-text"></i> 作业指导书 <span class="text-danger">*</span></h5>
-        </div>
-        <div class="card-body">
-            {% if order %}
-                {% for att in order.attachments %}
-                    {% if att.attach_type == 'instruction' %}
-                    <div class="mb-3">
-                        <p class="text-muted">当前文件：{{ att.file_path.split('/')[-1] }}</p>
-                        {% if att.is_image %}
-                        <img src="{{ url_for('static', filename='uploads/qc/' ~ att.work_order_id ~ '/' ~ att.file_path) }}" class="img-thumbnail" style="max-height: 200px;">
-                        {% endif %}
-                    </div>
-                    {% endif %}
-                {% endfor %}
-            {% endif %}
-            <input type="file" class="form-control" name="instruction" accept="image/*,application/pdf">
-            <small class="text-muted">支持图片或PDF格式</small>
-        </div>
-    </div>
-
-    <!-- 检测点 -->
-    <div class="card mb-4">
-        <div class="card-header bg-warning text-dark d-flex justify-content-between align-items-center">
-            <h5 class="mb-0"><i class="bi bi-list-check"></i> 检测点 <span class="text-danger">*</span></h5>
-            <button type="button" class="btn btn-sm btn-light" onclick="addInspectionPoint()">
-                <i class="bi bi-plus"></i> 新增检测点
-            </button>
-        </div>
-        <div class="card-body" id="inspection-points-container">
-            {% if order %}
-                {% set point_count = namespace(value=0) %}
-                {% for att in order.attachments %}
-                    {% if att.attach_type == 'inspection_point' %}
-                    {% set idx = point_count.value %}
-                    {% set point_count.value = point_count.value + 1 %}
-                    <div class="inspection-point-item border rounded p-3 mb-3" data-index="{{ idx }}">
-                        <div class="d-flex justify-content-between align-items-center mb-2">
-                            <span class="badge bg-secondary point-number">检测点 {{ point_count.value }}</span>
-                            <button type="button" class="btn btn-sm btn-outline-danger" onclick="removeInspectionPoint(this)">
-                                <i class="bi bi-trash"></i> 删除
-                            </button>
-                        </div>
-                        <div class="mb-2">
-                            <label class="form-label">检测点名称 <span class="text-danger">*</span></label>
-                            <input type="text" class="form-control" name="inspection_point_title_{{ idx }}" value="{{ att.title or '' }}">
-                        </div>
-                        <div class="mb-2">
-                            <label class="form-label">检测点描述</label>
-                            <textarea class="form-control" name="inspection_point_content_{{ idx }}" rows="2">{{ att.content or '' }}</textarea>
-                        </div>
-                        <div class="file-upload-area">
-                            <label class="form-label">图片 <span class="text-danger">*</span></label>
-                            <p class="text-muted small">当前：{{ att.file_path.split('/')[-1] }}</p>
-                            <input type="file" class="form-control" name="inspection_point_file_{{ idx }}" accept="image/*">
-                        </div>
-                    </div>
-                    {% endif %}
-                {% endfor %}
-            {% else %}
-            <div class="inspection-point-item border rounded p-3 mb-3" data-index="0">
-                <div class="d-flex justify-content-between align-items-center mb-2">
-                    <span class="badge bg-secondary point-number">检测点 1</span>
-                    <button type="button" class="btn btn-sm btn-outline-danger" onclick="removeInspectionPoint(this)">
-                        <i class="bi bi-trash"></i> 删除
-                    </button>
-                </div>
-                <div class="mb-2">
-                    <label class="form-label">检测点名称 <span class="text-danger">*</span></label>
-                    <input type="text" class="form-control" name="inspection_point_title_0">
-                </div>
-                <div class="mb-2">
-                    <label class="form-label">检测点描述</label>
-                    <textarea class="form-control" name="inspection_point_content_0" rows="2"></textarea>
-                </div>
-                <div class="file-upload-area">
-                    <label class="form-label">图片 <span class="text-danger">*</span></label>
-                    <input type="file" class="form-control" name="inspection_point_file_0" accept="image/*">
-                </div>
+            {% if not workpieces %}
+            <div class="alert alert-warning mb-0">
+                <i class="bi bi-exclamation-triangle"></i> 工件库中还没有可用工件，请先到工件库新增工件。
             </div>
             {% endif %}
         </div>
     </div>
 
-    <!-- 备注 -->
-    <div class="card mb-4">
-        <div class="card-header bg-secondary text-white d-flex justify-content-between align-items-center">
-            <h5 class="mb-0"><i class="bi bi-sticky"></i> 备注</h5>
-            <button type="button" class="btn btn-sm btn-light" onclick="addRemark()">
-                <i class="bi bi-plus"></i> 新增备注
-            </button>
-        </div>
-        <div class="card-body" id="remarks-container">
-            {% if order %}
-                {% set remark_count = namespace(value=0) %}
-                {% for att in order.attachments %}
-                    {% if att.attach_type == 'remark' %}
-                    {% set idx = remark_count.value %}
-                    {% set remark_count.value = remark_count.value + 1 %}
-                    <div class="remark-item border rounded p-3 mb-3" data-index="{{ idx }}">
-                        <div class="d-flex justify-content-between align-items-center mb-2">
-                            <span class="badge bg-secondary">备注 {{ remark_count.value }}</span>
-                            <button type="button" class="btn btn-sm btn-outline-danger" onclick="removeRemark(this)">
-                                <i class="bi bi-trash"></i> 删除
-                            </button>
+    <div class="row g-4">
+        <div class="col-lg-4">
+            <div class="card preview-card h-100">
+                <div class="card-header bg-info text-white">
+                    <h5 class="mb-0"><i class="bi bi-image"></i> 图纸</h5>
+                </div>
+                <div class="card-body">
+                    <div id="drawingPreview">
+                        {% if order and order.drawing_attachment %}
+                        <div class="preview-item">
+                            <p class="text-muted small mb-2">{{ order.drawing_attachment.file_path.split('/')[-1] }}</p>
+                            {% if order.drawing_attachment.is_image %}
+                            <img src="{{ order.drawing_attachment.file_url }}" class="preview-thumb" alt="图纸预览">
+                            {% else %}
+                            <a href="{{ order.drawing_attachment.file_url }}" target="_blank" class="btn btn-outline-primary btn-sm">
+                                <i class="bi bi-download"></i> 下载查看
+                            </a>
+                            {% endif %}
                         </div>
-                        <div class="mb-2">
-                            <label class="form-label">备注内容</label>
-                            <textarea class="form-control" name="remark_content_{{ idx }}" rows="2">{{ att.content or '' }}</textarea>
-                        </div>
-                        <div class="mb-2">
-                            <label class="form-label">图片</label>
-                            <p class="text-muted small">当前：{{ att.file_path.split('/')[-1] if att.file_path else '无' }}</p>
-                            <input type="file" class="form-control" name="remark_file_{{ idx }}" accept="image/*">
-                        </div>
-                        <div class="form-check">
-                            <input class="form-check-input" type="checkbox" name="remark_required_{{ idx }}" value="1" {% if att.is_required %}checked{% endif %}>
-                            <label class="form-check-label">必填</label>
-                        </div>
+                        {% else %}
+                        <div class="preview-empty">选择工件后自动带出图纸</div>
+                        {% endif %}
                     </div>
-                    {% endif %}
-                {% endfor %}
-            {% endif %}
+
+                    <div class="section-upload-block">
+                        <label class="section-upload-label">批注信息</label>
+                        {% if order and order.drawing_note_file_path %}
+                        <div class="mb-2">
+                            <a href="{{ order.drawing_note_file_url }}" target="_blank" class="btn btn-outline-secondary btn-sm text-truncate upload-filename">
+                                <i class="bi bi-file-earmark-arrow-down"></i> {{ order.drawing_note_filename }}
+                            </a>
+                        </div>
+                        {% endif %}
+                        <label class="form-label">文件上传</label>
+                        <input type="file" class="form-control" name="drawing_note_file" accept="image/*,application/pdf">
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-4">
+            <div class="card preview-card h-100">
+                <div class="card-header bg-warning text-dark">
+                    <h5 class="mb-0"><i class="bi bi-list-check"></i> 作业指导书</h5>
+                </div>
+                <div class="card-body">
+                    <div id="guidePreview">
+                        {% if order and order.guide_attachments %}
+                            {% for attachment in order.guide_attachments %}
+                            <div class="preview-item">
+                                <h6 class="fw-bold">{{ attachment.display_title }}</h6>
+                                <p class="text-muted small mb-2">{{ attachment.content or '' }}</p>
+                                {% if attachment.file_path %}
+                                    {% if attachment.is_image %}
+                                    <img src="{{ attachment.file_url }}" class="preview-thumb" alt="{{ attachment.display_title }}">
+                                    {% else %}
+                                    <a href="{{ attachment.file_url }}" target="_blank" class="btn btn-outline-primary btn-sm">
+                                        <i class="bi bi-download"></i> 下载查看
+                                    </a>
+                                    {% endif %}
+                                {% endif %}
+                            </div>
+                            {% endfor %}
+                        {% else %}
+                        <div class="preview-empty">选择工件后自动带出作业指导书</div>
+                        {% endif %}
+                    </div>
+
+                    <div class="section-upload-block">
+                        <label class="section-upload-label">生产凭证</label>
+                        {% if order and order.guide_certificate_file_path %}
+                        <div class="mb-2">
+                            <a href="{{ order.guide_certificate_file_url }}" target="_blank" class="btn btn-outline-secondary btn-sm text-truncate upload-filename">
+                                <i class="bi bi-file-earmark-arrow-down"></i> {{ order.guide_certificate_filename }}
+                            </a>
+                        </div>
+                        {% endif %}
+                        <label class="form-label">文件上传</label>
+                        <input type="file" class="form-control" name="guide_certificate_file" accept="image/*,application/pdf">
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-4">
+            <div class="card preview-card h-100">
+                <div class="card-header bg-secondary text-white">
+                    <h5 class="mb-0"><i class="bi bi-sticky"></i> 备注</h5>
+                </div>
+                <div class="card-body">
+                    <div id="remarkPreview">
+                        {% if order and order.remark_attachments %}
+                            {% for attachment in order.remark_attachments %}
+                            <div class="preview-item">
+                                <div class="mb-2">
+                                    <span class="badge {{ 'bg-danger' if attachment.is_required else 'bg-light text-dark' }}">
+                                        {{ '必填' if attachment.is_required else '选填' }}
+                                    </span>
+                                </div>
+                                <p class="text-muted small mb-2">{{ attachment.content or '' }}</p>
+                                {% if attachment.file_path %}
+                                    {% if attachment.is_image %}
+                                    <img src="{{ attachment.file_url }}" class="preview-thumb" alt="备注附件">
+                                    {% else %}
+                                    <a href="{{ attachment.file_url }}" target="_blank" class="btn btn-outline-primary btn-sm">
+                                        <i class="bi bi-download"></i> 下载查看
+                                    </a>
+                                    {% endif %}
+                                {% endif %}
+                            </div>
+                            {% endfor %}
+                        {% else %}
+                        <div class="preview-empty">选择工件后自动带出备注</div>
+                        {% endif %}
+                    </div>
+
+                    <div class="section-upload-block">
+                        <label class="section-upload-label">批注信息</label>
+                        {% if order and order.remark_note_file_path %}
+                        <div class="mb-2">
+                            <a href="{{ order.remark_note_file_url }}" target="_blank" class="btn btn-outline-secondary btn-sm text-truncate upload-filename">
+                                <i class="bi bi-file-earmark-arrow-down"></i> {{ order.remark_note_filename }}
+                            </a>
+                        </div>
+                        {% endif %}
+                        <label class="form-label">文件上传</label>
+                        <input type="file" class="form-control" name="remark_note_file" accept="image/*,application/pdf">
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
 
-    <!-- 提交按钮 -->
     <input type="hidden" name="submit_action" id="submitAction" value="">
-    <div class="d-flex gap-3 flex-wrap">
+    <div class="d-flex gap-3 flex-wrap mt-4">
         {% if is_edit %}
         <button type="submit" class="btn btn-primary btn-lg">
             <i class="bi bi-check-circle"></i> 保存
@@ -226,95 +261,136 @@
         </a>
     </div>
 </form>
+{% endblock %}
 
+{% block extra_js %}
 <script>
-let pointIndex = {{ order.attachments | selectattr('attach_type', 'equalto', 'inspection_point') | list | length if order else 1 }};
-let remarkIndex = {{ order.attachments | selectattr('attach_type', 'equalto', 'remark') | list | length if order else 0 }};
+const workpieceSelect = document.getElementById('workpieceSelect');
+const workpieceNameInput = document.getElementById('workpieceNameInput');
 
-function updatePointNumbers() {
-    document.querySelectorAll('.point-number').forEach((el, idx) => {
-        el.textContent = '检测点 ' + (idx + 1);
-    });
+function escapeHtml(value) {
+    return String(value || '')
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#39;');
 }
 
-function addInspectionPoint() {
-    const container = document.getElementById('inspection-points-container');
-    const idx = pointIndex;
-    const html = `
-        <div class="inspection-point-item border rounded p-3 mb-3" data-index="${idx}">
-            <div class="d-flex justify-content-between align-items-center mb-2">
-                <span class="badge bg-secondary point-number">检测点 ${idx + 1}</span>
-                <button type="button" class="btn btn-sm btn-outline-danger" onclick="removeInspectionPoint(this)">
-                    <i class="bi bi-trash"></i> 删除
-                </button>
+function renderFilePreview(item, emptyText) {
+    if (!item) {
+        return `<div class="preview-empty">${escapeHtml(emptyText)}</div>`;
+    }
+
+    const filename = escapeHtml(item.filename || '');
+    if (item.url && item.is_image) {
+        return `
+            <div class="preview-item">
+                <p class="text-muted small mb-2">${filename}</p>
+                <img src="${item.url}" class="preview-thumb" alt="${filename || '文件预览'}">
             </div>
-            <div class="mb-2">
-                <label class="form-label">检测点名称 <span class="text-danger">*</span></label>
-                <input type="text" class="form-control" name="inspection_point_title_${idx}">
+        `;
+    }
+
+    if (item.url) {
+        return `
+            <div class="preview-item">
+                <p class="text-muted small mb-2">${filename}</p>
+                <a href="${item.url}" target="_blank" class="btn btn-outline-primary btn-sm">
+                    <i class="bi bi-download"></i> 下载查看
+                </a>
             </div>
-            <div class="mb-2">
-                <label class="form-label">检测点描述</label>
-                <textarea class="form-control" name="inspection_point_content_${idx}" rows="2"></textarea>
-            </div>
-            <div class="file-upload-area">
-                <label class="form-label">图片 <span class="text-danger">*</span></label>
-                <input type="file" class="form-control" name="inspection_point_file_${idx}" accept="image/*">
-            </div>
-        </div>
-    `;
-    container.insertAdjacentHTML('beforeend', html);
-    pointIndex++;
-    updatePointNumbers();
+        `;
+    }
+
+    return `<div class="preview-empty">${escapeHtml(emptyText)}</div>`;
 }
 
-function removeInspectionPoint(btn) {
-    const items = document.querySelectorAll('.inspection-point-item');
-    if (items.length <= 1) {
-        alert('至少需要保留一个检测点');
+function renderDrawingPreview(drawing) {
+    const container = document.getElementById('drawingPreview');
+    container.innerHTML = renderFilePreview(drawing, '所选工件没有图纸');
+}
+
+function renderGuidePreview(guides) {
+    const container = document.getElementById('guidePreview');
+    if (!guides || !guides.length) {
+        container.innerHTML = '<div class="preview-empty">所选工件没有作业指导书</div>';
         return;
     }
-    btn.closest('.inspection-point-item').remove();
-    updatePointNumbers();
-}
 
-function addRemark() {
-    const container = document.getElementById('remarks-container');
-    const idx = remarkIndex;
-    const html = `
-        <div class="remark-item border rounded p-3 mb-3" data-index="${idx}">
-            <div class="d-flex justify-content-between align-items-center mb-2">
-                <span class="badge bg-secondary">备注 ${idx + 1}</span>
-                <button type="button" class="btn btn-sm btn-outline-danger" onclick="removeRemark(this)">
-                    <i class="bi bi-trash"></i> 删除
-                </button>
-            </div>
-            <div class="mb-2">
-                <label class="form-label">备注内容</label>
-                <textarea class="form-control" name="remark_content_${idx}" rows="2"></textarea>
-            </div>
-            <div class="mb-2">
-                <label class="form-label">图片</label>
-                <input type="file" class="form-control" name="remark_file_${idx}" accept="image/*">
-            </div>
-            <div class="form-check">
-                <input class="form-check-input" type="checkbox" name="remark_required_${idx}" value="1">
-                <label class="form-check-label">必填</label>
-            </div>
+    container.innerHTML = guides.map((guide) => `
+        <div class="preview-item">
+            <h6 class="fw-bold">${escapeHtml(guide.title)}</h6>
+            <p class="text-muted small mb-2">${escapeHtml(guide.content || '')}</p>
+            ${guide.url ? (guide.is_image
+                ? `<img src="${guide.url}" class="preview-thumb" alt="${escapeHtml(guide.title)}">`
+                : `<a href="${guide.url}" target="_blank" class="btn btn-outline-primary btn-sm"><i class="bi bi-download"></i> 下载查看</a>`)
+                : ''}
         </div>
-    `;
-    container.insertAdjacentHTML('beforeend', html);
-    remarkIndex++;
+    `).join('');
 }
 
-function removeRemark(btn) {
-    btn.closest('.remark-item').remove();
+function renderRemarkPreview(remarks) {
+    const container = document.getElementById('remarkPreview');
+    if (!remarks || !remarks.length) {
+        container.innerHTML = '<div class="preview-empty">所选工件没有备注</div>';
+        return;
+    }
+
+    container.innerHTML = remarks.map((remark) => `
+        <div class="preview-item">
+            <div class="mb-2">
+                <span class="badge ${remark.is_required ? 'bg-danger' : 'bg-light text-dark'}">${remark.is_required ? '必填' : '选填'}</span>
+            </div>
+            <p class="text-muted small mb-2">${escapeHtml(remark.content || '')}</p>
+            ${remark.url ? (remark.is_image
+                ? `<img src="${remark.url}" class="preview-thumb" alt="备注附件">`
+                : `<a href="${remark.url}" target="_blank" class="btn btn-outline-primary btn-sm"><i class="bi bi-download"></i> 下载查看</a>`)
+                : ''}
+        </div>
+    `).join('');
+}
+
+async function loadWorkpieceSnapshot() {
+    const workpieceId = workpieceSelect.value;
+    if (!workpieceId) {
+        workpieceNameInput.value = '';
+        renderDrawingPreview(null);
+        renderGuidePreview([]);
+        renderRemarkPreview([]);
+        return;
+    }
+
+    try {
+        const response = await fetch(`/qc/workpieces/${workpieceId}/snapshot`);
+        const payload = await response.json();
+        if (!payload.success) {
+            throw new Error(payload.message || '加载工件失败');
+        }
+
+        const workpiece = payload.workpiece;
+        workpieceNameInput.value = workpiece.workpiece_name || '';
+        renderDrawingPreview(workpiece.drawing);
+        renderGuidePreview(workpiece.guides);
+        renderRemarkPreview(workpiece.remarks);
+    } catch (error) {
+        workpieceNameInput.value = '';
+        renderDrawingPreview(null);
+        renderGuidePreview([]);
+        renderRemarkPreview([]);
+    }
 }
 
 function submitNewOrder(action) {
-    const form = document.getElementById('workOrderForm');
-    const actionInput = document.getElementById('submitAction');
-    actionInput.value = action;
-    form.submit();
+    document.getElementById('submitAction').value = action;
+    document.getElementById('workOrderForm').submit();
+}
+
+if (workpieceSelect) {
+    workpieceSelect.addEventListener('change', loadWorkpieceSnapshot);
+    {% if order and order.workpiece_id %}
+    loadWorkpieceSnapshot();
+    {% endif %}
 }
 </script>
 {% endblock %}
