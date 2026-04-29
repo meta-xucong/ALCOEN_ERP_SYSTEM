@@ -147,7 +147,10 @@ class Contract(db.Model):
 
     def get_invoice_status_display(self):
         """获取开票状态显示。"""
-        has_invoice = any(p.invoice_date for p in self.payment_records) or any(
+        has_invoice = any(
+            (p.invoice_date or (p.invoice_amount or 0) > 0)
+            for p in self.payment_records
+        ) or any(
             t.invoice_date for t in self.transactions
         )
         if has_invoice:
@@ -276,9 +279,10 @@ class PaymentRecord(db.Model):
     company_name: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
     
     # 回款信息
-    payment_amount: Mapped[float] = mapped_column(Float, nullable=False)  # 回款金额
-    payment_date: Mapped[Date] = mapped_column(Date, nullable=False, index=True)  # 回款日期
-    invoice_date: Mapped[Date] = mapped_column(Date, nullable=True, index=True)  # 开票日期
+    payment_amount: Mapped[float] = mapped_column(Float, nullable=True)  # 回款金额
+    invoice_amount: Mapped[float] = mapped_column(Float, nullable=True)  # 开票金额
+    payment_date: Mapped[Date] = mapped_column(Date, nullable=True, index=True)  # 回款日期
+    invoice_date: Mapped[Date] = mapped_column(Date, nullable=True, index=True)  # 开票日期    
     
     # 可选关联发货记录 [v1.3] 可选关联产品计划
     transaction_id: Mapped[int] = mapped_column(ForeignKey('transactions.id'), nullable=True)
@@ -299,7 +303,24 @@ class PaymentRecord(db.Model):
     contract_product: Mapped['ContractProduct'] = relationship(back_populates='payment_records')
     
     def __repr__(self):
-        return f'<PaymentRecord {self.contract_id}-{self.id} {self.payment_amount}>'
+        return f'<PaymentRecord {self.contract_id}-{self.id} pay={self.payment_amount} invoice={self.invoice_amount}>'
+
+    @property
+    def has_payment(self) -> bool:
+        return (self.payment_amount or 0) > 0
+
+    @property
+    def has_invoice(self) -> bool:
+        return (self.invoice_amount or 0) > 0
+
+    @property
+    def status_flags(self) -> list[str]:
+        flags: list[str] = []
+        if self.has_payment and not self.has_invoice:
+            flags.append('已回款，未开票')
+        if self.has_invoice and not self.has_payment:
+            flags.append('已开票，未回款')
+        return flags
 
 
 class ContractImage(db.Model):

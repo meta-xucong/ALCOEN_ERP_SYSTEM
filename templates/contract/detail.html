@@ -31,6 +31,19 @@
 .contract-financial-grid .finance-item {
     margin-bottom: 0;
 }
+
+.btn-delivery-export {
+    background-color: #1f4e79;
+    border-color: #1f4e79;
+    color: #fff;
+}
+
+.btn-delivery-export:hover,
+.btn-delivery-export:focus {
+    background-color: #163a5c;
+    border-color: #163a5c;
+    color: #fff;
+}
 </style>
 
 <div class="card mb-4">
@@ -151,9 +164,16 @@
     <div class="card-header bg-info text-white d-flex justify-content-between align-items-center">
         <h5 class="mb-0"><i class="bi bi-truck"></i> 发货记录</h5>
         {% if contract.transactions %}
-        <a href="{{ url_for('contract.export_delivery_note', id=contract.id) }}" class="btn btn-light btn-sm" target="_blank">
-            <i class="bi bi-printer"></i> 打印发货单
-        </a>
+        <div class="d-flex gap-2">
+            <button type="button"
+                    class="btn btn-light btn-sm"
+                    onclick='openDeliveryNotePrint({{ url_for("contract.print_delivery_note", id=contract.id, autoprint=1, embedded=1)|tojson }})'>
+                <i class="bi bi-printer"></i> 打印发货单
+            </button>
+            <a href="{{ url_for('contract.export_delivery_note', id=contract.id) }}" class="btn btn-delivery-export btn-sm" target="_blank">
+                <i class="bi bi-download"></i> 导出Excel
+            </a>
+        </div>
         {% endif %}
     </div>
     <div class="card-body p-0">
@@ -212,9 +232,11 @@
         <table class="table table-hover mb-0">
             <thead>
                 <tr>
+                    <th>状态</th>
                     <th>回款日期</th>
                     <th class="text-end">回款金额</th>
-                    <th>开票记录</th>
+                    <th class="text-end">开票金额</th>
+                    <th>开票日期</th>
                     <th>经手人</th>
                     <th>对应产品</th>
                     <th>备注</th>
@@ -223,13 +245,35 @@
             <tbody>
                 {% for payment in contract.payment_records %}
                 <tr>
+                    <td>
+                        {% if payment.status_flags %}
+                            {% for flag in payment.status_flags %}
+                            <span class="badge bg-light text-dark border">{{ flag }}</span>
+                            {% endfor %}
+                        {% else %}
+                        <span class="text-muted">-</span>
+                        {% endif %}
+                    </td>
                     <td>{{ payment.payment_date|format_date }}</td>
-                    <td class="text-end text-success fw-bold">{{ payment.payment_amount|format_money }}</td>
+                    <td class="text-end {% if payment.payment_amount %}text-success fw-bold{% else %}text-muted{% endif %}">
+                        {% if payment.payment_amount is not none %}
+                        {{ payment.payment_amount|format_money }}
+                        {% else %}
+                        -
+                        {% endif %}
+                    </td>
+                    <td class="text-end {% if payment.invoice_amount %}text-primary fw-bold{% else %}text-muted{% endif %}">
+                        {% if payment.invoice_amount is not none %}
+                        {{ payment.invoice_amount|format_money }}
+                        {% else %}
+                        -
+                        {% endif %}
+                    </td>
                     <td>
                         {% if payment.invoice_date %}
                         <span class="text-success">{{ payment.invoice_date|format_date }}</span>
                         {% else %}
-                        <span class="text-danger">未开票</span>
+                        <span class="text-muted">-</span>
                         {% endif %}
                     </td>
                     <td>{{ payment.handler or '-' }}</td>
@@ -433,5 +477,35 @@ function openImageModal(imageSrc) {
     const modal = new bootstrap.Modal(document.getElementById('imageModal'));
     modal.show();
 }
+
+function openDeliveryNotePrint(printUrl) {
+    let iframe = document.getElementById('delivery-note-print-frame');
+    if (!iframe) {
+        iframe = document.createElement('iframe');
+        iframe.id = 'delivery-note-print-frame';
+        iframe.style.position = 'fixed';
+        iframe.style.width = '0';
+        iframe.style.height = '0';
+        iframe.style.border = '0';
+        iframe.style.right = '0';
+        iframe.style.bottom = '0';
+        iframe.style.visibility = 'hidden';
+        document.body.appendChild(iframe);
+    }
+    const cacheBreaker = printUrl.includes('?') ? '&' : '?';
+    iframe.src = `${printUrl}${cacheBreaker}_ts=${Date.now()}`;
+}
+
+window.addEventListener('message', event => {
+    if (event.origin !== window.location.origin) {
+        return;
+    }
+    if (event.data && event.data.type === 'delivery-note-afterprint') {
+        const iframe = document.getElementById('delivery-note-print-frame');
+        if (iframe) {
+            iframe.remove();
+        }
+    }
+});
 </script>
 {% endblock %}

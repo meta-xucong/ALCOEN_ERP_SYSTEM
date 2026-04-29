@@ -1,0 +1,259 @@
+{% extends 'base.html' %}
+
+{% block title %}发货单 - {{ contract.contract_no }}{% endblock %}
+
+{% block extra_css %}
+<style>
+.delivery-note-sheet {
+    width: 190mm;
+    max-width: 100%;
+    margin: 0 auto 2rem;
+    background: #fff;
+    color: #111;
+}
+
+.delivery-note-sheet .sheet-body {
+    padding: 12mm 12mm 10mm;
+}
+
+.delivery-note-meta p {
+    margin-bottom: 0.35rem;
+}
+
+.delivery-note-table {
+    width: 100%;
+    table-layout: fixed;
+    border-collapse: collapse;
+}
+
+.delivery-note-table th,
+.delivery-note-table td {
+    border: 1px solid #000;
+    padding: 6px 5px;
+    vertical-align: middle;
+    word-break: break-all;
+    overflow-wrap: anywhere;
+}
+
+.delivery-note-table thead th {
+    background: #d9d9d9;
+    text-align: center;
+    font-weight: 700;
+}
+
+.delivery-note-table col:nth-child(1) { width: 6%; }
+.delivery-note-table col:nth-child(2) { width: 13%; }
+.delivery-note-table col:nth-child(3) { width: 17%; }
+.delivery-note-table col:nth-child(4) { width: 14%; }
+.delivery-note-table col:nth-child(5) { width: 8%; }
+.delivery-note-table col:nth-child(6) { width: 7%; }
+.delivery-note-table col:nth-child(7) { width: 14%; }
+.delivery-note-table col:nth-child(8) { width: 9%; }
+.delivery-note-table col:nth-child(9) { width: 12%; }
+
+.delivery-note-total-row td {
+    font-weight: 700;
+}
+
+.btn-delivery-export {
+    background-color: #1f4e79;
+    border-color: #1f4e79;
+    color: #fff;
+}
+
+.btn-delivery-export:hover,
+.btn-delivery-export:focus {
+    background-color: #163a5c;
+    border-color: #163a5c;
+    color: #fff;
+}
+
+@media print {
+    @page {
+        size: A4 portrait;
+        margin: 10mm;
+    }
+
+    html,
+    body {
+        background: #fff !important;
+        overflow: visible !important;
+    }
+
+    body * {
+        visibility: hidden !important;
+        box-shadow: none !important;
+        text-shadow: none !important;
+        filter: none !important;
+        backdrop-filter: none !important;
+    }
+
+    #print-area,
+    #print-area * {
+        visibility: visible !important;
+    }
+
+    #print-area {
+        position: absolute !important;
+        left: 0 !important;
+        top: 0 !important;
+        width: 100% !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        background: #fff !important;
+    }
+
+    .no-print,
+    .navbar,
+    footer,
+    .video-background,
+    .image-background,
+    .solid-background,
+    .orb {
+        display: none !important;
+    }
+
+    .container,
+    .delivery-note-sheet {
+        width: 100% !important;
+        max-width: 100% !important;
+        margin: 0 !important;
+        padding: 0 !important;
+    }
+
+    .delivery-note-sheet .sheet-body {
+        padding: 0 !important;
+    }
+
+    .delivery-note-table {
+        font-size: 9pt;
+    }
+
+    .delivery-note-table th,
+    .delivery-note-table td {
+        padding: 4px 4px !important;
+    }
+
+    .delivery-note-table tr,
+    .delivery-note-meta,
+    .delivery-note-header {
+        page-break-inside: avoid;
+    }
+
+    .text-gradient {
+        background: none !important;
+        color: #000 !important;
+    }
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div id="print-area" class="delivery-note-sheet">
+    <div class="d-flex justify-content-between align-items-center mb-4 no-print">
+        <div class="d-flex align-items-center gap-3">
+            <i class="bi bi-truck text-gradient" style="font-size: 2rem;"></i>
+            <h1 class="mb-0 text-gradient" style="font-weight: 700; font-size: 2rem;">发货单</h1>
+        </div>
+        <div class="d-flex gap-2">
+            <button type="button" class="btn btn-primary" onclick="window.print()">
+                <i class="bi bi-printer"></i> 打印发货单
+            </button>
+            <a href="{{ url_for('contract.export_delivery_note', id=contract.id) }}" class="btn btn-delivery-export" target="_blank">
+                <i class="bi bi-download"></i> 导出Excel
+            </a>
+            <a href="{{ url_for('contract.view_contract', id=contract.id) }}" class="btn btn-secondary">
+                <i class="bi bi-arrow-left"></i> 返回合同
+            </a>
+        </div>
+    </div>
+
+    <div class="sheet-body">
+        <div class="text-center mb-3 delivery-note-header">
+            <img src="{{ url_for('static', filename='img/logo.png') }}" alt="ALCOEN" height="42">
+        </div>
+
+        <div class="text-center mb-4 delivery-note-header">
+            <h2 class="mb-1" style="font-weight: 700;">发货单</h2>
+            <div class="text-muted">{{ note_no }}</div>
+        </div>
+
+        <div class="border p-3 mb-3 delivery-note-meta">
+            <div class="row g-2">
+                <div class="col-md-6">
+                    <p><strong>合同编号：</strong>{{ contract.contract_no }}</p>
+                    <p><strong>客户名称：</strong>{{ contract.company_name }}</p>
+                    <p><strong>部门 / 负责人：</strong>{{ contract.department or '-' }} / {{ contract.manager or '-' }}</p>
+                </div>
+                <div class="col-md-6">
+                    <p><strong>生成时间：</strong>{{ generated_at.strftime('%Y-%m-%d %H:%M') }}</p>
+                    <p><strong>发货记录数：</strong>{{ transactions|length }} 条</p>
+                    <p><strong>备注：</strong>本单据由系统根据当前发货记录生成</p>
+                </div>
+            </div>
+        </div>
+
+        <table class="delivery-note-table">
+            <colgroup>
+                <col><col><col><col><col><col><col><col><col>
+            </colgroup>
+            <thead>
+                <tr>
+                    <th>序号</th>
+                    <th>产品编码</th>
+                    <th>产品名称</th>
+                    <th>型号</th>
+                    <th>数量</th>
+                    <th>单位</th>
+                    <th>发货日期</th>
+                    <th>经手人</th>
+                    <th>备注</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for trans in transactions %}
+                <tr>
+                    <td class="text-center">{{ loop.index }}</td>
+                    <td class="text-center"><code>{{ trans.product_code }}</code></td>
+                    <td>{{ trans.product_name or '-' }}</td>
+                    <td class="text-center">{{ trans.product_model or '-' }}</td>
+                    <td class="text-center">{{ '%.2f'|format(trans.quantity or 0) }}</td>
+                    <td class="text-center">{{ trans.unit or '-' }}</td>
+                    <td class="text-center">{{ trans.delivery_date|format_date }}</td>
+                    <td class="text-center">{{ trans.handler or '-' }}</td>
+                    <td>{{ trans.remark or '-' }}</td>
+                </tr>
+                {% endfor %}
+                <tr class="delivery-note-total-row">
+                    <td colspan="4" class="text-end">合计</td>
+                    <td class="text-center">{{ '%.2f'|format(transactions|sum(attribute='quantity') or 0) }}</td>
+                    <td colspan="4"></td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function notifyDeliveryNoteAfterPrint() {
+    if ({{ embedded|tojson }} && window.parent && window.parent !== window) {
+        window.parent.postMessage({ type: 'delivery-note-afterprint' }, window.location.origin);
+    }
+}
+
+{% if auto_print %}
+window.addEventListener('load', () => {
+    window.setTimeout(() => window.print(), 250);
+});
+
+window.addEventListener('afterprint', () => {
+    notifyDeliveryNoteAfterPrint();
+    if (!{{ embedded|tojson }}) {
+        window.close();
+    }
+});
+{% endif %}
+</script>
+{% endblock %}

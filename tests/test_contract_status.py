@@ -108,3 +108,29 @@ def test_check_completion_status_flow(app, base_data):
         assert contract.delivery_status == "completed"
         assert contract.payment_status == "completed"
         assert contract.status == "completed"
+
+
+def test_invoice_only_record_does_not_complete_payment_status(app, base_data):
+    """Invoice-only records should affect invoice status but not payment completion."""
+    from app.models import Contract
+
+    with app.app_context():
+        contract, cp = _create_status_contract(base_data["owner_user_id"])
+        contract_id = contract.id
+
+        ContractService.add_payment_record(
+            contract_id,
+            {
+                "payment_amount": None,
+                "invoice_amount": 100,
+                "payment_date": "",
+                "invoice_date": "2026-04-05",
+                "handler": "Finance Invoice",
+                "remark": "invoice only",
+                "contract_product_id": cp.id,
+            },
+        )
+        contract = Contract.query.get(contract_id)
+        assert contract.payment_status == "pending"
+        assert contract.status == "pending"
+        assert contract.get_invoice_status_display()["text"] == "已开票"

@@ -35,6 +35,69 @@ def _to_float2(value, default: float = 0.0) -> float:
         return default
 
 
+def _to_float2_or_none(value):
+    """将输入转换为两位小数；空值返回 None。"""
+    if value in (None, ''):
+        return None
+    try:
+        return round(float(value), 2)
+    except (TypeError, ValueError):
+        return None
+
+
+def _parse_optional_date(value):
+    """解析可选日期字符串。"""
+    if not value:
+        return None
+    return datetime.strptime(value, '%Y-%m-%d').date()
+
+
+def _build_delivery_note_no(contract: Contract) -> str:
+    """生成发货单编号。"""
+    return f"FH{contract.contract_no}-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+
+
+def _extract_payment_row_payload(prefix: str, form_data, *, existing: bool = False):
+    """提取并校验单条回款记录表单数据。"""
+    payment_amount = _to_float2_or_none(form_data.get(f'{prefix}amount'))
+    invoice_amount = _to_float2_or_none(form_data.get(f'{prefix}invoice_amount'))
+
+    if payment_amount is not None and payment_amount < 0:
+        raise ValueError("回款金额不能为负数")
+    if invoice_amount is not None and invoice_amount < 0:
+        raise ValueError("开票金额不能为负数")
+
+    payment_date_raw = form_data.get(f'{prefix}date')
+    invoice_date_raw = form_data.get(f'{prefix}invoice_date')
+    remark = form_data.get(f'{prefix}remark')
+    contract_product_code = (form_data.get(f'{prefix}contract_product_id') or '').strip() or None
+    handler = (form_data.get(f'{prefix}handler') or '').strip() or None
+
+    has_meaningful_input = any([
+        payment_amount is not None,
+        invoice_amount is not None,
+        bool(payment_date_raw),
+        bool(invoice_date_raw),
+        bool((remark or '').strip()),
+        bool(contract_product_code),
+    ])
+
+    if payment_amount is None and invoice_amount is None:
+        if existing or has_meaningful_input:
+            raise ValueError("回款金额和开票金额至少填写一个")
+        return None
+
+    return {
+        'payment_amount': payment_amount,
+        'invoice_amount': invoice_amount,
+        'payment_date': _parse_optional_date(payment_date_raw),
+        'invoice_date': _parse_optional_date(invoice_date_raw),
+        'handler': handler,
+        'remark': remark,
+        'contract_product_code': contract_product_code,
+    }
+
+
 @contract_bp.route('/')
 @contract_bp.route('/list')
 @login_required
@@ -198,18 +261,10 @@ def new_contract():
             payment_count = int(request.form.get('payment_count', 0))
             for i in range(payment_count):
                 prefix = f'payment_{i}_'
-                payment_amount = request.form.get(f'{prefix}amount')
-                if payment_amount and _to_float2(payment_amount) > 0:
-                    payment_data = {
-                        'payment_amount': _to_float2(payment_amount),
-                        'payment_date': request.form.get(f'{prefix}date'),
-                        'invoice_date': request.form.get(f'{prefix}invoice_date') or None,
-                        'handler': request.form.get(f'{prefix}handler', '').strip() or None,
-                        'remark': request.form.get(f'{prefix}remark'),
-                        'contract_product_id': request.form.get(f'{prefix}contract_product_id') or None
-                    }
-                    if payment_data['payment_date']:
-                        ContractService.add_payment_record(contract.id, payment_data)
+                payment_data = _extract_payment_row_payload(prefix, request.form)
+                if payment_data:
+                    payment_data['contract_product_id'] = payment_data.pop('contract_product_code')
+                    ContractService.add_payment_record(contract.id, payment_data)
             
             # 处理图片上传 [v1.3]
             images = request.files.getlist('images')
@@ -519,54 +574,37 @@ def edit_contract(id):
                     if int(payment_id) in existing_payment_ids:
                         payment = PaymentRecord.query.get(int(payment_id))
                         if payment:
-                            payment_amount = request.form.get(f'{prefix}amount')
-                            if payment_amount is not None:
-                                payment.payment_amount = _to_float2(payment_amount)
-                            
-                            payment_date = request.form.get(f'{prefix}date')
-                            if payment_date:
-                                payment.payment_date = datetime.strptime(payment_date, '%Y-%m-%d').date()
+                            payment_data = _extract_payment_row_payload(prefix, request.form, existing=True)
+                            payment.payment_amount = payment_data['payment_amount']
+                            payment.invoice_amount = payment_data['invoice_amount']
+                            payment.payment_date = payment_data['payment_date']
+                            payment.invoice_date = payment_data['invoice_date']
+                            payment.handler = payment_data['handler']
+                            payment.remark = payment_data['remark']
 
-                            invoice_date = request.form.get(f'{prefix}invoice_date')
-                            if invoice_date:
-                                payment.invoice_date = datetime.strptime(invoice_date, '%Y-%m-%d').date()
-                            else:
-                                payment.invoice_date = None
-                            
-                            handler = request.form.get(f'{prefix}handler')
-                            if handler is not None:
-                                payment.handler = handler.strip() or None
-                            
-                            remark = request.form.get(f'{prefix}remark')
-                            if remark is not None:
-                                payment.remark = remark
-                            
-                            # [v1.5.2] 修复：前端传的是 product_code，需要查询获取 contract_product_id
-                            product_code = request.form.get(f'{prefix}contract_product_id')
+                            product_code = payment_data['contract_product_code']
                             if product_code:
                                 cp = ContractProduct.query.filter_by(contract_id=id, product_code=product_code).first()
                                 payment.contract_product_id = cp.id if cp else None
+                            else:
+                                payment.contract_product_id = None
                         continue
                 
-                payment_amount = request.form.get(f'{prefix}amount')
-                if payment_amount and _to_float2(payment_amount) > 0:
-                    # [v1.5.2] 修复：直接创建PaymentRecord对象，避免Service方法中的重复commit
-                    payment_date_str = request.form.get(f'{prefix}date')
-                    payment_date_obj = datetime.strptime(payment_date_str, '%Y-%m-%d').date() if payment_date_str else None
-                    
-                    # 前端传的是 product_code，需要查询获取 contract_product_id
-                    product_code = request.form.get(f'{prefix}contract_product_id')
+                payment_data = _extract_payment_row_payload(prefix, request.form)
+                if payment_data:
+                    product_code = payment_data['contract_product_code']
                     cp = ContractProduct.query.filter_by(contract_id=id, product_code=product_code).first() if product_code else None
-                    
+
                     new_payment = PaymentRecord(
                         contract_id=id,
                         contract_product_id=cp.id if cp else None,
                         company_name=contract.company_name,
-                        payment_amount=_to_float2(payment_amount),
-                        payment_date=payment_date_obj,
-                        invoice_date=datetime.strptime(request.form.get(f'{prefix}invoice_date'), '%Y-%m-%d').date() if request.form.get(f'{prefix}invoice_date') else None,
-                        handler=request.form.get(f'{prefix}handler', '').strip() or None,
-                        remark=request.form.get(f'{prefix}remark')
+                        payment_amount=payment_data['payment_amount'],
+                        invoice_amount=payment_data['invoice_amount'],
+                        payment_date=payment_data['payment_date'],
+                        invoice_date=payment_data['invoice_date'],
+                        handler=payment_data['handler'],
+                        remark=payment_data['remark']
                     )
                     db.session.add(new_payment)
             
@@ -992,6 +1030,34 @@ def api_delete_image(image_id):
 
 # ============ 发货单导出功能 ============
 
+
+@contract_bp.route('/<int:id>/print-delivery-note')
+@login_required
+def print_delivery_note(id):
+    """渲染可直接打印的发货单页面。"""
+    contract = Contract.query.get_or_404(id)
+    if not g.current_user.can_view_contract(contract):
+        flash('您没有权限查看此合同的发货单', 'error')
+        return redirect(url_for('contract.list_contracts'))
+
+    if not contract.transactions:
+        flash('没有发货记录，无法打印发货单', 'warning')
+        return redirect(url_for('contract.view_contract', id=id))
+
+    note_no = _build_delivery_note_no(contract)
+    auto_print = request.args.get('autoprint', '1') != '0'
+    embedded = request.args.get('embedded', '0') == '1'
+    return render_template(
+        'contract/delivery_note_print.html',
+        contract=contract,
+        transactions=contract.transactions,
+        note_no=note_no,
+        auto_print=auto_print,
+        embedded=embedded,
+        generated_at=datetime.now(),
+    )
+
+
 @contract_bp.route('/<int:id>/export-delivery-note')
 @login_required
 def export_delivery_note(id):
@@ -1008,7 +1074,7 @@ def export_delivery_note(id):
         return redirect(url_for('contract.view_contract', id=id))
     
     # 生成发货单编号
-    note_no = f"FH{contract.contract_no}-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+    note_no = _build_delivery_note_no(contract)
     
     # 输出文件路径
     filename = f"发货单_{contract.contract_no}_{datetime.now().strftime('%Y%m%d%H%M%S')}.xlsx"

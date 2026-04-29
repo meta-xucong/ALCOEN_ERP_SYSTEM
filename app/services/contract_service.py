@@ -288,10 +288,14 @@ class ContractService:
         
         contract = Contract.query.get_or_404(contract_id)
         
-        # 验证回款金额
         payment_amount = ContractService._to_float2(payment_data.get('payment_amount', 0))
+        invoice_amount = ContractService._to_float2(payment_data.get('invoice_amount', 0))
         if payment_amount <= 0:
-            raise ValueError("回款金额必须大于0")
+            payment_amount = None
+        if invoice_amount <= 0:
+            invoice_amount = None
+        if payment_amount is None and invoice_amount is None:
+            raise ValueError("回款金额和开票金额至少填写一个")
         
         # 处理日期
         def parse_date(date_val):
@@ -303,8 +307,6 @@ class ContractService:
             return date_val if isinstance(date_val, date) else None
         
         payment_date = parse_date(payment_data.get('payment_date'))
-        if not payment_date:
-            raise ValueError("回款日期不能为空")
         invoice_date = parse_date(payment_data.get('invoice_date'))
         
         # 处理关联的产品计划 [v1.3] 支持contract_product_id 或 product_code
@@ -333,6 +335,7 @@ class ContractService:
             contract_product_id=contract_product_id,
             company_name=contract.company_name,
             payment_amount=payment_amount,
+            invoice_amount=invoice_amount,
             payment_date=payment_date,
             invoice_date=invoice_date,
             handler=payment_data.get('handler', '').strip() or None,
@@ -344,7 +347,12 @@ class ContractService:
         # 追加备注
         tz = timezone(timedelta(hours=8))
         now = datetime.now(tz).strftime('%Y-%m-%d %H:%M:%S')
-        contract.append_remark(f"添加回款记录: {payment_amount:.2f}元")
+        summary_parts = []
+        if payment_amount is not None:
+            summary_parts.append(f"回款 {payment_amount:.2f}元")
+        if invoice_amount is not None:
+            summary_parts.append(f"开票 {invoice_amount:.2f}元")
+        contract.append_remark(f"添加回款记录: {'，'.join(summary_parts)}")
         
         db.session.commit()
         
@@ -655,7 +663,10 @@ class ContractService:
             from sqlalchemy import or_
             payment_invoice_exists = db.session.query(PaymentRecord.id).filter(
                 PaymentRecord.contract_id == Contract.id,
-                PaymentRecord.invoice_date.isnot(None)
+                or_(
+                    PaymentRecord.invoice_date.isnot(None),
+                    PaymentRecord.invoice_amount > 0
+                )
             ).exists()
             transaction_invoice_exists = db.session.query(Transaction.id).filter(
                 Transaction.contract_id == Contract.id,

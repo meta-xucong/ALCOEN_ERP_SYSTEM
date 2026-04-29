@@ -291,9 +291,14 @@
     <div class="card mb-4">
         <div class="card-header bg-info text-white d-flex justify-content-between align-items-center">
             <h5 class="mb-0"><i class="bi bi-truck"></i> 发货记录</h5>
-            <button type="button" class="btn btn-light btn-sm" onclick="addTransactionRow()">
-                <i class="bi bi-plus"></i> 添加记录
-            </button>
+            <div class="d-flex gap-2">
+                <button type="button" class="btn btn-light btn-sm" onclick="fillAllTransactions()">
+                    <i class="bi bi-magic"></i> 一键填充
+                </button>
+                <button type="button" class="btn btn-light btn-sm" onclick="addTransactionRow()">
+                    <i class="bi bi-plus"></i> 添加记录
+                </button>
+            </div>
         </div>
         <div class="card-body">
             <div id="transactions-container">
@@ -308,9 +313,14 @@
     <div class="card mb-4">
         <div class="card-header bg-warning text-dark d-flex justify-content-between align-items-center">
             <h5 class="mb-0"><i class="bi bi-cash"></i> 回款记录</h5>
-            <button type="button" class="btn btn-light btn-sm" onclick="addPaymentRow()">
-                <i class="bi bi-plus"></i> 添加回款
-            </button>
+            <div class="d-flex gap-2">
+                <button type="button" class="btn btn-light btn-sm" onclick="fillFinalPaymentState()">
+                    <i class="bi bi-magic"></i> 一键填充
+                </button>
+                <button type="button" class="btn btn-light btn-sm" onclick="addPaymentRow()">
+                    <i class="bi bi-plus"></i> 添加回款
+                </button>
+            </div>
         </div>
         <div class="card-body">
             <div id="payments-container">
@@ -628,22 +638,29 @@
 <template id="payment-row-template">
     <div class="payment-row border rounded p-3 mb-3" data-index="{index}">
         <div class="d-flex justify-content-between mb-2">
-            <strong>回款记录 #{index}</strong>
+            <div class="d-flex align-items-center gap-2 flex-wrap">
+                <strong>回款记录 #{index}</strong>
+                <span class="payment-status-flags"></span>
+            </div>
             <button type="button" class="btn btn-sm btn-outline-danger" onclick="removePaymentRow(this)">
                 <i class="bi bi-trash"></i>
             </button>
         </div>
         <div class="row align-items-end">
             <div class="col-md-2">
-                <label class="form-label">回款金额 *</label>
-                <input type="number" class="form-control wide-number-input" name="payment_{index}_amount" 
-                       step="0.01" min="0" inputmode="decimal" required placeholder="0.00">
+                <label class="form-label">回款金额</label>
+                <input type="number" class="form-control wide-number-input payment-amount-input" name="payment_{index}_amount" 
+                       step="0.01" min="0" inputmode="decimal" placeholder="0.00">
             </div>
             <div class="col-md-2">
-                <label class="form-label">回款日期 *</label>
-                <input type="date" class="form-control" name="payment_{index}_date" required>
+                <label class="form-label">开票金额</label>
+                <input type="number" class="form-control wide-number-input payment-invoice-amount-input" name="payment_{index}_invoice_amount" 
+                       step="0.01" min="0" inputmode="decimal" placeholder="0.00">
             </div>
-            <!-- [v1.3] 开票日期移到回款记录 -->
+            <div class="col-md-2">
+                <label class="form-label">回款日期</label>
+                <input type="date" class="form-control" name="payment_{index}_date">
+            </div>
             <div class="col-md-2">
                 <label class="form-label">开票日期</label>
                 <input type="date" class="form-control" name="payment_{index}_invoice_date">
@@ -652,16 +669,20 @@
                 <label class="form-label">经手人 *</label>
                 <input type="text" class="form-control" name="payment_{index}_handler" maxlength="50" required value="{{ current_user.real_name or current_user.username }}">
             </div>
-            <!-- [v1.3] 对应产品下拉框 - 从产品计划中选择 -->
             <div class="col-md-2">
                 <label class="form-label">对应产品</label>
-                <select class="form-select" name="payment_{index}_contract_product_id" required>
+                <select class="form-select" name="payment_{index}_contract_product_id">
                     <option value="">-- 选择产品 --</option>
                 </select>
             </div>
-            <div class="col-md-2">
+        </div>
+        <div class="row align-items-end mt-3">
+            <div class="col-md-4">
                 <label class="form-label">备注</label>
                 <input type="text" class="form-control" name="payment_{index}_remark" maxlength="50">
+            </div>
+            <div class="col-md-8">
+                <div class="form-text mb-0">回款金额、开票金额至少填写一项。只填其中一项时，保存后会显示对应状态标签。</div>
             </div>
         </div>
     </div>
@@ -676,6 +697,7 @@ let productCount = 0;
 let transactionCount = 0;
 let paymentCount = 0;
 let actualValueAutoFollow = true;
+const currentUserDisplayName = {{ (current_user.real_name or current_user.username)|tojson }};
 
 function normalizeProductRowLayout(row) {
     if (!row) return;
@@ -760,6 +782,194 @@ function round2(value) {
 
 function format2(value) {
     return round2(value).toFixed(2);
+}
+
+function formatInputNumber(value) {
+    const rounded = round2(value);
+    return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(2);
+}
+
+function getTodayIsoDate() {
+    return new Date().toISOString().split('T')[0];
+}
+
+function getProductCodeFromRow(row) {
+    if (!row) return '';
+    const selectInput = row.querySelector('.product-code-select');
+    const textInput = row.querySelector('.product-code-input');
+    if (selectInput && selectInput.style.display !== 'none' && selectInput.value) {
+        return selectInput.value.trim();
+    }
+    if (textInput && textInput.style.display !== 'none' && textInput.value) {
+        return textInput.value.trim();
+    }
+    return (
+        row.querySelector('[name$="_code"]')?.value
+        || row.querySelector('[name$="_code_select"]')?.value
+        || ''
+    ).trim();
+}
+
+function updatePaymentRowStatus(row) {
+    if (!row) return;
+    const flags = row.querySelector('.payment-status-flags');
+    if (!flags) return;
+
+    const paymentAmount = toNumber(row.querySelector('.payment-amount-input')?.value, 0);
+    const invoiceAmount = toNumber(row.querySelector('.payment-invoice-amount-input')?.value, 0);
+    const badges = [];
+
+    if (paymentAmount > 0 && invoiceAmount <= 0) {
+        badges.push('<span class="badge bg-success-subtle text-success-emphasis border border-success-subtle">已回款，未开票</span>');
+    }
+    if (invoiceAmount > 0 && paymentAmount <= 0) {
+        badges.push('<span class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle">已开票，未回款</span>');
+    }
+
+    flags.innerHTML = badges.join(' ');
+}
+
+function bindPaymentRowBehavior(row, options = {}) {
+    if (!row || row.dataset.paymentBehaviorBound === 'true') {
+        if (row) {
+            updatePaymentRowStatus(row);
+        }
+        return;
+    }
+
+    row.dataset.paymentBehaviorBound = 'true';
+    const amountInput = row.querySelector('.payment-amount-input');
+    const invoiceAmountInput = row.querySelector('.payment-invoice-amount-input');
+    if (!amountInput || !invoiceAmountInput) {
+        return;
+    }
+
+    const initialAutoFollow = Object.prototype.hasOwnProperty.call(options, 'autoFollowInvoice')
+        ? options.autoFollowInvoice
+        : (!invoiceAmountInput.value || invoiceAmountInput.value === amountInput.value);
+    invoiceAmountInput.dataset.autoFollow = initialAutoFollow ? 'true' : 'false';
+
+    amountInput.addEventListener('input', () => {
+        if (invoiceAmountInput.dataset.autoFollow === 'true') {
+            invoiceAmountInput.value = amountInput.value;
+        }
+        updatePaymentRowStatus(row);
+    });
+
+    invoiceAmountInput.addEventListener('input', () => {
+        const paymentFilled = amountInput.value !== '';
+        if (!paymentFilled && invoiceAmountInput.value === '') {
+            invoiceAmountInput.dataset.autoFollow = 'true';
+        } else {
+            invoiceAmountInput.dataset.autoFollow = invoiceAmountInput.value === amountInput.value ? 'true' : 'false';
+        }
+        updatePaymentRowStatus(row);
+    });
+
+    updatePaymentRowStatus(row);
+}
+
+function getCurrentProductPlans() {
+    const products = [];
+    document.querySelectorAll('.product-row').forEach(row => {
+        const code = getProductCodeFromRow(row);
+        if (!code) return;
+        products.push({
+            code,
+            name: row.querySelector('.product-name-input')?.value || '',
+            model: row.querySelector('.product-model-input')?.value || '',
+            unit: row.querySelector('.product-unit-input')?.value || 'pcs',
+            quantity: round2(row.querySelector('.product-qty')?.value || 0),
+            price: round2(row.querySelector('.product-price-input')?.value || 0),
+        });
+    });
+    return products;
+}
+
+function getCurrentTransactionTotalsByProduct() {
+    const totals = new Map();
+    document.querySelectorAll('.transaction-row').forEach(row => {
+        const code = row.querySelector('[name^="transaction_"][name$="_contract_product_id"]')?.value?.trim();
+        if (!code) return;
+        const qty = round2(row.querySelector('.trans-qty')?.value || 0);
+        totals.set(code, round2((totals.get(code) || 0) + qty));
+    });
+    return totals;
+}
+
+function getCurrentPaymentSummary() {
+    let totalPaymentAmount = 0;
+    let totalInvoiceAmount = 0;
+    document.querySelectorAll('.payment-row').forEach(row => {
+        totalPaymentAmount += round2(row.querySelector('.payment-amount-input')?.value || 0);
+        totalInvoiceAmount += round2(row.querySelector('.payment-invoice-amount-input')?.value || 0);
+    });
+    return {
+        totalPaymentAmount: round2(totalPaymentAmount),
+        totalInvoiceAmount: round2(totalInvoiceAmount),
+    };
+}
+
+function fillAllTransactions() {
+    const products = getCurrentProductPlans();
+    if (products.length === 0) {
+        alert('请先添加发货产品计划');
+        return;
+    }
+
+    const deliveredMap = getCurrentTransactionTotalsByProduct();
+    const today = getTodayIsoDate();
+    let createdCount = 0;
+
+    products.forEach(product => {
+        const deliveredQty = deliveredMap.get(product.code) || 0;
+        const remainingQty = round2(product.quantity - deliveredQty);
+        if (remainingQty <= 0) {
+            return;
+        }
+
+        addTransactionRowWithData({
+            product_code: product.code,
+            quantity: remainingQty,
+            unit: product.unit,
+            price_with_tax: product.price,
+            handler: currentUserDisplayName,
+            delivery_date: today,
+            invoice_date: '',
+            remark: '一键填充',
+        });
+        createdCount += 1;
+    });
+
+    if (createdCount === 0) {
+        alert('当前发货记录已经是完全发货状态，无需再填充。');
+    }
+}
+
+function fillFinalPaymentState() {
+    const products = getCurrentProductPlans();
+    const paymentSummary = getCurrentPaymentSummary();
+    const totalValue = round2(document.getElementById('total_value_display')?.value || 0);
+    const targetReceivable = round2(document.getElementById('actual_received_value')?.value || totalValue);
+    const remainingPaymentAmount = round2(targetReceivable - paymentSummary.totalPaymentAmount);
+    const remainingInvoiceAmount = round2(targetReceivable - paymentSummary.totalInvoiceAmount);
+
+    if (remainingPaymentAmount <= 0 && remainingInvoiceAmount <= 0) {
+        alert('当前回款与开票已经是最终完成状态，无需再填充。');
+        return;
+    }
+
+    const today = getTodayIsoDate();
+    const defaultProductCode = products.length === 1 ? products[0].code : '';
+    addPaymentRowWithData({
+        payment_amount: remainingPaymentAmount > 0 ? remainingPaymentAmount : null,
+        invoice_amount: remainingInvoiceAmount > 0 ? remainingInvoiceAmount : null,
+        payment_date: remainingPaymentAmount > 0 ? today : '',
+        invoice_date: remainingInvoiceAmount > 0 ? today : '',
+        handler: currentUserDisplayName,
+        remark: '一键填充',
+        product_code: defaultProductCode,
+    });
 }
 
 function updateContractFinancials(forceSyncActual = false) {
@@ -1118,15 +1328,12 @@ function addPaymentRow() {
     const container = document.getElementById('payments-container');
     const tempDiv = document.createElement('div');
     tempDiv.innerHTML = html;
-    container.appendChild(tempDiv.firstElementChild);
-    
-    const dateInput = document.querySelector(`[name="payment_${paymentCount}_date"]`);
-    if (dateInput) {
-        dateInput.value = new Date().toISOString().split('T')[0];
-    }
+    const row = tempDiv.firstElementChild;
+    container.appendChild(row);
     
     // 填充对应发货记录下拉列表
     updatePaymentProductOptions(paymentCount);
+    bindPaymentRowBehavior(row);
     
     paymentCount++;
     document.getElementById('payment_count').value = paymentCount;
@@ -1621,12 +1828,13 @@ function loadExistingData() {
         {% for payment in contract.payment_records %}
         {
             id: {{ payment.id }},
-            payment_amount: {{ payment.payment_amount }},
-            payment_date: '{{ payment.payment_date.isoformat() if payment.payment_date else "" }}',
-            invoice_date: '{{ payment.invoice_date.isoformat() if payment.invoice_date else "" }}',
-            handler: '{{ payment.handler or "" }}',
-            remark: '{{ payment.remark or "" }}',
-            product_code: '{{ payment.contract_product.product_code if payment.contract_product else "" }}'
+            payment_amount: {{ payment.payment_amount|tojson }},
+            invoice_amount: {{ payment.invoice_amount|tojson }},
+            payment_date: {{ (payment.payment_date.isoformat() if payment.payment_date else "")|tojson }},
+            invoice_date: {{ (payment.invoice_date.isoformat() if payment.invoice_date else "")|tojson }},
+            handler: {{ (payment.handler or "")|tojson }},
+            remark: {{ (payment.remark or "")|tojson }},
+            product_code: {{ (payment.contract_product.product_code if payment.contract_product else "")|tojson }}
         }{% if not loop.last %},{% endif %}
         {% endfor %}
     ];
@@ -1814,16 +2022,20 @@ function addPaymentRowWithData(data, isExisting = false) {
     
     // [v1.5.2] 填充字段值，添加空值检查
     const amountInput = row.querySelector(`[name="payment_${paymentCount}_amount"]`);
+    const invoiceAmountInput = row.querySelector(`[name="payment_${paymentCount}_invoice_amount"]`);
     const dateInput = row.querySelector(`[name="payment_${paymentCount}_date"]`);
     const invoiceInput = row.querySelector(`[name="payment_${paymentCount}_invoice_date"]`);
     const handlerInput = row.querySelector(`[name="payment_${paymentCount}_handler"]`);
     const remarkInput = row.querySelector(`[name="payment_${paymentCount}_remark"]`);
     
-    if (amountInput) amountInput.value = data.payment_amount;
-    if (dateInput) dateInput.value = data.payment_date;
+    if (amountInput) amountInput.value = data.payment_amount ?? '';
+    if (invoiceAmountInput) invoiceAmountInput.value = data.invoice_amount ?? '';
+    if (dateInput) dateInput.value = data.payment_date || '';
     if (invoiceInput) invoiceInput.value = data.invoice_date || '';
     if (handlerInput) handlerInput.value = data.handler || '';
     if (remarkInput) remarkInput.value = data.remark || '';
+
+    bindPaymentRowBehavior(row);
     
     paymentCount++;
     document.getElementById('payment_count').value = paymentCount;

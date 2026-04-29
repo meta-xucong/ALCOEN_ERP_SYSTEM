@@ -2,6 +2,7 @@ from openpyxl import Workbook
 from openpyxl.styles import Font, Alignment, Border, Side, PatternFill, Color
 from openpyxl.utils import get_column_letter
 from openpyxl.drawing.image import Image as XLImage
+from openpyxl.worksheet.properties import PageSetupProperties
 from datetime import datetime
 from itertools import groupby
 import os
@@ -35,7 +36,7 @@ def export_statement_to_excel(statement, transactions, output_path):
         top=Side(style='thin'),
         bottom=Side(style='thin')
     )
-    header_fill = PatternFill(start_color='212529', end_color='212529', fill_type='solid')
+    header_fill = PatternFill(start_color='1F4E79', end_color='1F4E79', fill_type='solid')
     contract_fill = PatternFill(start_color='0D6EFD', end_color='0D6EFD', fill_type='solid')  # 合同行蓝色
     subtotal_fill = PatternFill(start_color='CCE5FF', end_color='CCE5FF', fill_type='solid')  # 小计行浅蓝
     total_fill = PatternFill(start_color='198754', end_color='198754', fill_type='solid')  # 合计行绿色
@@ -59,7 +60,7 @@ def export_statement_to_excel(statement, transactions, output_path):
     # 先设置标题行（A-H列，给logo留出I列）
     ws.merge_cells(f'A{current_row}:H{current_row}')
     ws[f'A{current_row}'] = '客户对账单'
-    ws[f'A{current_row}'].font = Font(size=16, bold=True, color="1e3a5f")
+    ws[f'A{current_row}'].font = Font(size=16, bold=True, color="1F4E79")
     ws[f'A{current_row}'].alignment = center_align
     
     # 在I列（最右侧）放置logo，与标题平行
@@ -263,6 +264,7 @@ def export_delivery_note_to_excel(contract, transactions, output_path, note_no):
     center_align = Alignment(horizontal='center', vertical='center', wrap_text=True)
     right_align = Alignment(horizontal='right', vertical='center')
     left_align = Alignment(horizontal='left', vertical='center')
+    wrapped_left_align = Alignment(horizontal='left', vertical='center', wrap_text=True)
     thin_border = Border(
         left=Side(style='thin'),
         right=Side(style='thin'),
@@ -270,17 +272,31 @@ def export_delivery_note_to_excel(contract, transactions, output_path, note_no):
         bottom=Side(style='thin')
     )
     header_fill = PatternFill(start_color='212529', end_color='212529', fill_type='solid')
+
+    ws.sheet_properties.pageSetUpPr = PageSetupProperties(fitToPage=True, autoPageBreaks=False)
+    ws.page_setup.orientation = 'portrait'
+    ws.page_setup.paperSize = 9
+    ws.page_setup.fitToWidth = 1
+    ws.page_setup.fitToHeight = 0
+    ws.page_margins.left = 0.28
+    ws.page_margins.right = 0.28
+    ws.page_margins.top = 0.45
+    ws.page_margins.bottom = 0.45
+    ws.page_margins.header = 0.2
+    ws.page_margins.footer = 0.2
+    ws.print_options.horizontalCentered = True
+    ws.sheet_view.view = 'pageLayout'
     
-    # 设置列宽
-    ws.column_dimensions['A'].width = 6   # 序号
-    ws.column_dimensions['B'].width = 14  # 产品编码
-    ws.column_dimensions['C'].width = 20  # 产品名称
-    ws.column_dimensions['D'].width = 12  # 型号
-    ws.column_dimensions['E'].width = 8   # 数量
-    ws.column_dimensions['F'].width = 6   # 单位
-    ws.column_dimensions['G'].width = 12  # 发货日期
-    ws.column_dimensions['H'].width = 10  # 经手人
-    ws.column_dimensions['I'].width = 15  # 备注
+    # 设置列宽，确保适配 A4 纸宽
+    ws.column_dimensions['A'].width = 5.5   # 序号
+    ws.column_dimensions['B'].width = 12    # 产品编码
+    ws.column_dimensions['C'].width = 17    # 产品名称
+    ws.column_dimensions['D'].width = 11    # 型号
+    ws.column_dimensions['E'].width = 7     # 数量
+    ws.column_dimensions['F'].width = 5.5   # 单位
+    ws.column_dimensions['G'].width = 11    # 发货日期
+    ws.column_dimensions['H'].width = 9     # 经手人
+    ws.column_dimensions['I'].width = 13    # 备注
     
     current_row = 1
     
@@ -343,6 +359,7 @@ def export_delivery_note_to_excel(contract, transactions, output_path, note_no):
         cell.alignment = center_align
         cell.border = thin_border
         cell.fill = header_fill
+    ws.row_dimensions[current_row].height = 24
     current_row += 1
     
     # 数据行
@@ -357,11 +374,11 @@ def export_delivery_note_to_excel(contract, transactions, output_path, note_no):
         
         # 产品名称
         ws.cell(row=current_row, column=3, value=trans.product_name or '-').border = thin_border
-        ws.cell(row=current_row, column=3).alignment = left_align
+        ws.cell(row=current_row, column=3).alignment = wrapped_left_align
         
         # 型号
         ws.cell(row=current_row, column=4, value=trans.product_model or '-').border = thin_border
-        ws.cell(row=current_row, column=4).alignment = center_align
+        ws.cell(row=current_row, column=4).alignment = wrapped_left_align
         
         # 数量
         ws.cell(row=current_row, column=5, value=trans.quantity).border = thin_border
@@ -384,7 +401,8 @@ def export_delivery_note_to_excel(contract, transactions, output_path, note_no):
         
         # 备注
         ws.cell(row=current_row, column=9, value=trans.remark or '-').border = thin_border
-        ws.cell(row=current_row, column=9).alignment = left_align
+        ws.cell(row=current_row, column=9).alignment = wrapped_left_align
+        ws.row_dimensions[current_row].height = 24
         
         current_row += 1
     
@@ -403,6 +421,8 @@ def export_delivery_note_to_excel(contract, transactions, output_path, note_no):
     
     for col in range(6, 10):
         ws.cell(row=current_row, column=col).border = thin_border
+
+    ws.print_area = f'A1:I{current_row}'
     
     # 保存文件
     wb.save(output_path)

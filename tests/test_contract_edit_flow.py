@@ -196,6 +196,46 @@ def test_edit_contract_keeps_existing_rows_when_adding_new(app, client, login, b
         assert existing_pay_id in pay_ids
 
 
+def test_edit_contract_accepts_invoice_only_payment_record(app, client, login, base_data):
+    """Invoice-only rows should persist without requiring payment amount/date/product."""
+    from app.models import Contract, PaymentRecord
+
+    with app.app_context():
+        contract, cp = _create_contract(base_data["owner_user_id"])
+        contract_id = contract.id
+        form_data = _base_edit_form(contract, cp)
+
+    login(base_data["superadmin_id"])
+    form_data.update(
+        {
+            "transaction_count": "0",
+            "payment_count": "1",
+            "payment_0_amount": "",
+            "payment_0_invoice_amount": "88",
+            "payment_0_date": "",
+            "payment_0_invoice_date": "2026-04-08",
+            "payment_0_handler": "Finance Invoice",
+            "payment_0_remark": "invoice only",
+            "payment_0_contract_product_id": "",
+        }
+    )
+    resp = client.post(f"/contract/{contract_id}/edit", data=form_data, follow_redirects=False)
+
+    assert resp.status_code == 302
+
+    with app.app_context():
+        updated_contract = Contract.query.get(contract_id)
+        assert len(updated_contract.payment_records) == 1
+
+        payment = PaymentRecord.query.filter_by(contract_id=contract_id).first()
+        assert payment is not None
+        assert payment.payment_amount is None
+        assert float(payment.invoice_amount) == 88.0
+        assert payment.payment_date is None
+        assert payment.invoice_date.isoformat() == "2026-04-08"
+        assert payment.contract_product_id is None
+
+
 def test_edit_contract_deletes_only_omitted_existing_rows(app, client, login, base_data):
     """Rows omitted from payload should be deleted only if they existed before submit."""
     from app.models import Contract

@@ -18,10 +18,19 @@ def test_contract_related_tables_have_required_columns(db_session):
 
     assert {"contract_no", "company_name", "delivery_status", "payment_status", "created_by_id"} <= contract_cols
     assert {"contract_id", "contract_product_id", "product_code", "handler", "delivery_date"} <= tx_cols
-    assert {"contract_id", "contract_product_id", "payment_amount", "payment_date"} <= pay_cols
+    assert {"contract_id", "contract_product_id", "payment_amount", "invoice_amount", "payment_date"} <= pay_cols
 
 
 def test_transaction_table_has_no_legacy_payment_date_column(db_session):
     """v1.3 split should keep payment date in payment_records, not transactions."""
     tx_cols = _columns(db_session, "transactions")
     assert "payment_date" not in tx_cols
+
+
+def test_payment_record_amount_and_date_fields_are_optional(db_session):
+    """Invoice-only rows require nullable payment amount/date columns."""
+    rows = db_session.execute(text("PRAGMA table_info(payment_records)")).fetchall()
+    column_info = {row[1]: row for row in rows}
+
+    assert column_info["payment_amount"][3] == 0
+    assert column_info["payment_date"][3] == 0
