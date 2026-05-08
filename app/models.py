@@ -1079,7 +1079,7 @@ ROLE_PERMISSIONS = {
 QC_STATUS_DISPLAY = {
     'draft': {'text': '草稿', 'badge': 'bg-dark'},
     'qc_pending': {'text': '质控未完成', 'badge': 'bg-secondary'},
-    'qc_completed': {'text': '质控已完成', 'badge': 'bg-info'},
+            'qc_completed': {'text': '待加工批次', 'badge': 'bg-info'},
     'inspection_pending': {'text': '质检未完成', 'badge': 'bg-warning'},
     'inspection_completed': {'text': '待验收确认', 'badge': 'bg-primary'},
     'accepted': {'text': '质检已完成', 'badge': 'bg-success'},
