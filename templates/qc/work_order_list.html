@@ -26,7 +26,7 @@
                     <option value="">全部状态</option>
                     <option value="draft" {% if status == 'draft' %}selected{% endif %}>草稿</option>
                     <option value="qc_pending" {% if status == 'qc_pending' %}selected{% endif %}>质控未完成</option>
-                    <option value="qc_completed" {% if status == 'qc_completed' %}selected{% endif %}>质控已完成</option>
+                        <option value="qc_completed" {% if status == 'qc_completed' %}selected{% endif %}>待加工批次</option>
                     <option value="inspection_pending" {% if status == 'inspection_pending' %}selected{% endif %}>质检未完成</option>
                     <option value="inspection_completed" {% if status == 'inspection_completed' %}selected{% endif %}>质检已完成</option>
                     <option value="accepted" {% if status == 'accepted' %}selected{% endif %}>验收已完成</option>
