@@ -75,7 +75,7 @@ QC 系统的核心业务表，记录每一个工件批次的信息和当前状�
 
 **状态枚举：**
 - `qc_pending` — 质控未完成（初始）
-- `qc_completed` — 质控已完成
+- `qc_completed` — 待加工批次
 - `inspection_pending` — 质检未完成
 - `inspection_completed` — 质检已完成（全部通过）
 - `accepted` — 验收已完成
