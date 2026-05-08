@@ -117,7 +117,7 @@ QC 工件订单状态在前端必须使用以下颜色类：
 | 状态 | 状态码 | Badge 类 |
 |------|--------|---------|
 | 质控未完成 | `qc_pending` | `bg-secondary` |
-| 质控已完成 | `qc_completed` | `bg-info` |
+| 待加工批次 | `qc_completed` | `bg-info` |
 | 质检未完成 | `inspection_pending` | `bg-warning` |
 | 质检已完成 | `inspection_completed` | `bg-primary` |
 | 验收已完成 | `accepted` | `bg-success` |
@@ -128,7 +128,7 @@ QC 工件订单状态在前端必须使用以下颜色类：
 ```python
 QC_STATUS_DISPLAY = {
     'qc_pending': {'text': '质控未完成', 'badge': 'bg-secondary'},
-    'qc_completed': {'text': '质控已完成', 'badge': 'bg-info'},
+'qc_completed': {'text': '待加工批次', 'badge': 'bg-info'},
     'inspection_pending': {'text': '质检未完成', 'badge': 'bg-warning'},
     'inspection_completed': {'text': '质检已完成', 'badge': 'bg-primary'},
     'accepted': {'text': '验收已完成', 'badge': 'bg-success'},
