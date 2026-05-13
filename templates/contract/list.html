@@ -196,7 +196,7 @@
                             </a>
                             {% endif %}
                             {% endif %}
-                            {% if current_user.has_permission('contract_delete') and current_user.can_access_department(contract.department) %}
+                            {% if current_user.can_delete_contract(contract) %}
                             <form method="POST" action="{{ url_for('contract.delete_contract', id=contract.id) }}" class="d-inline" onsubmit="return confirm('确定要删除该合同吗？此操作将删除合同下的所有记录。');">
                                 <button type="submit" class="btn btn-sm btn-outline-danger">
                                     <i class="bi bi-trash"></i>
