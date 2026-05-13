@@ -104,14 +104,38 @@
 }
 
 .delivery-note-table col:nth-child(1) { width: 6%; }
-.delivery-note-table col:nth-child(2) { width: 12%; }
-.delivery-note-table col:nth-child(3) { width: 17%; }
-.delivery-note-table col:nth-child(4) { width: 12%; }
+.delivery-note-table col:nth-child(2) { width: 23%; }
+.delivery-note-table col:nth-child(3) { width: 22%; }
+.delivery-note-table col:nth-child(4) { width: 11%; }
 .delivery-note-table col:nth-child(5) { width: 8%; }
 .delivery-note-table col:nth-child(6) { width: 6%; }
-.delivery-note-table col:nth-child(7) { width: 12%; }
-.delivery-note-table col:nth-child(8) { width: 10%; }
-.delivery-note-table col:nth-child(9) { width: 17%; }
+.delivery-note-table col:nth-child(7) { width: 11%; }
+.delivery-note-table col:nth-child(8) { width: 9%; }
+.delivery-note-table col:nth-child(9) { width: 4%; }
+
+.delivery-code-cell {
+    white-space: normal;
+    word-break: break-all;
+    overflow-wrap: anywhere;
+}
+
+.delivery-code-cell code {
+    display: block;
+    width: 100%;
+    font-size: 10.8px;
+    font-weight: 400;
+    line-height: 1.15;
+    letter-spacing: 0;
+    color: #000;
+    background: transparent;
+    padding: 0;
+}
+
+.delivery-remark-cell {
+    font-size: 10px;
+    padding-left: 1px !important;
+    padding-right: 1px !important;
+}
 
 .delivery-note-total-row td {
     font-weight: 700;
@@ -199,6 +223,15 @@
         padding: 2px 2px !important;
     }
 
+    .delivery-code-cell code {
+        font-size: 8.4pt !important;
+        font-weight: 400 !important;
+    }
+
+    .delivery-remark-cell {
+        font-size: 7.2pt !important;
+    }
+
     .delivery-note-table tr,
     .delivery-note-header {
         page-break-inside: avoid;
@@ -282,7 +315,7 @@
                 {% for trans in transactions %}
                 <tr>
                     <td class="text-center">{{ loop.index }}</td>
-                    <td class="text-center"><code>{{ trans.product_code }}</code></td>
+                    <td class="text-center delivery-code-cell"><code>{{ trans.product_code }}</code></td>
                     <td>{{ trans.product_name or '-' }}</td>
                     <td class="text-center">{{ trans.product_model or '-' }}</td>
                     <td class="text-center">{{ '%.2f'|format(trans.quantity or 0) }}</td>
@@ -290,7 +323,7 @@
                     <td class="text-center">{{ trans.delivery_date|format_date }}</td>
                     <td class="text-center">{{ trans.handler or '-' }}</td>
                     {% set remark_text = (trans.remark or '')|trim %}
-                    <td>{% if remark_text and remark_text not in ['一键填充', '自动填充'] %}{{ remark_text }}{% else %}&nbsp;{% endif %}</td>
+                    <td class="delivery-remark-cell">{% if remark_text and remark_text not in ['一键填充', '自动填充'] %}{{ remark_text }}{% else %}&nbsp;{% endif %}</td>
                 </tr>
                 {% endfor %}
                 <tr class="delivery-note-total-row">
