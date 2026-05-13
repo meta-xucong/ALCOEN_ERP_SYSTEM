@@ -169,6 +169,59 @@ def test_department_pm_cannot_delete_other_department_contract(app, client, logi
         assert Contract.query.get(target_contract_id) is not None
 
 
+def test_sales_manager_can_delete_own_contract_without_contract_delete_permission(app, client, login):
+    """Contract creator should be able to delete own contract even without contract_delete code."""
+    with app.app_context():
+        sales = Department(name="Sales")
+        db.session.add(sales)
+        db.session.flush()
+
+        sales_role = _create_role(
+            "sales_manager",
+            ["contract_view", "contract_edit", "contract_create"],  # no contract_delete
+            level=20,
+        )
+        owner = _create_user("sales_owner_delete_self", sales_role, sales)
+        contract = _create_contract("SELF-DEL-C001", owner.id, "Sales")
+
+        owner_id = owner.id
+        contract_id = contract.id
+
+    login(owner_id)
+    resp = client.post(f"/contract/{contract_id}/delete", follow_redirects=True)
+
+    assert resp.status_code == 200
+    with app.app_context():
+        assert Contract.query.get(contract_id) is None
+
+
+def test_sales_manager_cannot_delete_others_contract_without_contract_delete_permission(app, client, login):
+    """Non-owner sales manager should still be blocked from deleting another creator's contract."""
+    with app.app_context():
+        sales = Department(name="Sales")
+        db.session.add(sales)
+        db.session.flush()
+
+        sales_role = _create_role(
+            "sales_manager",
+            ["contract_view", "contract_edit", "contract_create"],  # no contract_delete
+            level=20,
+        )
+        owner = _create_user("sales_owner_delete_other_a", sales_role, sales)
+        other = _create_user("sales_owner_delete_other_b", sales_role, sales)
+        contract = _create_contract("OTHER-DEL-C001", owner.id, "Sales")
+
+        other_id = other.id
+        contract_id = contract.id
+
+    login(other_id)
+    resp = client.post(f"/contract/{contract_id}/delete", follow_redirects=True)
+
+    assert resp.status_code == 200
+    with app.app_context():
+        assert Contract.query.get(contract_id) is not None
+
+
 def test_contract_scope_matrix_for_all_roles(app):
     """Validate view/edit/basic-edit matrix across all built-in contract roles."""
     with app.app_context():
