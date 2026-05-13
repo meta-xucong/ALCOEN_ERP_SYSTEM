@@ -936,7 +936,7 @@ function fillAllTransactions() {
             handler: currentUserDisplayName,
             delivery_date: today,
             invoice_date: '',
-            remark: '一键填充',
+            remark: '',
         });
         createdCount += 1;
     });
@@ -967,7 +967,7 @@ function fillFinalPaymentState() {
         payment_date: remainingPaymentAmount > 0 ? today : '',
         invoice_date: remainingInvoiceAmount > 0 ? today : '',
         handler: currentUserDisplayName,
-        remark: '一键填充',
+        remark: '',
         product_code: defaultProductCode,
     });
 }
@@ -1918,7 +1918,12 @@ function addProductRowWithData(data) {
     updateContractFinancials();
 }
 
+// addTransactionRowWithData / addPaymentRowWithData 在下方定义为共享函数
+{% endif %}
+
+// [v1.5.4] 共享辅助函数：新建/编辑页面都需要支持一键填充
 function addTransactionRowWithData(data, isExisting = false) {
+    const payload = data || {};
     const template = document.getElementById('transaction-row-template').innerHTML;
     const html = template.replace(/{index}/g, transactionCount);
     const container = document.getElementById('transactions-container');
@@ -1927,55 +1932,58 @@ function addTransactionRowWithData(data, isExisting = false) {
     const row = tempDiv.firstElementChild;
     container.appendChild(row);
     normalizeTransactionRowLayout(row);
-    
-    if (isExisting) {
-        row.dataset.existingId = data.id;
+
+    if (isExisting && payload.id) {
+        row.dataset.existingId = payload.id;
         const idInput = document.createElement('input');
         idInput.type = 'hidden';
         idInput.name = `transaction_${transactionCount}_id`;
-        idInput.value = data.id;
+        idInput.value = payload.id;
         row.appendChild(idInput);
     }
-    
+
     updateTransactionProductOptions(transactionCount);
-    
+
     const productSelect = row.querySelector(`[name="transaction_${transactionCount}_contract_product_id"]`);
-    
-    // 尝试选择产品
+
     let productFound = false;
-    if (productSelect && data.product_code) {
+    if (productSelect && payload.product_code) {
         for (let opt of productSelect.options) {
-            if (opt.value === data.product_code) {
-                productSelect.value = data.product_code;
+            if (opt.value === payload.product_code) {
+                productSelect.value = payload.product_code;
                 onTransactionProductSelect(productSelect);
                 productFound = true;
                 break;
             }
         }
     }
-    
-    // [v1.5.2] 如果找不到产品，添加一个提示选项
-    if (!productFound && productSelect && data.product_code) {
+
+    if (!productFound && productSelect && payload.product_code) {
         const option = document.createElement('option');
-        option.value = data.product_code;
-        option.textContent = `${data.product_code} (原产品)`;
+        option.value = payload.product_code;
+        option.textContent = `${payload.product_code} (原产品)`;
         option.selected = true;
         productSelect.appendChild(option);
     }
-    
-    row.querySelector(`[name="transaction_${transactionCount}_quantity"]`).value = data.quantity;
-    row.querySelector(`[name="transaction_${transactionCount}_price"]`).value = data.price_with_tax;
-    row.querySelector(`[name="transaction_${transactionCount}_handler"]`).value = data.handler;
-    row.querySelector(`[name="transaction_${transactionCount}_delivery_date"]`).value = data.delivery_date;
-    if (data.remark) {
-        row.querySelector(`[name="transaction_${transactionCount}_remark"]`).value = data.remark;
-    }
-    
+
+    const qtyInput = row.querySelector(`[name="transaction_${transactionCount}_quantity"]`);
+    const priceInput = row.querySelector(`[name="transaction_${transactionCount}_price"]`);
+    const handlerInput = row.querySelector(`[name="transaction_${transactionCount}_handler"]`);
+    const dateInput = row.querySelector(`[name="transaction_${transactionCount}_delivery_date"]`);
+    const remarkInput = row.querySelector(`[name="transaction_${transactionCount}_remark"]`);
+
+    if (qtyInput) qtyInput.value = payload.quantity ?? '';
+    if (priceInput) priceInput.value = payload.price_with_tax ?? '';
+    if (handlerInput) handlerInput.value = payload.handler || currentUserDisplayName;
+    if (dateInput) dateInput.value = payload.delivery_date || '';
+    if (remarkInput) remarkInput.value = payload.remark || '';
+
     transactionCount++;
     document.getElementById('transaction_count').value = transactionCount;
 }
 
 function addPaymentRowWithData(data, isExisting = false) {
+    const payload = data || {};
     const template = document.getElementById('payment-row-template').innerHTML;
     const html = template.replace(/{index}/g, paymentCount);
     const container = document.getElementById('payments-container');
@@ -1983,64 +1991,56 @@ function addPaymentRowWithData(data, isExisting = false) {
     tempDiv.innerHTML = html;
     const row = tempDiv.firstElementChild;
     container.appendChild(row);
-    
-    if (isExisting) {
-        row.dataset.existingId = data.id;
+
+    if (isExisting && payload.id) {
+        row.dataset.existingId = payload.id;
         const idInput = document.createElement('input');
         idInput.type = 'hidden';
         idInput.name = `payment_${paymentCount}_id`;
-        idInput.value = data.id;
+        idInput.value = payload.id;
         row.appendChild(idInput);
     }
-    
-    // 填充对应发货记录下拉列表
+
     updatePaymentProductOptions(paymentCount);
-    
-    // [v1.5.2] 恢复对应产品选择（通过 product_code 匹配）
+
     const productSelect = document.querySelector(`[name="payment_${paymentCount}_contract_product_id"]`);
-    if (productSelect && data.product_code) {
+    if (productSelect && payload.product_code) {
         let found = false;
         for (let opt of productSelect.options) {
-            if (opt.value === data.product_code) {
-                productSelect.value = data.product_code;
+            if (opt.value === payload.product_code) {
+                productSelect.value = payload.product_code;
                 found = true;
                 break;
             }
         }
-        // 如果找不到对应产品，添加一个提示选项
         if (!found) {
             const option = document.createElement('option');
-            option.value = data.product_code;
-            option.textContent = `${data.product_code} (原产品)`;
+            option.value = payload.product_code;
+            option.textContent = `${payload.product_code} (原产品)`;
             option.selected = true;
             productSelect.appendChild(option);
         }
-    } else if (productSelect && data.contract_product_id) {
-        // 兼容旧数据：如果没有 product_code 但有 contract_product_id
-        console.warn(`[DEBUG] Payment ${paymentCount}: has contract_product_id but no product_code`);
     }
-    
-    // [v1.5.2] 填充字段值，添加空值检查
+
     const amountInput = row.querySelector(`[name="payment_${paymentCount}_amount"]`);
     const invoiceAmountInput = row.querySelector(`[name="payment_${paymentCount}_invoice_amount"]`);
     const dateInput = row.querySelector(`[name="payment_${paymentCount}_date"]`);
     const invoiceInput = row.querySelector(`[name="payment_${paymentCount}_invoice_date"]`);
     const handlerInput = row.querySelector(`[name="payment_${paymentCount}_handler"]`);
     const remarkInput = row.querySelector(`[name="payment_${paymentCount}_remark"]`);
-    
-    if (amountInput) amountInput.value = data.payment_amount ?? '';
-    if (invoiceAmountInput) invoiceAmountInput.value = data.invoice_amount ?? '';
-    if (dateInput) dateInput.value = data.payment_date || '';
-    if (invoiceInput) invoiceInput.value = data.invoice_date || '';
-    if (handlerInput) handlerInput.value = data.handler || '';
-    if (remarkInput) remarkInput.value = data.remark || '';
+
+    if (amountInput) amountInput.value = payload.payment_amount ?? '';
+    if (invoiceAmountInput) invoiceAmountInput.value = payload.invoice_amount ?? '';
+    if (dateInput) dateInput.value = payload.payment_date || '';
+    if (invoiceInput) invoiceInput.value = payload.invoice_date || '';
+    if (handlerInput) handlerInput.value = payload.handler || currentUserDisplayName;
+    if (remarkInput) remarkInput.value = payload.remark || '';
 
     bindPaymentRowBehavior(row);
-    
+
     paymentCount++;
     document.getElementById('payment_count').value = paymentCount;
 }
-{% endif %}
 
 // [v1.4] 合同文件上传管理
 let selectedDocuments = [];
@@ -2154,19 +2154,33 @@ function deleteExistingDocument(docId) {
     fetch(`/contract/${contractId}/file/${docId}/delete`, {
         method: 'POST',
         headers: {
-            'Content-Type': 'application/json'
+            'X-Requested-With': 'XMLHttpRequest',
+            'Accept': 'application/json'
         }
     })
-    .then(response => {
-        if (response.redirected) {
-            window.location.reload();
-        } else {
-            const div = document.getElementById(`existing-doc-${docId}`);
-            if (div) div.remove();
+    .then(async response => {
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || !data.success) {
+            throw new Error(data.error || '删除失败');
+        }
+        const div = document.getElementById(`existing-doc-${docId}`);
+        if (div) div.remove();
+
+        const documentsContainer = document.getElementById('existing-documents');
+        if (documentsContainer) {
+            const remaining = documentsContainer.querySelectorAll('[id^="existing-doc-"]').length;
+            const countBadge = documentsContainer.parentElement?.querySelector('label .badge');
+            if (countBadge) {
+                countBadge.textContent = `${remaining}个`;
+            }
+            if (remaining === 0) {
+                const wrapper = documentsContainer.closest('.mb-3');
+                if (wrapper) wrapper.remove();
+            }
         }
     })
     .catch(error => {
-        alert('删除失败：' + error);
+        alert('删除失败：' + (error.message || error));
     });
 }
 </script>
