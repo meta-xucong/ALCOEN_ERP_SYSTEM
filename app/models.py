@@ -734,6 +734,33 @@ class User(db.Model):
                 return contract.created_by_id == self.id
             return True
         return True
+
+    def can_delete_contract(self, contract=None) -> bool:
+        """是否可以删除合同。
+
+        规则：
+        1. 超级管理员可以删除所有合同；
+        2. 合同创建人可以删除自己创建的合同（物流经理除外）；
+        3. 其他角色需同时具备 contract_delete 权限，且满足基础编辑范围校验。
+        """
+        if self.is_superadmin:
+            return True
+
+        if not contract:
+            return False
+
+        # 物流经理不允许删除合同
+        if self.role.code == 'logistics_manager':
+            return False
+
+        # 创建人可删除自己创建的合同（满足用户需求）
+        if contract.created_by_id == self.id:
+            return True
+
+        # 非创建人需具备删除权限，并且落在可编辑范围内
+        if not self.has_permission('contract_delete'):
+            return False
+        return self.can_edit_contract_basic(contract)
     
     def is_logistics_manager(self) -> bool:
         """是否是物流经理"""

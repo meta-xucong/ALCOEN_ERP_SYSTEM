@@ -4,20 +4,80 @@
 
 {% block extra_css %}
 <style>
+@page {
+    size: A5 portrait;
+    margin: 4mm;
+}
+
 .delivery-note-sheet {
-    width: 190mm;
+    width: 148mm;
     max-width: 100%;
-    margin: 0 auto 2rem;
+    margin: 0 auto 1rem;
     background: #fff;
     color: #111;
 }
 
 .delivery-note-sheet .sheet-body {
-    padding: 12mm 12mm 10mm;
+    padding: 5mm 5mm 4mm;
+    font-size: 12px;
+    line-height: 1.3;
 }
 
-.delivery-note-meta p {
-    margin-bottom: 0.35rem;
+.delivery-note-top {
+    display: grid;
+    grid-template-columns: 36mm 1fr;
+    gap: 4mm;
+    border: 1px solid #000;
+    padding: 3mm;
+    margin-bottom: 3mm;
+}
+
+.delivery-note-logo-box {
+    border-right: 1px solid #000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding-right: 3mm;
+    min-height: 24mm;
+}
+
+.delivery-note-logo-box img {
+    max-height: 15mm;
+    max-width: 100%;
+    object-fit: contain;
+}
+
+.delivery-note-title-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 6px;
+    margin-bottom: 3px;
+}
+
+.delivery-note-title-row h2 {
+    margin: 0;
+    font-size: 18px;
+    line-height: 1.1;
+    font-weight: 700;
+}
+
+.delivery-note-note-no {
+    font-size: 11px;
+    font-weight: 600;
+}
+
+.delivery-note-subline {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin: 1px 0;
+    font-size: 11px;
+}
+
+.delivery-note-subline span {
+    overflow-wrap: anywhere;
+    word-break: break-word;
 }
 
 .delivery-note-table {
@@ -29,27 +89,29 @@
 .delivery-note-table th,
 .delivery-note-table td {
     border: 1px solid #000;
-    padding: 6px 5px;
+    padding: 3px 3px;
     vertical-align: middle;
     word-break: break-all;
     overflow-wrap: anywhere;
+    line-height: 1.2;
 }
 
 .delivery-note-table thead th {
     background: #d9d9d9;
     text-align: center;
     font-weight: 700;
+    font-size: 10.5px;
 }
 
 .delivery-note-table col:nth-child(1) { width: 6%; }
-.delivery-note-table col:nth-child(2) { width: 13%; }
+.delivery-note-table col:nth-child(2) { width: 12%; }
 .delivery-note-table col:nth-child(3) { width: 17%; }
-.delivery-note-table col:nth-child(4) { width: 14%; }
+.delivery-note-table col:nth-child(4) { width: 12%; }
 .delivery-note-table col:nth-child(5) { width: 8%; }
-.delivery-note-table col:nth-child(6) { width: 7%; }
-.delivery-note-table col:nth-child(7) { width: 14%; }
-.delivery-note-table col:nth-child(8) { width: 9%; }
-.delivery-note-table col:nth-child(9) { width: 12%; }
+.delivery-note-table col:nth-child(6) { width: 6%; }
+.delivery-note-table col:nth-child(7) { width: 12%; }
+.delivery-note-table col:nth-child(8) { width: 10%; }
+.delivery-note-table col:nth-child(9) { width: 17%; }
 
 .delivery-note-total-row td {
     font-weight: 700;
@@ -70,14 +132,17 @@
 
 @media print {
     @page {
-        size: A4 portrait;
-        margin: 10mm;
+        size: A5 portrait;
+        margin: 4mm !important;
     }
 
     html,
     body {
         background: #fff !important;
         overflow: visible !important;
+        margin: 0 !important;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
     }
 
     body * {
@@ -126,18 +191,21 @@
     }
 
     .delivery-note-table {
-        font-size: 9pt;
+        font-size: 8pt;
     }
 
     .delivery-note-table th,
     .delivery-note-table td {
-        padding: 4px 4px !important;
+        padding: 2px 2px !important;
     }
 
     .delivery-note-table tr,
-    .delivery-note-meta,
     .delivery-note-header {
         page-break-inside: avoid;
+    }
+
+    .delivery-note-table thead {
+        display: table-header-group;
     }
 
     .text-gradient {
@@ -169,26 +237,26 @@
     </div>
 
     <div class="sheet-body">
-        <div class="text-center mb-3 delivery-note-header">
-            <img src="{{ url_for('static', filename='img/logo.png') }}" alt="ALCOEN" height="42">
-        </div>
-
-        <div class="text-center mb-4 delivery-note-header">
-            <h2 class="mb-1" style="font-weight: 700;">发货单</h2>
-            <div class="text-muted">{{ note_no }}</div>
-        </div>
-
-        <div class="border p-3 mb-3 delivery-note-meta">
-            <div class="row g-2">
-                <div class="col-md-6">
-                    <p><strong>合同编号：</strong>{{ contract.contract_no }}</p>
-                    <p><strong>客户名称：</strong>{{ contract.company_name }}</p>
-                    <p><strong>部门 / 负责人：</strong>{{ contract.department or '-' }} / {{ contract.manager or '-' }}</p>
+        <div class="delivery-note-top delivery-note-header">
+            <div class="delivery-note-logo-box">
+                <img src="{{ url_for('static', filename='img/logo.png') }}" alt="ALCOEN">
+            </div>
+            <div>
+                <div class="delivery-note-title-row">
+                    <h2>发货单</h2>
+                    <span class="delivery-note-note-no">{{ note_no }}</span>
                 </div>
-                <div class="col-md-6">
-                    <p><strong>生成时间：</strong>{{ generated_at.strftime('%Y-%m-%d %H:%M') }}</p>
-                    <p><strong>发货记录数：</strong>{{ transactions|length }} 条</p>
-                    <p><strong>备注：</strong>本单据由系统根据当前发货记录生成</p>
+                <div class="delivery-note-subline">
+                    <span><strong>合同编号：</strong>{{ contract.contract_no }}</span>
+                    <span><strong>客户名称：</strong>{{ contract.company_name }}</span>
+                </div>
+                <div class="delivery-note-subline">
+                    <span><strong>部门/负责人：</strong>{{ contract.department or '-' }} / {{ contract.manager or '-' }}</span>
+                    <span><strong>生成时间：</strong>{{ generated_at.strftime('%Y-%m-%d %H:%M') }}</span>
+                </div>
+                <div class="delivery-note-subline">
+                    <span><strong>发货记录：</strong>{{ transactions|length }} 条</span>
+                    <span><strong>纸张：</strong>A5</span>
                 </div>
             </div>
         </div>
@@ -221,7 +289,8 @@
                     <td class="text-center">{{ trans.unit or '-' }}</td>
                     <td class="text-center">{{ trans.delivery_date|format_date }}</td>
                     <td class="text-center">{{ trans.handler or '-' }}</td>
-                    <td>{{ trans.remark or '-' }}</td>
+                    {% set remark_text = (trans.remark or '')|trim %}
+                    <td>{% if remark_text and remark_text not in ['一键填充', '自动填充'] %}{{ remark_text }}{% else %}&nbsp;{% endif %}</td>
                 </tr>
                 {% endfor %}
                 <tr class="delivery-note-total-row">

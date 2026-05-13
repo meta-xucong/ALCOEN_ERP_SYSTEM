@@ -841,11 +841,10 @@ def logistics_edit_contract(id):
 
 @contract_bp.route('/<int:id>/delete', methods=['POST'])
 @login_required
-@permission_required('contract_delete')
 def delete_contract(id):
     """删除合同"""
     contract = Contract.query.get_or_404(id)
-    if not g.current_user.can_edit_contract_basic(contract):
+    if not g.current_user.can_delete_contract(contract):
         flash('您没有权限删除此合同', 'error')
         return redirect(url_for('contract.list_contracts'))
 
@@ -865,16 +864,22 @@ def delete_contract_file(contract_id, file_id):
     from app.models import ContractFile
     
     contract_file = ContractFile.query.get_or_404(file_id)
+    contract = contract_file.contract
+    is_ajax = request.headers.get('X-Requested-With') == 'XMLHttpRequest'
+
+    if contract_file.contract_id != contract_id:
+        message = '文件与合同不匹配！'
+        if is_ajax:
+            return jsonify({'success': False, 'error': message}), 400
+        flash(message, 'error')
+        return redirect(url_for('contract.edit_contract', id=contract_id))
     
-    # 检查权限：上传者本人或管理员可以删除
-    can_delete = False
-    if g.current_user.is_superadmin or g.current_user.role.code == 'general_manager':
-        can_delete = True
-    elif contract_file.contract.created_by_id == g.current_user.id:
-        can_delete = True
-    
-    if not can_delete:
-        flash('您无权删除此文件！', 'error')
+    # 权限与“编辑合同基础信息”保持一致，避免前端可见但后端拒绝。
+    if not contract or not g.current_user.can_edit_contract_basic(contract):
+        message = '您无权删除此文件！'
+        if is_ajax:
+            return jsonify({'success': False, 'error': message}), 403
+        flash(message, 'error')
         return redirect(url_for('contract.edit_contract', id=contract_id))
     
     try:
@@ -887,12 +892,17 @@ def delete_contract_file(contract_id, file_id):
             os.remove(file_path)
         
         # 删除数据库记录
+        deleted_filename = contract_file.filename
         db.session.delete(contract_file)
         db.session.commit()
         
-        flash(f'文件 "{contract_file.filename}" 删除成功！', 'success')
+        if is_ajax:
+            return jsonify({'success': True, 'file_id': file_id, 'filename': deleted_filename})
+        flash(f'文件 "{deleted_filename}" 删除成功！', 'success')
     except Exception as e:
         db.session.rollback()
+        if is_ajax:
+            return jsonify({'success': False, 'error': str(e)}), 500
         flash(f'删除失败：{str(e)}', 'error')
     
     return redirect(url_for('contract.edit_contract', id=contract_id))
