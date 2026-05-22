@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from typing import Dict
 
 from app.services.contract_service import ContractService
@@ -513,3 +514,101 @@ def test_edit_contract_updates_existing_product_plan_and_transaction_together(ap
         assert updated_tx.unit == "box"
         assert float(updated_tx.price_with_tax) == 60.0
         assert updated_tx.handler == "Updated Handler"
+
+
+def test_logistics_edit_submit_with_autofill_payload_completes_delivery_status(app, client, login, base_data):
+    """Logistics submit should close delivery status when payload fills the remaining quantity."""
+    from app import db
+    from app.models import Contract, PaymentRecord, Role, Transaction, User
+
+    with app.app_context():
+        contract, cp = _create_contract(base_data["owner_user_id"])
+        existing_tx = ContractService.add_transaction(
+            contract.id,
+            {
+                "contract_product_id": cp.id,
+                "quantity": 30,
+                "unit": cp.unit,
+                "price_with_tax": cp.price,
+                "handler": "Logistics Partial",
+                "delivery_date": "2026-04-09",
+                "invoice_date": "",
+                "remark": "existing partial",
+            },
+            is_new=True,
+        )
+        contract = Contract.query.get(contract.id)
+        assert contract.delivery_status == "partial"
+
+        logistics_role = Role.query.filter_by(code="logistics_manager").first()
+        if logistics_role is None:
+            logistics_role = Role(
+                name="Logistics Manager",
+                code="logistics_manager",
+                permissions=json.dumps(["contract_view", "contract_edit_delivery"]),
+                level=60,
+            )
+            db.session.add(logistics_role)
+            db.session.flush()
+
+        logistics_user = User(
+            username="logistics_fill_submit",
+            password_hash="x",
+            real_name="Logistics Fill",
+            role_id=logistics_role.id,
+            department_id=None,
+            is_active=True,
+            is_superadmin=False,
+            require_password_change=False,
+        )
+        db.session.add(logistics_user)
+        db.session.commit()
+
+        contract_id = contract.id
+        existing_tx_id = existing_tx.id
+        cp_code = cp.product_code
+        cp_quantity = float(cp.quantity)
+        cp_unit = cp.unit
+        cp_price = float(cp.price)
+        remaining_qty = cp_quantity - float(existing_tx.quantity)
+        logistics_user_id = logistics_user.id
+
+    login(logistics_user_id)
+    resp = client.post(
+        f"/contract/{contract_id}/logistics-edit",
+        data={
+            "transaction_count": "2",
+            "transaction_0_id": str(existing_tx_id),
+            "transaction_0_contract_product_id": cp_code,
+            "transaction_0_quantity": "30",
+            "transaction_0_unit": cp_unit,
+            "transaction_0_price": str(cp_price),
+            "transaction_0_handler": "Logistics Partial",
+            "transaction_0_delivery_date": "2026-04-09",
+            "transaction_0_remark": "existing partial",
+            "transaction_1_contract_product_id": cp_code,
+            "transaction_1_quantity": str(remaining_qty),
+            "transaction_1_unit": cp_unit,
+            "transaction_1_price": str(cp_price),
+            "transaction_1_handler": "Logistics Fill",
+            "transaction_1_delivery_date": "2026-04-10",
+            "transaction_1_remark": "autofill remainder",
+        },
+        follow_redirects=False,
+    )
+
+    assert resp.status_code == 302
+    assert f"/contract/{contract_id}" in resp.headers.get("Location", "")
+
+    with app.app_context():
+        updated_contract = Contract.query.get(contract_id)
+        assert updated_contract is not None
+        assert updated_contract.delivery_status == "completed"
+        assert updated_contract.payment_status == "pending"
+        assert updated_contract.status == "pending"
+
+        transactions = Transaction.query.filter_by(contract_id=contract_id).all()
+        assert len(transactions) == 2
+        delivered_total = round(sum(float(tx.quantity) for tx in transactions), 2)
+        assert delivered_total == round(cp_quantity, 2)
+        assert PaymentRecord.query.filter_by(contract_id=contract_id).count() == 0

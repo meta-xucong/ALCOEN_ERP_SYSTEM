@@ -94,9 +94,14 @@
     <div class="card mb-4 border-info">
         <div class="card-header bg-info text-white d-flex justify-content-between align-items-center">
             <h5 class="mb-0"><i class="bi bi-truck"></i> 发货记录（可编辑）</h5>
-            <button type="button" class="btn btn-light btn-sm" onclick="addTransactionRow()">
-                <i class="bi bi-plus"></i> 添加发货记录
-            </button>
+            <div class="d-flex gap-2">
+                <button type="button" class="btn btn-light btn-sm" onclick="fillAllTransactions()">
+                    <i class="bi bi-magic"></i> 一键填充
+                </button>
+                <button type="button" class="btn btn-light btn-sm" onclick="addTransactionRow()">
+                    <i class="bi bi-plus"></i> 添加发货记录
+                </button>
+            </div>
         </div>
         <div class="card-body">
             <div id="transactions-container">
@@ -288,6 +293,7 @@ const contractProducts = [
         code: '{{ cp.product_code }}',
         name: '{{ cp.product_name or "" }}',
         model: '{{ cp.product_model or "" }}',
+        quantity: {{ cp.quantity }},
         unit: '{{ cp.unit }}',
         price: {{ cp.price }}
     }{% if not loop.last %},{% endif %}
@@ -296,6 +302,64 @@ const contractProducts = [
 
 // 发货记录管理
 let transactionCount = 0;
+const currentUserDisplayName = {{ (current_user.real_name or current_user.username)|tojson }};
+
+function round2(value) {
+    return Math.round((Number(value) || 0) * 100) / 100;
+}
+
+function getTodayIsoDate() {
+    return new Date().toISOString().split('T')[0];
+}
+
+function getCurrentTransactionTotalsByProduct() {
+    const totals = new Map();
+    document.querySelectorAll('.transaction-row').forEach(row => {
+        const code = row.querySelector('[name^="transaction_"][name$="_contract_product_id"]')?.value?.trim();
+        if (!code) {
+            return;
+        }
+        const qty = round2(row.querySelector('.trans-qty')?.value || 0);
+        totals.set(code, round2((totals.get(code) || 0) + qty));
+    });
+    return totals;
+}
+
+function fillAllTransactions() {
+    if (contractProducts.length === 0) {
+        alert('当前没有可用的产品计划。');
+        return;
+    }
+
+    const deliveredMap = getCurrentTransactionTotalsByProduct();
+    const today = getTodayIsoDate();
+    let createdCount = 0;
+
+    contractProducts.forEach(product => {
+        const plannedQty = round2(product.quantity || 0);
+        const deliveredQty = round2(deliveredMap.get(product.code) || 0);
+        const remainingQty = round2(plannedQty - deliveredQty);
+        if (remainingQty <= 0) {
+            return;
+        }
+
+        addTransactionRowWithData({
+            product_code: product.code,
+            quantity: remainingQty,
+            unit: product.unit || '',
+            price_with_tax: round2(product.price || 0),
+            handler: currentUserDisplayName,
+            delivery_date: today,
+            remark: '',
+        });
+        createdCount += 1;
+    });
+
+    if (createdCount === 0) {
+        alert('当前发货记录已经覆盖全部计划数量，无需再填充。');
+    }
+}
+
 
 function addTransactionRow() {
     if (contractProducts.length === 0) {

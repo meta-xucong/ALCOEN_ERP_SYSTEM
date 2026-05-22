@@ -773,7 +773,6 @@ def logistics_edit_contract(id):
                 
                 # 新增发货记录
                 if product_code:
-                    from app.models import ContractProduct
                     contract_product = ContractProduct.query.filter_by(
                         contract_id=contract.id,
                         product_code=product_code
