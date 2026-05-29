@@ -45,6 +45,29 @@ def _to_float2_or_none(value):
         return None
 
 
+def _to_int(value, default=None):
+    """将输入安全转换为整数，兼容 undefined/null/空字符串。"""
+    if value is None:
+        return default
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in ('', 'undefined', 'null', 'none', 'nan'):
+            return default
+        value = normalized
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _to_non_negative_int(value, default: int = 0) -> int:
+    """将输入转换为非负整数；异常或负数回退到默认值。"""
+    parsed = _to_int(value, default)
+    if parsed is None:
+        return default
+    return parsed if parsed >= 0 else default
+
+
 def _parse_optional_date(value):
     """解析可选日期字符串。"""
     if not value:
@@ -189,7 +212,7 @@ def new_contract():
             
             # [问题3] 获取产品计划数据（从动态表单）- 适配下拉/手输双模式
             products_data = []
-            product_count = int(request.form.get('product_count', 0))
+            product_count = _to_non_negative_int(request.form.get('product_count'), 0)
             
             for i in range(product_count):
                 prefix = f'product_{i}_'
@@ -233,7 +256,7 @@ def new_contract():
             contract = ContractService.create_contract(contract_data, products_data)
             
             # 添加发货记录（如果有）
-            transaction_count = int(request.form.get('transaction_count', 0))
+            transaction_count = _to_non_negative_int(request.form.get('transaction_count'), 0)
             for i in range(transaction_count):
                 prefix = f'transaction_{i}_'
                 product_code = request.form.get(f'{prefix}contract_product_id')
@@ -258,7 +281,7 @@ def new_contract():
                             ContractService.add_transaction(contract.id, transaction_data)
             
             # 添加回款记录（如果有）[v1.3]
-            payment_count = int(request.form.get('payment_count', 0))
+            payment_count = _to_non_negative_int(request.form.get('payment_count'), 0)
             for i in range(payment_count):
                 prefix = f'payment_{i}_'
                 payment_data = _extract_payment_row_payload(prefix, request.form)
@@ -393,7 +416,7 @@ def edit_contract(id):
             ContractService.update_contract(id, contract_data)
             
             # [问题4] 处理产品计划的修改和新增
-            product_count = int(request.form.get('product_count', 0))
+            product_count = _to_non_negative_int(request.form.get('product_count'), 0)
             existing_product_ids = {cp.id for cp in contract.contract_products}
             submitted_product_ids = set()
             
@@ -441,20 +464,20 @@ def edit_contract(id):
                         ContractService.delete_contract_product(cp.id)
             
             # 处理发货记录 - 包括更新、新增和删除
-            transaction_count = int(request.form.get('transaction_count', 0))
+            transaction_count = _to_non_negative_int(request.form.get('transaction_count'), 0)
             existing_transaction_ids = {t.id for t in contract.transactions}
             submitted_transaction_ids = set()
             
             for i in range(transaction_count):
                 prefix = f'transaction_{i}_'
-                trans_id = request.form.get(f'{prefix}id')  # 如果有id则是已有记录
+                trans_id = _to_int(request.form.get(f'{prefix}id'))  # 如果有id则是已有记录
                 product_code = request.form.get(f'{prefix}contract_product_id')
                 
-                if trans_id:
-                    submitted_transaction_ids.add(int(trans_id))
+                if trans_id is not None:
+                    submitted_transaction_ids.add(trans_id)
                     # [v1.4] 更新已有发货记录
-                    if int(trans_id) in existing_transaction_ids:
-                        transaction = Transaction.query.get(int(trans_id))
+                    if trans_id in existing_transaction_ids:
+                        transaction = Transaction.query.get(trans_id)
                         if transaction:
                             selected_product_code = (request.form.get(f'{prefix}contract_product_id') or '').strip()
                             selected_contract_product = None
@@ -560,19 +583,19 @@ def edit_contract(id):
                     db.session.delete(trans)
             
             # 处理回款记录 - 包括更新、新增和删除 [v1.3]
-            payment_count = int(request.form.get('payment_count', 0))
+            payment_count = _to_non_negative_int(request.form.get('payment_count'), 0)
             existing_payment_ids = {p.id for p in contract.payment_records}
             submitted_payment_ids = set()
             
             for i in range(payment_count):
                 prefix = f'payment_{i}_'
-                payment_id = request.form.get(f'{prefix}id')
+                payment_id = _to_int(request.form.get(f'{prefix}id'))
                 
-                if payment_id:
-                    submitted_payment_ids.add(int(payment_id))
+                if payment_id is not None:
+                    submitted_payment_ids.add(payment_id)
                     # [v1.4] 更新已有回款记录
-                    if int(payment_id) in existing_payment_ids:
-                        payment = PaymentRecord.query.get(int(payment_id))
+                    if payment_id in existing_payment_ids:
+                        payment = PaymentRecord.query.get(payment_id)
                         if payment:
                             payment_data = _extract_payment_row_payload(prefix, request.form, existing=True)
                             payment.payment_amount = payment_data['payment_amount']
@@ -702,19 +725,19 @@ def logistics_edit_contract(id):
     if request.method == 'POST':
         try:
             # 处理发货记录
-            transaction_count = int(request.form.get('transaction_count', 0))
+            transaction_count = _to_non_negative_int(request.form.get('transaction_count'), 0)
             existing_transaction_ids = {t.id for t in contract.transactions}
             submitted_transaction_ids = set()
             
             for i in range(transaction_count):
                 prefix = f'transaction_{i}_'
-                trans_id = request.form.get(f'{prefix}id')
+                trans_id = _to_int(request.form.get(f'{prefix}id'))
                 product_code = request.form.get(f'{prefix}contract_product_id')
                 
-                if trans_id:
+                if trans_id is not None:
                     # [v1.4] 更新已有发货记录
-                    submitted_transaction_ids.add(int(trans_id))
-                    transaction = Transaction.query.get(int(trans_id))
+                    submitted_transaction_ids.add(trans_id)
+                    transaction = Transaction.query.get(trans_id)
                     if transaction:
                         selected_product_code = (product_code or '').strip()
                         selected_contract_product = None

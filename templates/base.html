@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
@@ -163,7 +163,7 @@
                     {% if current_user.is_superadmin or current_user.role.code in ['general_manager', 'gm_assistant'] %}
                     <li class="nav-item">
                         <a class="nav-link" href="{{ url_for('auth.switch_to_qc') }}">
-                            <i class="bi bi-shield-check"></i> QC系统
+                            <i class="bi bi-shield-check"></i> AI CATS
                         </a>
                     </li>
                     {% endif %}
@@ -243,3 +243,4 @@
     {% block extra_js %}{% endblock %}
 </body>
 </html>
+

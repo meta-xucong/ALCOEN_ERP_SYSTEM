@@ -149,6 +149,30 @@
             background: linear-gradient(135deg, rgba(25, 135, 84, 0.15) 0%, rgba(32, 168, 104, 0.2) 100%);
             color: #198754;
         }
+
+        .system-icon.qc .ai-cats-mark {
+            width: 58px;
+            height: 58px;
+            stroke: currentColor;
+            fill: none;
+            stroke-width: 3;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+        }
+
+        .system-icon.qc .ai-cats-mark text {
+            fill: currentColor;
+            stroke: none;
+            font-size: 17px;
+            font-weight: 700;
+            font-family: 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+            letter-spacing: 1px;
+        }
+
+        .system-icon.qc .ai-cats-mark .filled {
+            fill: currentColor;
+            stroke: none;
+        }
         
         .system-card h3 {
             font-size: 22px;
@@ -233,10 +257,22 @@
             <div class="col-md-5">
                 <a href="{{ url_for('auth.switch_to_qc') if current_user else url_for('auth.qc_login') }}" class="system-card">
                     <div class="system-icon qc">
-                        <i class="bi bi-shield-check"></i>
+                        <svg class="ai-cats-mark" viewBox="0 0 80 80" aria-label="AI CATS">
+                            <path d="M14 35 L16 18 L29 26 Q40 22 51 26 L64 18 L66 35 Q69 43 64 51 Q56 61 40 61 Q24 61 16 51 Q11 43 14 35 Z" />
+                            <line x1="8" y1="40" x2="16" y2="40" />
+                            <line x1="8" y1="45" x2="16" y2="44.5" />
+                            <line x1="72" y1="40" x2="64" y2="40" />
+                            <line x1="72" y1="45" x2="64" y2="44.5" />
+                            <text x="26" y="44">A</text>
+                            <line x1="50" y1="33" x2="50" y2="47" />
+                            <path class="filled" d="M40 48 C43 47 45 49 45 51 C45 54 42.5 56 40 57 C37.5 56 35 54 35 51 C35 49 37 47 40 48 Z" />
+                        </svg>
                     </div>
-                    <h3>质量控制系统</h3>
-                    <p>工件订单质控、质量检测、验收确认及验收清单打印等质量管理功能</p>
+                    <h3>AI CATS</h3>
+                    <p>
+                        <span class="d-block">AI Chromatography Accessories &amp; Traceability System</span>
+                        <span class="d-block">质量记录、追溯、数据分析系统</span>
+                    </p>
                     <span class="btn-enter qc">
                         <i class="bi bi-box-arrow-in-right"></i> 进入系统
                     </span>

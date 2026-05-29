@@ -1858,7 +1858,7 @@ function addProductRowWithData(data) {
     container.appendChild(row);
     normalizeProductRowLayout(row);
 
-    if (data.id) {
+    if (data && data.id !== undefined && data.id !== null && data.id !== '' && data.id !== 'undefined' && data.id !== 'null') {
         const idInput = document.createElement('input');
         idInput.type = 'hidden';
         idInput.name = `product_${productCount}_id`;
@@ -1933,7 +1933,7 @@ function addTransactionRowWithData(data, isExisting = false) {
     container.appendChild(row);
     normalizeTransactionRowLayout(row);
 
-    if (isExisting && payload.id) {
+    if (isExisting && payload.id !== undefined && payload.id !== null && payload.id !== '' && payload.id !== 'undefined' && payload.id !== 'null') {
         row.dataset.existingId = payload.id;
         const idInput = document.createElement('input');
         idInput.type = 'hidden';
@@ -1992,7 +1992,7 @@ function addPaymentRowWithData(data, isExisting = false) {
     const row = tempDiv.firstElementChild;
     container.appendChild(row);
 
-    if (isExisting && payload.id) {
+    if (isExisting && payload.id !== undefined && payload.id !== null && payload.id !== '' && payload.id !== 'undefined' && payload.id !== 'null') {
         row.dataset.existingId = payload.id;
         const idInput = document.createElement('input');
         idInput.type = 'hidden';
