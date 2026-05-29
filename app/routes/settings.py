@@ -15,6 +15,17 @@ def _can_manage_email_settings() -> bool:
     return g.current_user.is_superadmin or g.current_user.has_permission('user_manage')
 
 
+def _parse_smtp_port(value, default: int = 465) -> int:
+    """安全解析 SMTP 端口，避免 undefined/空值导致 int 转换异常。"""
+    if value is None:
+        return default
+    try:
+        port = int(str(value).strip())
+    except (TypeError, ValueError):
+        return default
+    return port if 1 <= port <= 65535 else default
+
+
 @settings_bp.route('/')
 @login_required
 def index():
@@ -42,7 +53,7 @@ def email():
         import os
         config = {
             'server': os.environ.get('MAIL_SERVER', 'smtp.exmail.qq.com'),
-            'port': int(os.environ.get('MAIL_PORT', '465')),
+            'port': _parse_smtp_port(os.environ.get('MAIL_PORT', '465')),
             'use_ssl': os.environ.get('MAIL_USE_SSL', 'true').lower() == 'true',
             'username': os.environ.get('MAIL_USERNAME', ''),
             'password': os.environ.get('MAIL_PASSWORD', ''),
@@ -62,7 +73,7 @@ def email():
             # 使用当前表单数据测试
             test_config = {
                 'server': request.form.get('smtp_server', 'smtp.exmail.qq.com'),
-                'port': int(request.form.get('smtp_port', 465)),
+                'port': _parse_smtp_port(request.form.get('smtp_port', 465)),
                 'use_ssl': request.form.get('smtp_use_ssl') == 'on',
                 'username': request.form.get('smtp_username', ''),
                 'password': request.form.get('smtp_password', ''),
@@ -120,7 +131,7 @@ def email():
             # 保存配置
             new_config = {
                 'server': request.form.get('smtp_server', 'smtp.exmail.qq.com'),
-                'port': int(request.form.get('smtp_port', 465)),
+                'port': _parse_smtp_port(request.form.get('smtp_port', 465)),
                 'use_ssl': request.form.get('smtp_use_ssl') == 'on',
                 'username': request.form.get('smtp_username', ''),
                 'password': request.form.get('smtp_password', ''),

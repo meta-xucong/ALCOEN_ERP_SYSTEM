@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>申请 QC 权限 - ALCOEN</title>
+    <title>申请 AI CATS 权限 - ALCOEN</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css" rel="stylesheet">
     <style>
@@ -111,8 +111,8 @@
     <div class="apply-container">
         <div class="apply-card">
             <div class="apply-header">
-                <h1><i class="bi bi-shield-check"></i> 申请 QC 系统权限</h1>
-                <p>检测到你的 ERP 账号尚未开通 QC 权限，请先选择要申请的 QC 角色。</p>
+                <h1><i class="bi bi-shield-check"></i> 申请 AI CATS 权限</h1>
+                <p>检测到你的 ERP 账号尚未开通 AI CATS 权限，请先选择要申请的 AI CATS 角色。</p>
             </div>
 
             {% with messages = get_flashed_messages(with_categories=true) %}
@@ -134,7 +134,7 @@
 
             <form method="POST" action="">
                 <div class="mb-3">
-                    <label for="role_id" class="form-label">选择 QC 角色</label>
+                    <label for="role_id" class="form-label">选择 AI CATS 角色</label>
                     <select class="form-select" id="role_id" name="role_id" required>
                         <option value="">-- 请选择角色 --</option>
                         {% for role in roles %}
@@ -170,3 +170,4 @@
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>
+
