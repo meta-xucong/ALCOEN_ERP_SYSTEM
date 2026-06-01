@@ -1,73 +1,73 @@
 ﻿{% extends 'base.html' %}
 
-{% block title %}缂栬緫鍙戣揣璁板綍 - {{ contract.contract_no }} - ALCOEN ERP{% endblock %}
+{% block title %}编辑发货记录 - {{ contract.contract_no }} - ALCOEN ERP{% endblock %}
 
 {% block content %}
 <div class="row">
     <div class="col-12">
         <h1 class="mb-4">
             <i class="bi bi-truck"></i>
-            缂栬緫鍙戣揣璁板綍 - {{ contract.contract_no }}
-            <span class="badge bg-info ms-2">鐗╂祦缁忕悊妯″紡</span>
+            编辑发货记录 - {{ contract.contract_no }}
+            <span class="badge bg-info ms-2">物流经理模式</span>
         </h1>
     </div>
 </div>
 
-<!-- 鍚堝悓鍩烘湰淇℃伅锛堝彧璇伙級 -->
+<!-- 合同基本信息（只读） -->
 <div class="card mb-4">
     <div class="card-header bg-secondary text-white">
-        <h5 class="mb-0"><i class="bi bi-file-text"></i> 鍚堝悓淇℃伅锛堝彧璇伙級</h5>
+        <h5 class="mb-0"><i class="bi bi-file-text"></i> 合同信息（只读）</h5>
     </div>
     <div class="card-body">
         <div class="row">
             <div class="col-md-3">
-                <p><strong>鍚堝悓缂栧彿锛?/strong>{{ contract.contract_no }}</p>
-                <p><strong>瀹㈡埛鍚嶇О锛?/strong>{{ contract.company_name }}</p>
+                <p><strong>合同编号：</strong>{{ contract.contract_no }}</p>
+                <p><strong>客户名称：</strong>{{ contract.company_name }}</p>
             </div>
             <div class="col-md-3">
-                <p><strong>鎵€灞為儴闂細</strong>
+                <p><strong>所属部门：</strong>
                     {% if contract.department %}
                         <span class="badge bg-info">{{ contract.department }}</span>
                     {% else %}
-                        <span class="text-muted">鏈缃?/span>
+                        <span class="text-muted">未设置</span>
                     {% endif %}
                 </p>
-                <p><strong>璐熻矗浜猴細</strong>
+                <p><strong>负责人：</strong>
                     {% if contract.manager %}
                         <span class="badge bg-secondary">{{ contract.manager }}</span>
                     {% else %}
-                        <span class="text-muted">鏈缃?/span>
+                        <span class="text-muted">未设置</span>
                     {% endif %}
                 </p>
             </div>
             <div class="col-md-3">
-                <p><strong>浜у搧鎬讳环锛?/strong><span class="text-muted">***</span></p>
-                <p><strong>鍒涘缓鏃堕棿锛?/strong>{{ contract.created_at.strftime('%Y-%m-%d') }}</p>
+                <p><strong>产品总价：</strong><span class="text-muted">***</span></p>
+                <p><strong>创建时间：</strong>{{ contract.created_at.strftime('%Y-%m-%d') }}</p>
             </div>
             <div class="col-md-3">
-                <p><strong>鍙戣揣璁板綍锛?/strong>{{ contract.transactions|length }} 鏉?/p>
-                <p><strong>鍥炴璁板綍锛?/strong>{{ contract.payment_records|length }} 鏉?/p>
+                <p><strong>发货记录：</strong>{{ contract.transactions|length }} 条</p>
+                <p><strong>回款记录：</strong>{{ contract.payment_records|length }} 条</p>
             </div>
         </div>
     </div>
 </div>
 
-<!-- 鍙戣揣浜у搧璁″垝锛堝彧璇诲睍绀猴級 -->
+<!-- 发货产品计划（只读展示） -->
 <div class="card mb-4">
     <div class="card-header bg-success text-white">
-        <h5 class="mb-0"><i class="bi bi-box-seam"></i> 鍙戣揣浜у搧璁″垝锛堝彧璇伙級</h5>
+        <h5 class="mb-0"><i class="bi bi-box-seam"></i> 发货产品计划（只读）</h5>
     </div>
     <div class="card-body p-0">
         <table class="table table-hover mb-0">
             <thead class="table-light">
                 <tr>
-                    <th>浜у搧缂栫爜</th>
-                    <th>浜у搧鍚嶇О</th>
-                    <th>鍨嬪彿</th>
-                    <th class="text-center">璁″垝鏁伴噺</th>
-                    <th class="text-center">宸插彂鏁伴噺</th>
-                    <th class="text-center">鏈彂鏁伴噺</th>
-                    <th class="text-end">璁″垝璐у€?/th>
+                    <th>产品编码</th>
+                    <th>产品名称</th>
+                    <th>型号</th>
+                    <th class="text-center">计划数量</th>
+                    <th class="text-center">已发数量</th>
+                    <th class="text-center">未发数量</th>
+                    <th class="text-end">计划货值</th>
                 </tr>
             </thead>
             <tbody>
@@ -90,41 +90,41 @@
 </div>
 
 <form method="POST" action="" id="logisticsForm" enctype="multipart/form-data">
-    <!-- 鍙戣揣璁板綍锛堝彲缂栬緫锛?-->
+    <!-- 发货记录（可编辑） -->
     <div class="card mb-4 border-info">
         <div class="card-header bg-info text-white d-flex justify-content-between align-items-center">
-            <h5 class="mb-0"><i class="bi bi-truck"></i> 鍙戣揣璁板綍锛堝彲缂栬緫锛?/h5>
+            <h5 class="mb-0"><i class="bi bi-truck"></i> 发货记录（可编辑）</h5>
             <div class="d-flex gap-2">
                 <button type="button" class="btn btn-light btn-sm" onclick="fillAllTransactions()">
                     <i class="bi bi-magic"></i> 一键填充
                 </button>
                 <button type="button" class="btn btn-light btn-sm" onclick="addTransactionRow()">
-                    <i class="bi bi-plus"></i> 娣诲姞鍙戣揣璁板綍
+                    <i class="bi bi-plus"></i> 添加发货记录
                 </button>
             </div>
         </div>
         <div class="card-body">
             <div id="transactions-container">
-                <!-- 鍙戣揣璁板綍琛屽皢閫氳繃JS鍔ㄦ€佹坊鍔?-->
+                <!-- 发货记录行将通过JS动态添加 -->
             </div>
             <input type="hidden" name="transaction_count" id="transaction_count" value="0">
         </div>
     </div>
     
-    <!-- 鍥炴璁板綍锛堝彧璇诲睍绀猴級 -->
+    <!-- 回款记录（只读展示） -->
     <div class="card mb-4">
         <div class="card-header bg-warning text-dark">
-            <h5 class="mb-0"><i class="bi bi-cash"></i> 鍥炴璁板綍锛堝彧璇伙級</h5>
+            <h5 class="mb-0"><i class="bi bi-cash"></i> 回款记录（只读）</h5>
         </div>
         <div class="card-body p-0">
             {% if contract.payment_records %}
             <table class="table table-hover mb-0">
                 <thead class="table-light">
                     <tr>
-                        <th>鍥炴鏃ユ湡</th>
-                        <th class="text-end">鍥炴閲戦</th>
-                        <th>缁忔墜浜?/th>
-                        <th>澶囨敞</th>
+                        <th>回款日期</th>
+                        <th class="text-end">回款金额</th>
+                        <th>经手人</th>
+                        <th>备注</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -140,33 +140,34 @@
             </table>
             {% else %}
             <div class="text-center py-4 text-muted">
-                <p>鏆傛棤鍥炴璁板綍</p>
+                <p>暂无回款记录</p>
             </div>
             {% endif %}
         </div>
     </div>
     
-    <!-- 闄勪欢鍥剧墖锛堝彲缂栬緫锛?-->
+    <!-- 附件图片（可编辑） -->
     <div class="card mb-4 border-primary">
         <div class="card-header bg-primary text-white">
-            <h5 class="mb-0"><i class="bi bi-images"></i> 闄勪欢涓婁紶锛堝彲缂栬緫锛?/h5>
+            <h5 class="mb-0"><i class="bi bi-images"></i> 附件上传（可编辑）</h5>
         </div>
         <div class="card-body">
             <div class="mb-3">
-                <label class="form-label">涓婁紶鍙戣揣鍗曘€佺鏀跺崟绛夊浘鐗?/label>
+                <label class="form-label">上传发货单、签收单等图片</label>
                 <div class="input-group">
                     <input type="file" class="form-control" id="contract-images" 
                            multiple accept="image/*" onchange="handleImageSelect(this)">
                     <button type="button" class="btn btn-outline-secondary" onclick="clearNewImages()">
-                        <i class="bi bi-trash"></i> 娓呯┖寰呬笂浼?                    </button>
+                        <i class="bi bi-trash"></i> 清空待上传
+                    </button>
                 </div>
-                <div class="form-text">鏀寔 jpg, png, gif 鏍煎紡锛屾瘡娆℃渶澶氭坊鍔?10 寮犲浘鐗?/div>
+                <div class="form-text">支持 jpg, png, gif 格式，每次最多添加 10 张图片</div>
             </div>
             
-            <!-- 宸叉湁鍥剧墖鏄剧ず -->
+            <!-- 已有图片显示 -->
             {% if contract.images %}
             <div class="mb-3">
-                <label class="form-label">宸蹭笂浼犵殑鍥剧墖 <span class="badge bg-secondary">{{ contract.images|length }}寮?/span></label>
+                <label class="form-label">已上传的图片 <span class="badge bg-secondary">{{ contract.images|length }}张</span></label>
                 <div class="d-flex flex-wrap gap-2" id="existing-images">
                     {% for img in contract.images %}
                     <div class="position-relative" id="existing-img-{{ img.id }}">
@@ -184,32 +185,33 @@
             </div>
             {% endif %}
             
-            <!-- 鏂板浘鐗囬瑙?-->
+            <!-- 新图片预览 -->
             <div id="new-images-section" style="display: none;">
-                <label class="form-label">寰呬笂浼犵殑鏂板浘鐗?<span class="badge bg-primary" id="new-image-count">0寮?/span></label>
+                <label class="form-label">待上传的新图片 <span class="badge bg-primary" id="new-image-count">0张</span></label>
                 <div id="image-preview-container" class="d-flex flex-wrap gap-2"></div>
             </div>
             
-            <!-- 瀛樺偍鏂伴€夋嫨鏂囦欢鐨勫鍣?-->
+            <!-- 存储新选择文件的容器 -->
             <div id="new-files-container"></div>
         </div>
     </div>
     
-    <!-- 鎸夐挳 -->
+    <!-- 按钮 -->
     <div class="d-flex justify-content-between mb-4">
         <a href="{{ url_for('contract.view_contract', id=contract.id) }}" class="btn btn-secondary">
-            <i class="bi bi-arrow-left"></i> 杩斿洖
+            <i class="bi bi-arrow-left"></i> 返回
         </a>
         <button type="submit" class="btn btn-primary btn-lg">
-            <i class="bi bi-save"></i> 淇濆瓨鍙戣揣璁板綍鍜岄檮浠?        </button>
+            <i class="bi bi-save"></i> 保存发货记录和附件
+        </button>
     </div>
 </form>
 
-<!-- 鍙戣揣璁板綍琛屾ā鏉?-->
+<!-- 发货记录行模板 -->
 <template id="transaction-row-template">
     <div class="transaction-row border rounded p-3 mb-3" data-index="{index}">
         <div class="d-flex justify-content-between mb-2">
-            <strong>鍙戣揣璁板綍 #{index}</strong>
+            <strong>发货记录 #{index}</strong>
             <div>
                 <button type="button" class="btn btn-sm btn-outline-secondary" onclick="toggleTransactionRow(this)">
                     <i class="bi bi-chevron-up"></i>
@@ -222,42 +224,42 @@
         <div class="transaction-content">
             <div class="row align-items-end">
                 <div class="col-md-3">
-                    <label class="form-label">閫夋嫨浜у搧 *</label>
+                    <label class="form-label">选择产品 *</label>
                     <select class="form-select" name="transaction_{index}_contract_product_id" required onchange="onTransactionProductSelect(this)">
-                        <option value="">-- 閫夋嫨浜у搧 --</option>
+                        <option value="">-- 选择产品 --</option>
                     </select>
                 </div>
                 <div class="col-md-3">
-                    <label class="form-label">浜у搧鍚嶇О</label>
+                    <label class="form-label">产品名称</label>
                     <input type="text" class="form-control trans-product-name" readonly>
                 </div>
                 <div class="col-md-2">
-                    <label class="form-label">鍨嬪彿</label>
+                    <label class="form-label">型号</label>
                     <input type="text" class="form-control trans-product-model" readonly>
                 </div>
                 <div class="col-md-1">
-                    <label class="form-label">鏁伴噺 *</label>
+                    <label class="form-label">数量 *</label>
                     <input type="number" class="form-control trans-qty" name="transaction_{index}_quantity" 
                            step="0.01" min="0" inputmode="decimal" required>
                 </div>
                 <div class="col-md-1">
-                    <label class="form-label">鍗曚綅</label>
+                    <label class="form-label">单位</label>
                     <input type="text" class="form-control trans-unit" name="transaction_{index}_unit" readonly>
                 </div>
             </div>
             <div class="row mt-3 align-items-end">
                 <input type="hidden" class="form-control trans-price" name="transaction_{index}_price" value="0">
                 <div class="col-md-3">
-                    <label class="form-label">鍙戣揣鏃ユ湡 *</label>
+                    <label class="form-label">发货日期 *</label>
                     <input type="date" class="form-control" name="transaction_{index}_delivery_date" required>
                 </div>
                 <div class="col-md-3">
-                    <label class="form-label">缁忔墜浜?*</label>
+                    <label class="form-label">经手人 *</label>
                     <input type="text" class="form-control" name="transaction_{index}_handler" 
                            value="{{ current_user.real_name or current_user.username }}" required>
                 </div>
                 <div class="col-md-4">
-                    <label class="form-label">澶囨敞</label>
+                    <label class="form-label">备注</label>
                     <input type="text" class="form-control" name="transaction_{index}_remark" maxlength="100">
                 </div>
             </div>
@@ -265,12 +267,12 @@
     </div>
 </template>
 
-<!-- 鍥剧墖鏀惧ぇ妯℃€佹 -->
+<!-- 图片放大模态框 -->
 <div class="modal fade" id="imageModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-lg modal-dialog-centered">
         <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title">鍥剧墖棰勮</h5>
+                <h5 class="modal-title">图片预览</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <div class="modal-body text-center">
@@ -284,7 +286,7 @@
 
 {% block extra_js %}
 <script>
-// Contract product plan snapshot for delivery autofill and dropdowns.
+// 产品数据（从合同产品计划获取）
 const contractProducts = [
     {% for cp in contract.contract_products %}
     {
@@ -298,7 +300,7 @@ const contractProducts = [
     {% endfor %}
 ];
 
-// 鍙戣揣璁板綍绠＄悊
+// 发货记录管理
 let transactionCount = 0;
 const currentUserDisplayName = {{ (current_user.real_name or current_user.username)|tojson }};
 
@@ -358,9 +360,10 @@ function fillAllTransactions() {
     }
 }
 
+
 function addTransactionRow() {
     if (contractProducts.length === 0) {
-        alert('娌℃湁鍙敤鐨勪骇鍝佽鍒?);
+        alert('没有可用的产品计划');
         return;
     }
     
@@ -371,7 +374,8 @@ function addTransactionRow() {
     tempDiv.innerHTML = html;
     container.appendChild(tempDiv.firstElementChild);
     
-    // 濉厖浜у搧閫夋嫨涓嬫媺妗?    const productSelect = document.querySelector(`[name="transaction_${transactionCount}_contract_product_id"]`);
+    // 填充产品选择下拉框
+    const productSelect = document.querySelector(`[name="transaction_${transactionCount}_contract_product_id"]`);
     contractProducts.forEach(p => {
         const option = document.createElement('option');
         option.value = p.code;
@@ -383,7 +387,8 @@ function addTransactionRow() {
         productSelect.appendChild(option);
     });
     
-    // 璁剧疆榛樿鏃ユ湡涓轰粖澶?    const dateInput = document.querySelector(`[name="transaction_${transactionCount}_delivery_date"]`);
+    // 设置默认日期为今天
+    const dateInput = document.querySelector(`[name="transaction_${transactionCount}_delivery_date"]`);
     if (dateInput) {
         dateInput.value = new Date().toISOString().split('T')[0];
     }
@@ -409,7 +414,7 @@ function toggleTransactionRow(btn) {
 }
 
 function removeTransactionRow(btn) {
-    if (confirm('纭畾瑕佸垹闄よ繖鏉″彂璐ц褰曞悧锛?)) {
+    if (confirm('确定要删除这条发货记录吗？')) {
         const row = btn.closest('.transaction-row');
         row.remove();
         reindexTransactions();
@@ -420,7 +425,7 @@ function reindexTransactions() {
     const rows = document.querySelectorAll('.transaction-row');
     rows.forEach((row, index) => {
         row.dataset.index = index;
-        row.querySelector('strong').textContent = `鍙戣揣璁板綍 #${index + 1}`;
+        row.querySelector('strong').textContent = `发货记录 #${index + 1}`;
         row.querySelectorAll('input, select').forEach(input => {
             const name = input.name.replace(/transaction_\d+_/, `transaction_${index}_`);
             input.name = name;
@@ -437,11 +442,11 @@ function onTransactionProductSelect(select) {
     const row = select.closest('.transaction-row');
     row.querySelector('.trans-product-name').value = option.dataset.name || '-';
     row.querySelector('.trans-product-model').value = option.dataset.model || '-';
-    row.querySelector('.trans-unit').value = option.dataset.unit || '涓?;
+    row.querySelector('.trans-unit').value = option.dataset.unit || '个';
     row.querySelector('.trans-price').value = option.dataset.price || 0;
 }
 
-// 鍥剧墖涓婁紶绠＄悊
+// 图片上传管理
 let selectedFiles = [];
 let fileIdCounter = 0;
 
@@ -449,7 +454,7 @@ function handleImageSelect(input) {
     if (!input.files || input.files.length === 0) return;
     
     if (selectedFiles.length + input.files.length > 10) {
-        alert('鎬诲叡鏈€澶氬彧鑳戒笂浼?0寮犲浘鐗囷紝褰撳墠宸查€夋嫨' + selectedFiles.length + '寮?);
+        alert('总共最多只能上传10张图片，当前已选择' + selectedFiles.length + '张');
         input.value = '';
         return;
     }
@@ -504,12 +509,13 @@ function updateImageSection() {
     
     if (selectedFiles.length > 0) {
         section.style.display = 'block';
-        count.textContent = selectedFiles.length + '寮?;
+        count.textContent = selectedFiles.length + '张';
     } else {
         section.style.display = 'none';
     }
     
-    // 鏇存柊闅愯棌鐨勬枃浠惰緭鍏?    const container = document.getElementById('new-files-container');
+    // 更新隐藏的文件输入
+    const container = document.getElementById('new-files-container');
     container.innerHTML = '';
     selectedFiles.forEach((sf, index) => {
         const dt = new DataTransfer();
@@ -525,7 +531,7 @@ function updateImageSection() {
 
 function clearNewImages() {
     if (selectedFiles.length === 0) return;
-    if (!confirm('纭畾瑕佹竻绌烘墍鏈夊緟涓婁紶鐨勬柊鍥剧墖鍚楋紵')) return;
+    if (!confirm('确定要清空所有待上传的新图片吗？')) return;
     
     selectedFiles = [];
     document.getElementById('image-preview-container').innerHTML = '';
@@ -533,7 +539,7 @@ function clearNewImages() {
 }
 
 function deleteExistingImage(imageId) {
-    if (!confirm('纭畾瑕佸垹闄よ繖寮犲凡涓婁紶鐨勫浘鐗囧悧锛?)) return;
+    if (!confirm('确定要删除这张已上传的图片吗？')) return;
     
     fetch(`/contract/api/delete-image/${imageId}`, {
         method: 'POST',
@@ -546,11 +552,11 @@ function deleteExistingImage(imageId) {
         if (data.success) {
             document.getElementById(`existing-img-${imageId}`).remove();
         } else {
-            alert('鍒犻櫎澶辫触锛? + (data.error || '鏈煡閿欒'));
+            alert('删除失败：' + (data.error || '未知错误'));
         }
     })
     .catch(error => {
-        alert('鍒犻櫎澶辫触锛? + error);
+        alert('删除失败：' + error);
     });
 }
 
@@ -560,7 +566,7 @@ function openImageModal(src) {
     new bootstrap.Modal(document.getElementById('imageModal')).show();
 }
 
-// 鍔犺浇宸叉湁鍙戣揣璁板綍
+// 加载已有发货记录
 {% if contract.transactions %}
 const existingTransactions = [
     {% for trans in contract.transactions %}
@@ -586,7 +592,7 @@ function addTransactionRowWithData(data, isExisting = false) {
     addTransactionRow();
     const index = transactionCount - 1;
     
-    // 璁剧疆浜у搧閫夋嫨
+    // 设置产品选择
     const productSelect = document.querySelector(`[name="transaction_${index}_contract_product_id"]`);
     for (let opt of productSelect.options) {
         if (opt.value === data.product_code) {
@@ -596,7 +602,7 @@ function addTransactionRowWithData(data, isExisting = false) {
         }
     }
     
-    // 璁剧疆鍏朵粬瀛楁
+    // 设置其他字段
     document.querySelector(`[name="transaction_${index}_quantity"]`).value = data.quantity;
     document.querySelector(`[name="transaction_${index}_price"]`).value = data.price_with_tax;
     document.querySelector(`[name="transaction_${index}_handler"]`).value = data.handler;
@@ -606,6 +612,7 @@ function addTransactionRowWithData(data, isExisting = false) {
     }
     
     if (isExisting && data && data.id !== undefined && data.id !== null && data.id !== '') {
+        // 仅已有记录携带 transaction id，避免新填充行提交 undefined。
         const row = document.querySelector(`.transaction-row[data-index="${index}"]`);
         const idInput = document.createElement('input');
         idInput.type = 'hidden';
@@ -616,4 +623,3 @@ function addTransactionRowWithData(data, isExisting = false) {
 }
 </script>
 {% endblock %}
-
