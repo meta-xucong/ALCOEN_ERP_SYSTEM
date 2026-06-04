@@ -550,17 +550,17 @@
                 <label class="form-label">数量 *</label>
                 <input type="number" class="form-control product-qty wide-number-input" name="product_{index}_quantity" 
                        step="0.01" min="0" inputmode="decimal"
-                       required onchange="calculateProductTotal(this)">
+                       required oninput="calculateProductTotal(this)" onchange="calculateProductTotal(this)">
             </div>
             <div class="col-md-2">
                 <label class="form-label">单价 *</label>
                 <input type="number" class="form-control product-price-input wide-number-input" name="product_{index}_price" 
-                       step="0.01" min="0" inputmode="decimal" required onchange="calculateProductTotal(this)">
+                       step="0.0001" min="0" inputmode="decimal" oninput="calculateProductTotal(this)" onchange="calculateProductTotal(this)">
             </div>
             <div class="col-md-3">
-                <label class="form-label">总价</label>
+                <label class="form-label">总价（可手填）</label>
                 <input type="number" class="form-control product-total wide-number-input" name="product_{index}_total" 
-                       readonly step="0.01">
+                       step="0.01" min="0" inputmode="decimal" oninput="calculateProductTotal(this)" onchange="calculateProductTotal(this)">
             </div>
             <div class="col-md-5">
                 <label class="form-label">备注</label>
@@ -780,8 +780,17 @@ function round2(value) {
     return Math.round((toNumber(value, 0) + Number.EPSILON) * 100) / 100;
 }
 
+function round4(value) {
+    return Math.round((toNumber(value, 0) + Number.EPSILON) * 10000) / 10000;
+}
+
 function format2(value) {
     return round2(value).toFixed(2);
+}
+
+function format4(value) {
+    const rounded = round4(value);
+    return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(4).replace(/0+$/, '').replace(/\.$/, '');
 }
 
 function formatInputNumber(value) {
@@ -1055,9 +1064,26 @@ function reindexProducts() {
 
 function calculateProductTotal(input) {
     const row = input.closest('.product-row');
-    const qty = parseFloat(row.querySelector('.product-qty').value) || 0;
-    const price = parseFloat(row.querySelector('.product-price-input').value) || 0;
-    row.querySelector('.product-total').value = (qty * price).toFixed(2);
+    const qtyInput = row.querySelector('.product-qty');
+    const priceInput = row.querySelector('.product-price-input');
+    const totalInput = row.querySelector('.product-total');
+    const qty = toNumber(qtyInput?.value, 0);
+
+    if (input?.classList?.contains('product-total')) {
+        row.dataset.priceBasis = 'total';
+    } else if (input?.classList?.contains('product-price-input')) {
+        row.dataset.priceBasis = 'price';
+    }
+
+    if (row.dataset.priceBasis === 'total' && qty > 0) {
+        const total = toNumber(totalInput?.value, 0);
+        priceInput.value = format4(total / qty);
+    } else {
+        const price = toNumber(priceInput?.value, 0);
+        totalInput.value = format2(qty * price);
+        row.dataset.priceBasis = 'price';
+    }
+
     updateContractFinancials();
 }
 
@@ -1280,6 +1306,7 @@ function onProductCodeSelect(select) {
     row.querySelector('.product-model-input').value = option.dataset.model || '';
     row.querySelector('.product-unit-input').value = option.dataset.unit || '个';
     row.querySelector('.product-price-input').value = option.dataset.price || 0;
+    row.dataset.priceBasis = 'price';
     
     statusDiv.innerHTML = '<span class="text-success"><i class="bi bi-check-circle"></i> 已匹配</span>';
     row.dataset.productMatched = 'true';
@@ -1310,6 +1337,7 @@ function onProductCodeInput(input) {
         row.querySelector('.product-model-input').value = matchedOption.dataset.model || '';
         row.querySelector('.product-unit-input').value = matchedOption.dataset.unit || '个';
         row.querySelector('.product-price-input').value = matchedOption.dataset.price || 0;
+        row.dataset.priceBasis = 'price';
         statusDiv.innerHTML = '<span class="text-success"><i class="bi bi-check-circle"></i> 已匹配</span>';
         row.dataset.productMatched = 'true';
     } else {
@@ -1899,6 +1927,7 @@ function addProductRowWithData(data) {
     
     row.querySelector(`[name="product_${productCount}_quantity"]`).value = data.quantity;
     row.querySelector('.product-total').value = data.total;
+    row.dataset.priceBasis = 'price';
     
     // 物流经理只能查看产品，不能编辑
     {% if is_logistics %}
