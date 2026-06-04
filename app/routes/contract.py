@@ -35,6 +35,14 @@ def _to_float2(value, default: float = 0.0) -> float:
         return default
 
 
+def _to_float4(value, default=0.0):
+    """Convert input to a float rounded to four decimal places."""
+    try:
+        return round(float(value), 4)
+    except (TypeError, ValueError):
+        return default
+
+
 def _to_float2_or_none(value):
     """将输入转换为两位小数；空值返回 None。"""
     if value in (None, ''):
@@ -73,6 +81,34 @@ def _parse_optional_date(value):
     if not value:
         return None
     return datetime.strptime(value, '%Y-%m-%d').date()
+
+
+def _extract_product_row_payload(prefix: str, form_data) -> dict:
+    """Read a product row and support either unit price or row total input."""
+    product_code = form_data.get(f'{prefix}code') or form_data.get(f'{prefix}code_select')
+    quantity = _to_float2(form_data.get(f'{prefix}quantity', 0))
+    total_raw = form_data.get(f'{prefix}total')
+    total = _to_float2(total_raw, None)
+    price = _to_float4(form_data.get(f'{prefix}price'), None)
+
+    if price is None and total is not None and quantity > 0:
+        price = _to_float4(total / quantity, 0.0)
+    if price is None:
+        price = 0.0
+    if total is None:
+        total = _to_float2(quantity * price, 0.0)
+
+    return {
+        'product_code': product_code,
+        'product_name': form_data.get(f'{prefix}name'),
+        'product_model': form_data.get(f'{prefix}model'),
+        'product_type': form_data.get(f'{prefix}type'),
+        'quantity': quantity,
+        'unit': form_data.get(f'{prefix}unit', '个'),
+        'price': price,
+        'total': total,
+        'remark': form_data.get(f'{prefix}remark')
+    }
 
 
 def _build_delivery_note_no(contract: Contract) -> str:
@@ -210,24 +246,13 @@ def new_contract():
             if actual_received_raw not in (None, ''):
                 contract_data['actual_received_value'] = _to_float2(actual_received_raw)
             
-            # [问题3] 获取产品计划数据（从动态表单）- 适配下拉/手输双模式
+            # Read product rows from the dynamic form.
             products_data = []
             product_count = _to_non_negative_int(request.form.get('product_count'), 0)
             
             for i in range(product_count):
                 prefix = f'product_{i}_'
-                # 优先获取手动输入的编码，如果没有则获取下拉选择的编码
-                product_code = request.form.get(f'{prefix}code') or request.form.get(f'{prefix}code_select')
-                product_data = {
-                    'product_code': product_code,
-                    'product_name': request.form.get(f'{prefix}name'),
-                    'product_model': request.form.get(f'{prefix}model'),
-                    'product_type': request.form.get(f'{prefix}type'),
-                    'quantity': _to_float2(request.form.get(f'{prefix}quantity', 0)),
-                    'unit': request.form.get(f'{prefix}unit', '个'),
-                    'price': _to_float2(request.form.get(f'{prefix}price', 0)),
-                    'remark': request.form.get(f'{prefix}remark')
-                }
+                product_data = _extract_product_row_payload(prefix, request.form)
                 if product_data['product_code'] and product_data['quantity'] > 0:
                     products_data.append(product_data)
             
@@ -415,31 +440,20 @@ def edit_contract(id):
                 contract_data['actual_received_value'] = _to_float2(actual_received_raw)
             ContractService.update_contract(id, contract_data)
             
-            # [问题4] 处理产品计划的修改和新增
+            # Handle product plan edits and additions.
             product_count = _to_non_negative_int(request.form.get('product_count'), 0)
             existing_product_ids = {cp.id for cp in contract.contract_products}
             submitted_product_ids = set()
             
             for i in range(product_count):
                 prefix = f'product_{i}_'
-                # 优先获取手动输入的编码，如果没有则获取下拉选择的编码
-                product_code = request.form.get(f'{prefix}code') or request.form.get(f'{prefix}code_select')
+                product_data = _extract_product_row_payload(prefix, request.form)
+                product_code = product_data['product_code']
                 if not product_code:
                     continue
 
                 product_id_raw = (request.form.get(f'{prefix}id') or '').strip()
                 product_id = int(product_id_raw) if product_id_raw.isdigit() else None
-
-                product_data = {
-                    'product_code': product_code,
-                    'product_name': request.form.get(f'{prefix}name'),
-                    'product_model': request.form.get(f'{prefix}model'),
-                    'product_type': request.form.get(f'{prefix}type'),
-                    'quantity': _to_float2(request.form.get(f'{prefix}quantity', 0)),
-                    'unit': request.form.get(f'{prefix}unit', '个'),
-                    'price': _to_float2(request.form.get(f'{prefix}price', 0)),
-                    'remark': request.form.get(f'{prefix}remark')
-                }
 
                 # 优先按前端提交的产品计划ID更新，避免修改产品编码时“保存后看似不生效”
                 if product_id and product_id in existing_product_ids:

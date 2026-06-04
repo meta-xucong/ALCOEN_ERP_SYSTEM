@@ -19,6 +19,14 @@ class ContractService:
             return default
 
     @staticmethod
+    def _to_float4(value, default: float = 0.0) -> float:
+        """Convert input to a float rounded to four decimal places."""
+        try:
+            return round(float(value), 4)
+        except (TypeError, ValueError):
+            return default
+
+    @staticmethod
     def _normalize_contract_amounts(total_value: float, actual_received_value: float = None) -> tuple:
         """规范化合同总价、实收金额、折扣金额。"""
         total = ContractService._to_float2(total_value, 0.0)
@@ -105,7 +113,7 @@ class ContractService:
                 )
                 
                 quantity = ContractService._to_float2(product_data.get('quantity', 0))
-                price = ContractService._to_float2(product_data.get('price', 0))
+                price = ContractService._to_float4(product_data.get('price', 0))
                 total = round(quantity * price, 2)
                 
                 cp = ContractProduct(
@@ -711,7 +719,7 @@ class ContractService:
         )
         
         quantity = ContractService._to_float2(data.get('quantity', 0))
-        price = ContractService._to_float2(data.get('price', 0))
+        price = ContractService._to_float4(data.get('price', 0))
         total = round(quantity * price, 2)
         
         cp = ContractProduct(
@@ -761,7 +769,7 @@ class ContractService:
         cp.product_type = data.get('product_type', cp.product_type)
         cp.quantity = ContractService._to_float2(data.get('quantity', cp.quantity), cp.quantity)
         cp.unit = data.get('unit', cp.unit)
-        cp.price = ContractService._to_float2(data.get('price', cp.price), cp.price)
+        cp.price = ContractService._to_float4(data.get('price', cp.price), cp.price)
         cp.total = round(cp.quantity * cp.price, 2)
         if 'remark' in data:
             cp.remark = data.get('remark')

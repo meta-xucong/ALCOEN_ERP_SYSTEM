@@ -55,8 +55,71 @@ def _base_edit_form(contract, cp) -> Dict[str, str]:
         "product_0_quantity": str(cp.quantity),
         "product_0_unit": cp.unit,
         "product_0_price": str(cp.price),
+        "product_0_total": str(cp.total),
         "product_0_remark": cp.remark or "",
     }
+
+
+def test_edit_contract_preserves_four_decimal_product_price(app, client, login, base_data):
+    """Product plan unit prices can be saved to four decimal places."""
+    from app.models import Contract, ContractProduct
+
+    with app.app_context():
+        contract, cp = _create_contract(base_data["owner_user_id"])
+        contract_id = contract.id
+        cp_id = cp.id
+        form_data = _base_edit_form(contract, cp)
+
+    login(base_data["superadmin_id"])
+    form_data.update(
+        {
+            "product_0_quantity": "3",
+            "product_0_price": "33.3333",
+            "product_0_total": "100.00",
+            "transaction_count": "0",
+            "payment_count": "0",
+        }
+    )
+
+    resp = client.post(f"/contract/{contract_id}/edit", data=form_data, follow_redirects=False)
+    assert resp.status_code in (302, 303)
+
+    with app.app_context():
+        cp = ContractProduct.query.get(cp_id)
+        contract = Contract.query.get(contract_id)
+        assert round(float(cp.price), 4) == 33.3333
+        assert round(float(cp.total), 2) == 100.00
+        assert round(float(contract.total_value), 2) == 100.00
+
+
+def test_edit_contract_calculates_unit_price_from_product_total(app, client, login, base_data):
+    """Submitting a row total without unit price derives the unit price."""
+    from app.models import ContractProduct
+
+    with app.app_context():
+        contract, cp = _create_contract(base_data["owner_user_id"])
+        contract_id = contract.id
+        cp_id = cp.id
+        form_data = _base_edit_form(contract, cp)
+
+    login(base_data["superadmin_id"])
+    form_data.update(
+        {
+            "product_0_quantity": "6",
+            "product_0_price": "",
+            "product_0_total": "100.00",
+            "transaction_count": "0",
+            "payment_count": "0",
+        }
+    )
+
+    resp = client.post(f"/contract/{contract_id}/edit", data=form_data, follow_redirects=False)
+    assert resp.status_code in (302, 303)
+
+    with app.app_context():
+        cp = ContractProduct.query.get(cp_id)
+        assert round(float(cp.price), 4) == 16.6667
+        assert round(float(cp.total), 2) == 100.00
 
 
 def test_edit_contract_adds_transaction_and_payment(app, client, login, base_data):
