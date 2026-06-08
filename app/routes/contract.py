@@ -345,18 +345,18 @@ def new_contract():
     
     # [v1.4] 获取当前用户部门（用于自动填充）
     current_user_dept = None
-    if g.current_user.department:
-        current_user_dept = g.current_user.department.name
+    if g.current_user.department_names:
+        current_user_dept = g.current_user.department_names[0]
     
     # [v1.5] 获取部门用户列表（用于PM选择负责人）
     department_users = []
-    if g.current_user.department:
-        from app.models import User
-        dept_users = User.query.filter_by(
-            department_id=g.current_user.department.id,
-            is_active=True
-        ).all()
-        department_users = [u.real_name or u.username for u in dept_users]
+    if g.current_user.department_names:
+        primary_department = g.current_user.department_names[0]
+        department_users = [
+            item.split(' - ', 1)[1]
+            for item in ContractService.get_department_users(primary_department)
+            if ' - ' in item
+        ]
     
     # 兼容模板中的 managers 变量
     managers = ContractService.get_department_users()
@@ -697,13 +697,13 @@ def edit_contract(id):
     
     # [v1.5] 获取部门用户列表（用于PM选择负责人）
     department_users = []
-    if g.current_user.department:
-        from app.models import User
-        dept_users = User.query.filter_by(
-            department_id=g.current_user.department.id,
-            is_active=True
-        ).all()
-        department_users = [u.real_name or u.username for u in dept_users]
+    if g.current_user.department_names:
+        primary_department = g.current_user.department_names[0]
+        department_users = [
+            item.split(' - ', 1)[1]
+            for item in ContractService.get_department_users(primary_department)
+            if ' - ' in item
+        ]
     
     # 兼容模板中的 managers 变量
     managers = ContractService.get_department_users()

@@ -1,4 +1,4 @@
-{% extends 'base.html' %}
+﻿{% extends 'base.html' %}
 
 {% block title %}用户管理 - ALCOEN ERP{% endblock %}
 
@@ -10,12 +10,11 @@
     </a>
 </div>
 
-<!-- 筛选栏 -->
 <div class="card mb-4">
     <div class="card-body">
         <form method="GET" action="" class="row g-3">
             <div class="col-md-3">
-                <input type="text" name="keyword" class="form-control" placeholder="搜索用户名/姓名..." value="{{ keyword }}">
+                <input type="text" name="keyword" class="form-control" placeholder="搜索用户名、姓名..." value="{{ keyword }}">
             </div>
             <div class="col-md-2">
                 <select name="role" class="form-select">
@@ -44,7 +43,6 @@
     </div>
 </div>
 
-<!-- 用户列表 -->
 <div class="card">
     <div class="card-body p-0">
         {% if users %}
@@ -74,15 +72,7 @@
                         <td>
                             <span class="badge bg-info">{{ user.role.name }}</span>
                         </td>
-                        <td>
-                            {% if user.department %}
-                                {{ user.department.name }}
-                            {% elif user.role.code == 'logistics_manager' %}
-                                <span class="text-muted">全部部门</span>
-                            {% else %}
-                                <span class="text-muted">-</span>
-                            {% endif %}
-                        </td>
+                        <td>{{ user.department_names_display }}</td>
                         <td>
                             {% if user.is_active %}
                             <span class="badge bg-success">启用</span>
@@ -101,7 +91,7 @@
                             <a href="{{ url_for('user.edit_user', user_id=user.id) }}" class="btn btn-sm btn-outline-primary">
                                 <i class="bi bi-pencil"></i> 编辑
                             </a>
-                            
+
                             {% if not user.is_superadmin %}
                             <form method="POST" action="{{ url_for('user.toggle_user', user_id=user.id) }}" class="d-inline">
                                 <button type="submit" class="btn btn-sm btn-outline-{{ 'success' if not user.is_active else 'warning' }}">
@@ -112,14 +102,14 @@
                                     {% endif %}
                                 </button>
                             </form>
-                            
+
                             <form method="POST" action="{{ url_for('user.reset_password', user_id=user.id) }}" class="d-inline"
                                   onsubmit="return confirm('确定要重置该用户的密码吗？');">
                                 <button type="submit" class="btn btn-sm btn-outline-info">
                                     <i class="bi bi-key"></i> 重置密码
                                 </button>
                             </form>
-                            
+
                             <form method="POST" action="{{ url_for('user.delete_user', user_id=user.id) }}" class="d-inline"
                                   onsubmit="return confirm('确定要删除该用户吗？此操作不可恢复！');">
                                 <button type="submit" class="btn btn-sm btn-outline-danger">
@@ -133,8 +123,7 @@
                 </tbody>
             </table>
         </div>
-        
-        <!-- 分页 -->
+
         {% if pagination.pages > 1 %}
         <div class="card-footer">
             <nav>
@@ -144,7 +133,7 @@
                         <a class="page-link" href="{{ url_for('user.list_users', page=pagination.prev_num, role=role, status=status, keyword=keyword) }}">上一页</a>
                     </li>
                     {% endif %}
-                    
+
                     {% for page_num in pagination.iter_pages(left_edge=2, left_current=2, right_current=3, right_edge=2) %}
                         {% if page_num %}
                             {% if page_num == pagination.page %}
@@ -158,7 +147,7 @@
                             <li class="page-item disabled"><span class="page-link">...</span></li>
                         {% endif %}
                     {% endfor %}
-                    
+
                     {% if pagination.has_next %}
                     <li class="page-item">
                         <a class="page-link" href="{{ url_for('user.list_users', page=pagination.next_num, role=role, status=status, keyword=keyword) }}">下一页</a>
@@ -168,7 +157,7 @@
             </nav>
         </div>
         {% endif %}
-        
+
         {% else %}
         <div class="text-center py-5 text-muted">
             <i class="bi bi-inbox fs-1"></i>

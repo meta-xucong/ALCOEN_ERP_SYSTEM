@@ -65,6 +65,22 @@ class Department(db.Model):
         return f'<Department {self.name}>'
 
 
+class UserDepartment(db.Model):
+    """用户与部门的多对多关联。"""
+
+    __tablename__ = 'user_departments'
+
+    user_id: Mapped[int] = mapped_column(ForeignKey('users.id'), primary_key=True)
+    department_id: Mapped[int] = mapped_column(ForeignKey('departments.id'), primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+
+    user: Mapped['User'] = relationship(back_populates='department_links')
+    department: Mapped['Department'] = relationship()
+
+    def __repr__(self):
+        return f'<UserDepartment {self.user_id}:{self.department_id}>'
+
+
 class Contract(db.Model):
     """合同表 - v1.3 添加部门/负责人"""
     __tablename__ = 'contracts'
@@ -580,11 +596,78 @@ class User(db.Model):
     # 关联
     role: Mapped['Role'] = relationship(back_populates='users')
     department: Mapped['Department'] = relationship(foreign_keys=[department_id])
+    department_links: Mapped[list['UserDepartment']] = relationship(
+        back_populates='user',
+        cascade='all, delete-orphan',
+        foreign_keys='UserDepartment.user_id',
+    )
     approver: Mapped['User'] = relationship(remote_side=[id], foreign_keys=[approved_by])
     created_contracts: Mapped[list['Contract']] = relationship(back_populates='created_by', foreign_keys='Contract.created_by_id')
     
     def __repr__(self):
         return f'<User {self.username}>'
+
+    @property
+    def departments(self) -> list['Department']:
+        """返回用户所属的全部部门，兼容旧的单部门字段。"""
+        departments: list['Department'] = []
+        seen_ids: set[int] = set()
+
+        if self.department and self.department.id not in seen_ids:
+            departments.append(self.department)
+            seen_ids.add(self.department.id)
+
+        for link in self.department_links:
+            if link.department and link.department.id not in seen_ids:
+                departments.append(link.department)
+                seen_ids.add(link.department.id)
+
+        return departments
+
+    @property
+    def department_ids(self) -> list[int]:
+        """返回用户所属的全部部门 ID。"""
+        return [department.id for department in self.departments]
+
+    @property
+    def department_names(self) -> list[str]:
+        """返回用户所属的全部部门名称。"""
+        return [department.name for department in self.departments]
+
+    @property
+    def department_names_display(self) -> str:
+        """返回用于前端展示的部门文本。"""
+        if self.department_names:
+            return '、'.join(self.department_names)
+        if self.role and self.role.code == 'logistics_manager':
+            return '全部部门'
+        return '-'
+
+    def belongs_to_department_id(self, department_id: int | None) -> bool:
+        """检查用户是否属于某个部门 ID。"""
+        return bool(department_id and department_id in self.department_ids)
+
+    def belongs_to_department(self, dept_name: str | None) -> bool:
+        """检查用户是否属于某个部门名称。"""
+        return bool(dept_name and dept_name in self.department_names)
+
+    def set_departments(self, department_ids: list[int] | None) -> None:
+        """同步多部门归属，并保持旧的主部门字段兼容。"""
+        normalized_ids: list[int] = []
+        for department_id in department_ids or []:
+            if department_id and department_id not in normalized_ids:
+                normalized_ids.append(department_id)
+
+        existing_links = {link.department_id: link for link in self.department_links}
+        for department_id, link in existing_links.items():
+            if department_id not in normalized_ids:
+                db.session.delete(link)
+
+        for department_id in normalized_ids:
+            if department_id not in existing_links:
+                self.department_links.append(UserDepartment(department_id=department_id))
+
+        self.department_id = normalized_ids[0] if normalized_ids else None
     
     def get_theme_preference(self) -> dict:
         """获取用户的界面主题偏好设置
@@ -647,9 +730,7 @@ class User(db.Model):
         if self.is_superadmin or self.role.code in ['general_manager', 'gm_assistant', 'logistics_manager']:
             return True
         # 部门角色只能访问本部门
-        if self.department and self.department.name == dept_name:
-            return True
-        return False
+        return self.belongs_to_department(dept_name)
     
     def can_edit_contract_delivery(self, contract=None) -> bool:
         """是否可以编辑合同的发货记录"""
@@ -681,7 +762,7 @@ class User(db.Model):
             return True
         # 部门PM可以查看本部门所有合同
         if self.role.code == 'department_pm':
-            return contract.department == self.department.name if self.department else False
+            return self.belongs_to_department(contract.department)
         # 部门销售经理只能查看自己创建的合同
         if self.role.code == 'sales_manager':
             return contract.created_by_id == self.id
@@ -702,7 +783,7 @@ class User(db.Model):
         # 部门PM可以编辑本部门所有合同
         if self.role.code == 'department_pm':
             if contract and contract.department:
-                return self.department and contract.department == self.department.name
+                return self.belongs_to_department(contract.department)
             return True
         # 部门销售经理只能编辑自己创建的合同
         if self.role.code == 'sales_manager':
@@ -726,7 +807,7 @@ class User(db.Model):
         # 部门PM可以编辑本部门所有合同
         if self.role.code == 'department_pm':
             if contract and contract.department:
-                return self.department and contract.department == self.department.name
+                return self.belongs_to_department(contract.department)
             return True
         # 部门销售经理只能编辑自己创建的合同
         if self.role.code == 'sales_manager':

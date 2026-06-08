@@ -21,6 +21,38 @@ def _run_lightweight_schema_upgrades():
     """Apply additive QC schema upgrades for SQLite deployments without Alembic."""
     inspector = inspect(db.engine)
 
+    if not inspector.has_table('user_departments'):
+        with db.engine.begin() as connection:
+            connection.exec_driver_sql(
+                '''
+                CREATE TABLE user_departments (
+                    user_id INTEGER NOT NULL,
+                    department_id INTEGER NOT NULL,
+                    created_at DATETIME,
+                    PRIMARY KEY (user_id, department_id),
+                    FOREIGN KEY(user_id) REFERENCES users (id),
+                    FOREIGN KEY(department_id) REFERENCES departments (id)
+                )
+                '''
+            )
+
+    if inspector.has_table('users') and inspector.has_table('user_departments'):
+        with db.engine.begin() as connection:
+            connection.exec_driver_sql(
+                '''
+                INSERT INTO user_departments (user_id, department_id, created_at)
+                SELECT users.id, users.department_id, CURRENT_TIMESTAMP
+                FROM users
+                WHERE users.department_id IS NOT NULL
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM user_departments
+                      WHERE user_departments.user_id = users.id
+                        AND user_departments.department_id = users.department_id
+                  )
+                '''
+            )
+
     if inspector.has_table('qc_work_orders'):
         order_columns = {column['name'] for column in inspector.get_columns('qc_work_orders')}
         alter_statements = []

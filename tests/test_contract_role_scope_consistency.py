@@ -307,3 +307,25 @@ def test_contract_scope_matrix_for_all_roles(app):
         }
 
         assert actual == expected
+
+
+def test_department_pm_with_multiple_departments_can_access_each_department_contract(app):
+    """Department PM assigned to multiple departments should inherit all assigned scopes."""
+    with app.app_context():
+        sales = Department(name="Sales")
+        ops = Department(name="Ops")
+        db.session.add_all([sales, ops])
+        db.session.flush()
+
+        pm_role = _create_role("department_pm", ["contract_view", "contract_edit"], level=50)
+        sales_role = _create_role("sales_manager", ["contract_view", "contract_edit"], level=20)
+
+        pm_user = _create_user("pm_multi_dept", pm_role, sales)
+        pm_user.set_departments([sales.id, ops.id])
+        owner = _create_user("ops_owner_multi", sales_role, ops)
+        contract = _create_contract("OPS-MULTI-C001", owner.id, "Ops")
+
+        assert pm_user.can_access_department("Sales") is True
+        assert pm_user.can_access_department("Ops") is True
+        assert pm_user.can_view_contract(contract) is True
+        assert pm_user.can_edit_contract(contract) is True

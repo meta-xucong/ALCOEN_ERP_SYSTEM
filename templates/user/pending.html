@@ -1,4 +1,4 @@
-{% extends 'base.html' %}
+﻿{% extends 'base.html' %}
 
 {% block title %}待审核用户 - ALCOEN ERP{% endblock %}
 
@@ -36,15 +36,7 @@
                         <td><strong>{{ user.username }}</strong></td>
                         <td>{{ user.real_name }}</td>
                         <td><span class="badge bg-info">{{ user.role.name }}</span></td>
-                        <td>
-                            {% if user.department %}
-                                {{ user.department.name }}
-                            {% elif user.role.code == 'logistics_manager' %}
-                                <span class="text-muted">全部部门</span>
-                            {% else %}
-                                <span class="text-muted">-</span>
-                            {% endif %}
-                        </td>
+                        <td>{{ user.department_names_display }}</td>
                         <td>{{ user.email or '-' }}</td>
                         <td>{{ user.phone or '-' }}</td>
                         <td>{{ user.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
