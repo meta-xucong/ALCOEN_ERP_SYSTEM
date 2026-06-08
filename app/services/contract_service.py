@@ -560,18 +560,20 @@ class ContractService:
     @staticmethod
     def get_department_users(department_name: str = None) -> list:
         """[v1.5] 获取部门用户列表，用于PM选择负责人"""
-        from app.models import User, Department
-        query = db.session.query(User.real_name, User.username, Department.name.label('dept_name')).\
-            join(Department, User.department_id == Department.id).\
-            filter(User.is_active == True)
-        if department_name:
-            query = query.filter(Department.name == department_name)
-        users = query.order_by(Department.name, User.real_name, User.username).all()
-        # 返回格式: "部门名 - 姓名" 或 "部门名 - 用户名"（如果没有real_name）
+        from app.models import User
+
+        users = User.query.filter(User.is_active == True).order_by(User.real_name, User.username).all()
         result = []
-        for u in users:
-            display_name = u.real_name or u.username
-            result.append(f"{u.dept_name} - {display_name}")
+        seen = set()
+        for user in users:
+            display_name = user.real_name or user.username
+            for dept_name in user.department_names:
+                if department_name and dept_name != department_name:
+                    continue
+                item = f"{dept_name} - {display_name}"
+                if item not in seen:
+                    seen.add(item)
+                    result.append(item)
         return result
     
     @staticmethod
@@ -596,19 +598,22 @@ class ContractService:
         Returns:
             如果负责人是该部门成员则返回True，否则返回False
         """
-        from app.models import User, Department
+        from sqlalchemy import or_
+        from app.models import User, Department, UserDepartment
         
         dept = Department.query.filter_by(name=department_name).first()
         if not dept:
             return False
         
         # 检查是否是部门成员（通过real_name或username匹配）
-        user = User.query.filter(
-            User.department_id == dept.id,
+        user = User.query.outerjoin(
+            UserDepartment, UserDepartment.user_id == User.id
+        ).filter(
+            or_(User.department_id == dept.id, UserDepartment.department_id == dept.id),
             User.is_active == True
         ).filter(
             (User.real_name == manager_name) | (User.username == manager_name)
-        ).first()
+        ).distinct().first()
         
         return user is not None
     

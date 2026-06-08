@@ -100,12 +100,19 @@ def edit_user(user_id: int):
         email = request.form.get('email', '').strip() or None
         phone = request.form.get('phone', '').strip() or None
         role_id = request.form.get('role_id', type=int)
-        department_id = request.form.get('department_id', type=int) or None
+        department_ids = []
+        for raw_value in request.form.getlist('department_ids'):
+            try:
+                department_id = int(raw_value)
+            except (TypeError, ValueError):
+                continue
+            if department_id not in department_ids:
+                department_ids.append(department_id)
 
         if role_id:
             role = UserService.get_role_by_id(role_id)
             if role and role.code == 'logistics_manager':
-                department_id = None
+                department_ids = []
 
         success, message = UserService.update_user(
             user_id,
@@ -114,7 +121,7 @@ def edit_user(user_id: int):
                 'email': email,
                 'phone': phone,
                 'role_id': role_id,
-                'department_id': department_id,
+                'department_ids': department_ids,
             },
         )
         flash(message, 'success' if success else 'error')

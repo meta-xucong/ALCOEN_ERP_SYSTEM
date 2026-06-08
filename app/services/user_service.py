@@ -13,6 +13,7 @@ from app.models import (
     QC_ROLE_EDITABLE_PERMISSIONS,
     Role,
     User,
+    Department,
 )
 
 
@@ -110,8 +111,22 @@ class UserService:
                 if not include_qc and UserService.is_qc_role_code(role.code):
                     return False, 'QC 专属角色不能在 ERP 系统中分配'
                 user.role_id = data['role_id']
-            if 'department_id' in data:
-                user.department_id = data['department_id']
+            department_ids = None
+            if 'department_ids' in data:
+                department_ids = []
+                for department_id in data['department_ids'] or []:
+                    if department_id and department_id not in department_ids:
+                        department = Department.query.get(department_id)
+                        if not department:
+                            return False, '存在无效部门'
+                        department_ids.append(department_id)
+                user.set_departments(department_ids)
+            elif 'department_id' in data:
+                department_ids = [data['department_id']] if data['department_id'] else []
+                user.set_departments(department_ids)
+
+            if user.role and user.role.code == 'logistics_manager':
+                user.set_departments([])
 
             db.session.commit()
             return True, '更新成功'

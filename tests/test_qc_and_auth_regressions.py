@@ -2453,14 +2453,14 @@ def test_erp_nav_shows_qc_switch_only_for_dual_system_roles(app, client, login):
         response = client.get("/erp/", follow_redirects=False)
         assert response.status_code == 200
         text = response.get_data(as_text=True)
-        assert "QC系统" in text
+        assert "AI CATS" in text
         assert "/auth/switch/qc" in text
 
     login(ids["sales"])
     response = client.get("/erp/", follow_redirects=False)
     assert response.status_code == 200
     text = response.get_data(as_text=True)
-    assert "QC系统" not in text
+    assert "AI CATS" not in text
 
 
 def test_switch_routes_change_subsystem_context(app, client, login):
