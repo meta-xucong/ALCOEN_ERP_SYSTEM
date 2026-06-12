@@ -309,11 +309,18 @@
                 <div class="d-flex flex-wrap gap-2">
                     {% for img in contract.images %}
                     <div class="position-relative">
-                        <img src="{{ url_for('static', filename=img.filepath) }}"
-                             class="img-thumbnail"
-                             style="width: 100px; height: 100px; object-fit: cover; cursor: pointer;"
-                             onclick="openImageModal({{ url_for('static', filename=img.filepath)|tojson }})"
-                             title="{{ img.filename }}">
+                        {% set image_url = url_for('static', filename=img.filepath) %}
+                        <a href="{{ image_url }}"
+                           target="_blank"
+                           rel="noopener noreferrer"
+                           class="contract-image-link"
+                           data-image-preview="{{ image_url }}"
+                           data-image-title="{{ img.filename }}">
+                            <img src="{{ image_url }}"
+                                 class="img-thumbnail"
+                                 style="width: 100px; height: 100px; object-fit: cover; cursor: zoom-in;"
+                                 title="{{ img.filename }}">
+                        </a>
                         <small class="d-block text-muted text-center mt-1" style="max-width: 100px; overflow: hidden; text-overflow: ellipsis; font-size: 11px;">
                             {{ img.filename[:15] }}{% if img.filename|length > 15 %}...{% endif %}
                         </small>
@@ -472,11 +479,27 @@
 
 {% block extra_js %}
 <script>
-function openImageModal(imageSrc) {
+function openImageModal(imageSrc, imageTitle = '') {
     document.getElementById('modalImage').src = imageSrc;
+    const modalTitle = document.querySelector('#imageModal .modal-title');
+    if (modalTitle) {
+        modalTitle.textContent = imageTitle || '图片预览';
+    }
     const modal = new bootstrap.Modal(document.getElementById('imageModal'));
     modal.show();
 }
+
+document.addEventListener('DOMContentLoaded', () => {
+    document.querySelectorAll('[data-image-preview]').forEach(link => {
+        link.addEventListener('click', event => {
+            event.preventDefault();
+            openImageModal(
+                link.getAttribute('data-image-preview'),
+                link.getAttribute('data-image-title') || ''
+            );
+        });
+    });
+});
 
 function openDeliveryNotePrint(printUrl) {
     let iframe = document.getElementById('delivery-note-print-frame');
