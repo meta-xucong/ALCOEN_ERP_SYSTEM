@@ -1,0 +1,554 @@
+{% extends 'qc/base.html' %}
+
+{% block title %}{% if is_edit %}编辑{% else %}新增{% endif %}产品 - ALCOEN AI CATS{% endblock %}
+
+{% block extra_css %}
+<style>
+    .attachment-item {
+        position: relative;
+        overflow: visible;
+        border: 1px solid rgba(0, 0, 0, 0.08);
+        border-radius: 1rem;
+        padding: 1rem;
+        background: linear-gradient(180deg, #ffffff 0%, #f8fbf9 100%);
+        box-shadow: 0 0.5rem 1.5rem rgba(15, 23, 42, 0.04);
+    }
+    .attachment-item + .attachment-item { margin-top: 1rem; }
+    .attachment-toolbar {
+        display: flex;
+        justify-content: space-between;
+        gap: 1rem;
+        align-items: center;
+        flex-wrap: wrap;
+    }
+    .component-search-wrap { position: relative; z-index: 4; }
+    .component-search-wrap.is-open { z-index: 2050; }
+    .component-suggestions {
+        position: absolute;
+        left: 0;
+        right: 0;
+        top: calc(100% + 0.25rem);
+        z-index: 2060;
+        display: none;
+        max-height: 260px;
+        overflow-y: auto;
+        background: #fff;
+        border: 1px solid rgba(0, 0, 0, 0.12);
+        border-radius: 0.75rem;
+        box-shadow: 0 1rem 2.5rem rgba(15, 23, 42, 0.18);
+    }
+    .component-suggestion {
+        width: 100%;
+        padding: 0.75rem 0.9rem;
+        border: 0;
+        background: transparent;
+        text-align: left;
+    }
+    .component-suggestion:hover { background: rgba(25, 135, 84, 0.08); }
+    .component-meta { font-size: 0.8rem; color: #6c757d; }
+    .help-copy { color: #6c757d; font-size: 0.875rem; }
+</style>
+{% endblock %}
+
+{% block content %}
+{% set creator_name = (product.creator.real_name or product.creator.username) if product else (current_user.real_name or current_user.username) %}
+{% set workpiece_choices = workpiece_choices|default([]) %}
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h1 class="d-flex align-items-center gap-3 mb-0">
+        <i class="bi bi-boxes text-gradient" style="font-size: 2rem; color: #198754;"></i>
+        <span class="text-gradient" style="font-weight: 700; font-size: 2rem;">
+            {% if is_edit %}编辑产品{% else %}新增产品{% endif %}
+        </span>
+    </h1>
+    <a href="{{ url_for('qc.assembly_product_list') }}" class="btn btn-outline-secondary">
+        <i class="bi bi-arrow-left"></i> 返回产品库
+    </a>
+</div>
+
+<form method="POST" enctype="multipart/form-data" id="assemblyProductForm">
+    <div class="card mb-4">
+        <div class="card-header bg-primary text-white">
+            <h5 class="mb-0"><i class="bi bi-info-circle"></i> 基础信息</h5>
+        </div>
+        <div class="card-body">
+            <div class="row">
+                <div class="col-md-4 mb-3">
+                    <label class="form-label">产品编号 <span class="text-danger">*</span></label>
+                    <input type="text" class="form-control" name="product_code" value="{{ product.product_code if product else '' }}" required>
+                </div>
+                <div class="col-md-4 mb-3">
+                    <label class="form-label">产品名称 <span class="text-danger">*</span></label>
+                    <input type="text" class="form-control" name="product_name" value="{{ product.product_name if product else '' }}" required>
+                </div>
+                <div class="col-md-4 mb-3">
+                    <label class="form-label">创建人</label>
+                    <input type="text" class="form-control" value="{{ creator_name }}" readonly>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card mb-4">
+        <div class="card-header bg-info text-white">
+            <div class="attachment-toolbar">
+                <h5 class="mb-0"><i class="bi bi-diagram-3"></i> 装配结构 <span class="text-danger">*</span></h5>
+                <button type="button" class="btn btn-light btn-sm" onclick="addComponentRow()">
+                    <i class="bi bi-plus-circle"></i> 增加配件
+                </button>
+            </div>
+        </div>
+        <div class="card-body">
+            <div id="componentContainer">
+                {% set component_rows = product.components if product and product.components else [] %}
+                {% if component_rows %}
+                    {% for component in component_rows %}
+                    {% set row_index = loop.index0 %}
+                    {% set selected_workpiece_id = component.workpiece_id %}
+                    {% set selected_display = component.workpiece_code_snapshot ~ ' / ' ~ component.workpiece_name_snapshot %}
+                    {% include 'qc/_assembly_component_row.html' %}
+                    {% endfor %}
+                {% else %}
+                    {% for row_index in [0, 1] %}
+                    {% set selected_workpiece_id = '' %}
+                    {% set selected_display = '' %}
+                    {% set component = none %}
+                    {% include 'qc/_assembly_component_row.html' %}
+                    {% endfor %}
+                {% endif %}
+            </div>
+            <div class="help-copy mt-3">至少保留两个配件。可以直接从工件库下拉选择，也可以输入工件编号或名称的一部分进行模糊搜索。</div>
+        </div>
+    </div>
+
+    <div class="card mb-4">
+        <div class="card-header bg-warning text-dark">
+            <div class="attachment-toolbar">
+                <h5 class="mb-0"><i class="bi bi-list-check"></i> 装配单 <span class="text-danger">*</span></h5>
+                <button type="button" class="btn btn-light btn-sm" onclick="addAssemblySheet()">
+                    <i class="bi bi-plus-circle"></i> 增加装配单
+                </button>
+            </div>
+        </div>
+        <div class="card-body">
+            <div id="assemblySheetContainer">
+                {% if product and product.assembly_sheet_attachments %}
+                    {% for attachment in product.assembly_sheet_attachments %}
+                    <div class="attachment-item assembly-sheet-item" data-index="{{ loop.index0 }}">
+                        <div class="attachment-toolbar mb-3">
+                            <h6 class="fw-bold mb-0">装配单 {{ loop.index }}</h6>
+                            <button type="button" class="btn btn-outline-danger btn-sm" onclick="removeAssemblySheet(this)">
+                                <i class="bi bi-trash"></i> 删除
+                            </button>
+                        </div>
+                        <div class="row">
+                            <div class="col-md-4 mb-3">
+                                <label class="form-label">标题</label>
+                                <input type="text" class="form-control" name="assembly_sheet_title_{{ loop.index0 }}" value="{{ attachment.display_title }}">
+                            </div>
+                            <div class="col-md-4 mb-3">
+                                <label class="form-label">内容</label>
+                                <input type="text" class="form-control" name="assembly_sheet_content_{{ loop.index0 }}" value="{{ attachment.content or '' }}">
+                            </div>
+                            <div class="col-md-4 mb-3">
+                                <label class="form-label">文件{% if not attachment.file_path %} <span class="text-danger">*</span>{% endif %}</label>
+                                <input type="file" class="form-control" name="assembly_sheet_file_{{ loop.index0 }}" accept="image/*,application/pdf">
+                            </div>
+                        </div>
+                        {% if attachment.file_path %}
+                        <a href="{{ attachment.file_url }}" target="_blank" class="btn btn-outline-primary btn-sm text-truncate" title="{{ attachment.file_path.split('/')[-1] }}">
+                            <i class="bi bi-file-earmark-arrow-down"></i> {{ attachment.file_path.split('/')[-1] }}
+                        </a>
+                        {% endif %}
+                    </div>
+                    {% endfor %}
+                {% else %}
+                    <div class="attachment-item assembly-sheet-item" data-index="0">
+                        <div class="attachment-toolbar mb-3">
+                            <h6 class="fw-bold mb-0">装配单 1</h6>
+                            <button type="button" class="btn btn-outline-danger btn-sm" onclick="removeAssemblySheet(this)">
+                                <i class="bi bi-trash"></i> 删除
+                            </button>
+                        </div>
+                        <div class="row">
+                            <div class="col-md-4 mb-3">
+                                <label class="form-label">标题</label>
+                                <input type="text" class="form-control" name="assembly_sheet_title_0" value="装配单 1">
+                            </div>
+                            <div class="col-md-4 mb-3">
+                                <label class="form-label">内容</label>
+                                <input type="text" class="form-control" name="assembly_sheet_content_0">
+                            </div>
+                            <div class="col-md-4 mb-3">
+                                <label class="form-label">文件 <span class="text-danger">*</span></label>
+                                <input type="file" class="form-control" name="assembly_sheet_file_0" accept="image/*,application/pdf">
+                            </div>
+                        </div>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <div class="card mb-4">
+        <div class="card-header bg-secondary text-white">
+            <div class="attachment-toolbar">
+                <h5 class="mb-0"><i class="bi bi-sticky"></i> 备注</h5>
+                <button type="button" class="btn btn-light btn-sm" onclick="addRemark()">
+                    <i class="bi bi-plus-circle"></i> 增加备注
+                </button>
+            </div>
+        </div>
+        <div class="card-body">
+            <div id="remarkContainer">
+                {% if product and product.remark_attachments %}
+                    {% for remark in product.remark_attachments %}
+                    <div class="attachment-item remark-item" data-index="{{ loop.index0 }}">
+                        <div class="attachment-toolbar mb-3">
+                            <h6 class="fw-bold mb-0">备注 {{ loop.index }}</h6>
+                            <button type="button" class="btn btn-outline-danger btn-sm" onclick="removeRemark(this)">
+                                <i class="bi bi-trash"></i> 删除
+                            </button>
+                        </div>
+                        <div class="row">
+                            <div class="col-md-5 mb-3">
+                                <label class="form-label">备注内容</label>
+                                <input type="text" class="form-control" name="remark_content_{{ loop.index0 }}" value="{{ remark.content or '' }}">
+                            </div>
+                            <div class="col-md-3 mb-3">
+                                <label class="form-label">是否必填</label>
+                                <select class="form-select" name="remark_required_{{ loop.index0 }}">
+                                    <option value="1" {% if remark.is_required %}selected{% endif %}>必填</option>
+                                    <option value="0" {% if not remark.is_required %}selected{% endif %}>选填</option>
+                                </select>
+                            </div>
+                            <div class="col-md-4 mb-3">
+                                <label class="form-label">附件</label>
+                                <input type="file" class="form-control" name="remark_file_{{ loop.index0 }}" accept="image/*,application/pdf">
+                            </div>
+                        </div>
+                        {% if remark.file_path %}
+                        <a href="{{ remark.file_url }}" target="_blank" class="btn btn-outline-primary btn-sm text-truncate" title="{{ remark.file_path.split('/')[-1] }}">
+                            <i class="bi bi-file-earmark-arrow-down"></i> {{ remark.file_path.split('/')[-1] }}
+                        </a>
+                        {% endif %}
+                    </div>
+                    {% endfor %}
+                {% endif %}
+            </div>
+            {% if not product or not product.remark_attachments %}
+            <p class="text-muted mb-0" id="remarkEmptyText">暂无备注，可按需添加。</p>
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="d-flex gap-3 flex-wrap">
+        <button type="submit" class="btn btn-primary btn-lg">
+            <i class="bi bi-check-circle"></i> 保存产品
+        </button>
+        <a href="{{ url_for('qc.assembly_product_list') }}" class="btn btn-outline-secondary btn-lg">
+            <i class="bi bi-arrow-left"></i> 返回列表
+        </a>
+    </div>
+</form>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const WORKPIECE_CHOICES = [
+{% for workpiece in workpiece_choices %}
+    {
+        id: String({{ workpiece.id }}),
+        code: {{ workpiece.workpiece_code|tojson }},
+        name: {{ workpiece.workpiece_name|tojson }},
+        typeDisplay: {{ workpiece.workpiece_type_display|tojson }},
+        stock: {{ ('{:g}'.format(workpiece.stock_quantity or 0))|tojson }}
+    }{% if not loop.last %},{% endif %}
+{% endfor %}
+];
+let componentIndex = {{ product.components|length if product and product.components else 2 }};
+let assemblySheetIndex = {{ product.assembly_sheet_attachments|length if product and product.assembly_sheet_attachments else 1 }};
+let remarkIndex = {{ product.remark_attachments|length if product and product.remark_attachments else 0 }};
+
+function escapeHtml(value) {
+    return String(value ?? '').replace(/[&<>'"]/g, (char) => ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        "'": '&#39;',
+        '"': '&quot;'
+    }[char]));
+}
+
+function buildWorkpieceOptions(selectedId = '') {
+    const options = ['<option value="">-- 请选择工件 --</option>'];
+    WORKPIECE_CHOICES.forEach((item) => {
+        const selected = String(item.id) === String(selectedId) ? ' selected' : '';
+        options.push(`<option value="${escapeHtml(item.id)}" data-code="${escapeHtml(item.code)}" data-name="${escapeHtml(item.name)}" data-type="${escapeHtml(item.typeDisplay)}" data-stock="${escapeHtml(item.stock)}"${selected}>${escapeHtml(item.code)} / ${escapeHtml(item.name)}（库存 ${escapeHtml(item.stock)}）</option>`);
+    });
+    return options.join('');
+}
+
+function renumberItems(selector, prefix) {
+    document.querySelectorAll(selector).forEach((item, index) => {
+        const title = item.querySelector('h6');
+        if (title) title.textContent = `${prefix} ${index + 1}`;
+    });
+}
+
+function syncComponentChoice(componentItem, choice) {
+    const input = componentItem.querySelector('.component-search-input');
+    const select = componentItem.querySelector('.component-workpiece-select');
+    const workpieceIdInput = componentItem.querySelector('input[name^="component_workpiece_id_"]');
+    const workpieceCodeInput = componentItem.querySelector('input[name^="component_workpiece_code_"]');
+    const workpieceNameInput = componentItem.querySelector('input[name^="component_workpiece_name_"]');
+
+    if (!choice || !choice.id) {
+        workpieceIdInput.value = '';
+        workpieceCodeInput.value = '';
+        workpieceNameInput.value = '';
+        input.value = '';
+        if (select) select.value = '';
+        return;
+    }
+
+    workpieceIdInput.value = choice.id;
+    workpieceCodeInput.value = choice.code;
+    workpieceNameInput.value = choice.name;
+    input.value = `${choice.code} / ${choice.name}`;
+    if (select) select.value = String(choice.id);
+}
+
+function choiceFromOption(option) {
+    if (!option || !option.value) return null;
+    return {
+        id: option.value,
+        code: option.dataset.code || '',
+        name: option.dataset.name || '',
+        typeDisplay: option.dataset.type || '',
+        stock: option.dataset.stock || ''
+    };
+}
+
+function choiceFromSuggestion(button) {
+    return {
+        id: button.dataset.id,
+        code: button.dataset.code,
+        name: button.dataset.name,
+        typeDisplay: button.dataset.type || '',
+        stock: button.dataset.stock || ''
+    };
+}
+
+function addComponentRow() {
+    const container = document.getElementById('componentContainer');
+    const index = componentIndex++;
+    container.insertAdjacentHTML('beforeend', `
+        <div class="attachment-item component-item" data-index="${index}">
+            <div class="attachment-toolbar mb-3">
+                <h6 class="fw-bold mb-0">配件</h6>
+                <button type="button" class="btn btn-outline-danger btn-sm" onclick="removeComponentRow(this)">
+                    <i class="bi bi-trash"></i> 删除
+                </button>
+            </div>
+            <div class="row g-3">
+                <div class="col-lg-5">
+                    <label class="form-label">工件库下拉选择 <span class="text-danger">*</span></label>
+                    <select class="form-select component-workpiece-select" name="component_workpiece_select_${index}">
+                        ${buildWorkpieceOptions()}
+                    </select>
+                </div>
+                <div class="col-lg-4">
+                    <label class="form-label">模糊搜索</label>
+                    <div class="component-search-wrap">
+                        <input type="hidden" name="component_workpiece_id_${index}" value="">
+                        <input type="text" class="form-control component-search-input" name="component_workpiece_display_${index}" placeholder="输入工件编号或名称联想" autocomplete="off">
+                        <input type="hidden" name="component_workpiece_code_${index}" value="">
+                        <input type="hidden" name="component_workpiece_name_${index}" value="">
+                        <div class="component-suggestions"></div>
+                    </div>
+                </div>
+                <div class="col-lg-3">
+                    <label class="form-label">数量 <span class="text-danger">*</span></label>
+                    <input type="number" step="0.0001" min="0.0001" class="form-control" name="component_quantity_${index}" required>
+                </div>
+            </div>
+        </div>
+    `);
+    renumberItems('.component-item', '配件');
+    bindComponentSearch(container.lastElementChild);
+}
+
+function removeComponentRow(button) {
+    const items = document.querySelectorAll('.component-item');
+    if (items.length <= 2) {
+        alert('装配结构至少需要保留两个配件。');
+        return;
+    }
+    button.closest('.component-item').remove();
+    renumberItems('.component-item', '配件');
+}
+
+function addAssemblySheet() {
+    const container = document.getElementById('assemblySheetContainer');
+    const index = assemblySheetIndex++;
+    container.insertAdjacentHTML('beforeend', `
+        <div class="attachment-item assembly-sheet-item" data-index="${index}">
+            <div class="attachment-toolbar mb-3">
+                <h6 class="fw-bold mb-0">装配单</h6>
+                <button type="button" class="btn btn-outline-danger btn-sm" onclick="removeAssemblySheet(this)">
+                    <i class="bi bi-trash"></i> 删除
+                </button>
+            </div>
+            <div class="row">
+                <div class="col-md-4 mb-3">
+                    <label class="form-label">标题</label>
+                    <input type="text" class="form-control" name="assembly_sheet_title_${index}" value="装配单 ${index + 1}">
+                </div>
+                <div class="col-md-4 mb-3">
+                    <label class="form-label">内容</label>
+                    <input type="text" class="form-control" name="assembly_sheet_content_${index}">
+                </div>
+                <div class="col-md-4 mb-3">
+                    <label class="form-label">文件 <span class="text-danger">*</span></label>
+                    <input type="file" class="form-control" name="assembly_sheet_file_${index}" accept="image/*,application/pdf">
+                </div>
+            </div>
+        </div>
+    `);
+    renumberItems('.assembly-sheet-item', '装配单');
+}
+
+function removeAssemblySheet(button) {
+    const items = document.querySelectorAll('.assembly-sheet-item');
+    if (items.length <= 1) {
+        alert('请至少保留一项装配单。');
+        return;
+    }
+    button.closest('.assembly-sheet-item').remove();
+    renumberItems('.assembly-sheet-item', '装配单');
+}
+
+function addRemark() {
+    const container = document.getElementById('remarkContainer');
+    const emptyText = document.getElementById('remarkEmptyText');
+    if (emptyText) emptyText.remove();
+    const index = remarkIndex++;
+    container.insertAdjacentHTML('beforeend', `
+        <div class="attachment-item remark-item" data-index="${index}">
+            <div class="attachment-toolbar mb-3">
+                <h6 class="fw-bold mb-0">备注</h6>
+                <button type="button" class="btn btn-outline-danger btn-sm" onclick="removeRemark(this)">
+                    <i class="bi bi-trash"></i> 删除
+                </button>
+            </div>
+            <div class="row">
+                <div class="col-md-5 mb-3">
+                    <label class="form-label">备注内容</label>
+                    <input type="text" class="form-control" name="remark_content_${index}">
+                </div>
+                <div class="col-md-3 mb-3">
+                    <label class="form-label">是否必填</label>
+                    <select class="form-select" name="remark_required_${index}">
+                        <option value="1">必填</option>
+                        <option value="0" selected>选填</option>
+                    </select>
+                </div>
+                <div class="col-md-4 mb-3">
+                    <label class="form-label">附件</label>
+                    <input type="file" class="form-control" name="remark_file_${index}" accept="image/*,application/pdf">
+                </div>
+            </div>
+        </div>
+    `);
+    renumberItems('.remark-item', '备注');
+}
+
+function removeRemark(button) {
+    button.closest('.remark-item').remove();
+    renumberItems('.remark-item', '备注');
+    if (!document.querySelector('.remark-item')) {
+        document.getElementById('remarkContainer').insertAdjacentHTML('afterend', '<p class="text-muted mb-0" id="remarkEmptyText">暂无备注，可按需添加。</p>');
+    }
+}
+
+function bindComponentSearch(componentItem) {
+    const input = componentItem.querySelector('.component-search-input');
+    const select = componentItem.querySelector('.component-workpiece-select');
+    const suggestionBox = componentItem.querySelector('.component-suggestions');
+    const searchWrap = componentItem.querySelector('.component-search-wrap');
+    let timer = null;
+
+    if (select) {
+        select.addEventListener('change', () => {
+            syncComponentChoice(componentItem, choiceFromOption(select.selectedOptions[0]));
+        });
+        if (select.value) {
+            syncComponentChoice(componentItem, choiceFromOption(select.selectedOptions[0]));
+        }
+    }
+
+    input.addEventListener('input', () => {
+        const keyword = input.value.trim();
+        componentItem.querySelector('input[name^="component_workpiece_id_"]').value = '';
+        componentItem.querySelector('input[name^="component_workpiece_code_"]').value = '';
+        componentItem.querySelector('input[name^="component_workpiece_name_"]').value = '';
+        if (select) select.value = '';
+        suggestionBox.innerHTML = '';
+        suggestionBox.style.display = 'none';
+        searchWrap.classList.remove('is-open');
+        if (timer) clearTimeout(timer);
+        if (keyword.length < 1) return;
+
+        timer = setTimeout(async () => {
+            const response = await fetch(`/qc/assembly/workpieces/search?keyword=${encodeURIComponent(keyword)}`);
+            const payload = await response.json();
+            const items = payload.items || [];
+            if (!items.length) {
+                suggestionBox.innerHTML = '<div class="px-3 py-2 text-muted small">未找到匹配工件</div>';
+                suggestionBox.style.display = 'block';
+                searchWrap.classList.add('is-open');
+                return;
+            }
+            suggestionBox.innerHTML = items.map((item) => `
+                <button type="button" class="component-suggestion" data-id="${escapeHtml(item.id)}" data-code="${escapeHtml(item.workpiece_code)}" data-name="${escapeHtml(item.workpiece_name)}" data-type="${escapeHtml(item.workpiece_type_display)}" data-stock="${escapeHtml(item.stock_quantity)}">
+                    <div class="fw-semibold">${escapeHtml(item.workpiece_code)} / ${escapeHtml(item.workpiece_name)}</div>
+                    <div class="component-meta">类型：${escapeHtml(item.workpiece_type_display)}，库存：${escapeHtml(item.stock_quantity)}</div>
+                </button>
+            `).join('');
+            suggestionBox.style.display = 'block';
+            searchWrap.classList.add('is-open');
+            suggestionBox.querySelectorAll('.component-suggestion').forEach((button) => {
+                button.addEventListener('click', () => {
+                    syncComponentChoice(componentItem, choiceFromSuggestion(button));
+                    suggestionBox.style.display = 'none';
+                    searchWrap.classList.remove('is-open');
+                });
+            });
+        }, 200);
+    });
+
+    document.addEventListener('click', (event) => {
+        if (!componentItem.contains(event.target)) {
+            suggestionBox.style.display = 'none';
+            searchWrap.classList.remove('is-open');
+        }
+    });
+}
+
+document.querySelectorAll('.component-item').forEach((item) => bindComponentSearch(item));
+renumberItems('.component-item', '配件');
+renumberItems('.assembly-sheet-item', '装配单');
+renumberItems('.remark-item', '备注');
+
+document.getElementById('assemblyProductForm').addEventListener('submit', () => {
+    document.querySelectorAll('.component-item').forEach((item) => {
+        const select = item.querySelector('.component-workpiece-select');
+        const hiddenId = item.querySelector('input[name^="component_workpiece_id_"]');
+        if (select && select.value && !hiddenId.value) {
+            syncComponentChoice(item, choiceFromOption(select.selectedOptions[0]));
+        }
+    });
+});
+</script>
+{% endblock %}

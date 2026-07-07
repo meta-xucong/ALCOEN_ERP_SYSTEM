@@ -43,8 +43,10 @@
                     <tr>
                         <th>工件编号</th>
                         <th>工件名称</th>
+                        <th class="text-center">类型</th>
+                        <th class="text-center">库存数量</th>
                         <th class="text-center">创建人</th>
-                        <th class="text-center">图纸</th>
+                        <th class="text-center">主资料</th>
                         <th class="text-center">作业指导书</th>
                         <th class="text-center">备注</th>
                         <th class="text-center">更新时间</th>
@@ -56,8 +58,22 @@
                     <tr>
                         <td><strong>{{ workpiece.workpiece_code }}</strong></td>
                         <td>{{ workpiece.workpiece_name }}</td>
+                        <td class="text-center">
+                            <span class="badge {{ 'bg-info' if workpiece.is_outsourced else 'bg-success' }}">
+                                {{ workpiece.workpiece_type_display }}
+                            </span>
+                        </td>
+                        <td class="text-center">
+                            <span class="fw-semibold">{{ '{:g}'.format(workpiece.stock_quantity or 0) }}</span>
+                        </td>
                         <td class="text-center">{{ workpiece.creator.real_name or workpiece.creator.username }}</td>
-                        <td class="text-center">{{ '已配置' if workpiece.drawing_attachment else '-' }}</td>
+                        <td class="text-center">
+                            {% if workpiece.is_outsourced %}
+                                {{ workpiece.quality_material_attachments | length }} 项质检材料
+                            {% else %}
+                                {{ (workpiece.drawing_attachments | length) ~ ' 项图纸' if workpiece.drawing_attachments else '-' }}
+                            {% endif %}
+                        </td>
                         <td class="text-center">{{ workpiece.guide_attachments | length }}</td>
                         <td class="text-center">{{ workpiece.remark_attachments | length }}</td>
                         <td class="text-center">{{ workpiece.updated_at.strftime('%Y-%m-%d %H:%M') }}</td>
@@ -69,7 +85,7 @@
                     </tr>
                     {% else %}
                     <tr>
-                        <td colspan="8" class="text-center py-5 text-muted">
+                        <td colspan="10" class="text-center py-5 text-muted">
                             <i class="bi bi-inbox" style="font-size: 2rem;"></i>
                             <p class="mt-2">暂无工件</p>
                         </td>

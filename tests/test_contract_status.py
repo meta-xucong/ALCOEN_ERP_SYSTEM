@@ -134,3 +134,30 @@ def test_invoice_only_record_does_not_complete_payment_status(app, base_data):
         assert contract.payment_status == "pending"
         assert contract.status == "pending"
         assert contract.get_invoice_status_display()["text"] == "已开票"
+
+
+def test_zero_payment_and_invoice_record_marks_contract_as_not_required(app, base_data):
+    """A 0/0 payment record explicitly marks giveaway contracts as no payment/invoice required."""
+    from app.models import Contract
+
+    with app.app_context():
+        contract, cp = _create_status_contract(base_data["owner_user_id"])
+        contract_id = contract.id
+
+        ContractService.add_payment_record(
+            contract_id,
+            {
+                "payment_amount": 0,
+                "invoice_amount": 0,
+                "payment_date": "",
+                "invoice_date": "",
+                "handler": "Finance Gift",
+                "remark": "gift",
+                "contract_product_id": cp.id,
+            },
+        )
+        contract = Contract.query.get(contract_id)
+        assert contract.payment_status == "completed"
+        assert contract.get_payment_status_display()["text"] == "不需要回款"
+        assert contract.get_invoice_status_display()["text"] == "不需要开票"
+        assert contract.payment_records[0].status_flags == ["不需要回款/开票"]

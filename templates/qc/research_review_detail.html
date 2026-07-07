@@ -1,0 +1,339 @@
+{% extends 'qc/base.html' %}
+{% from 'qc/_research_file_macros.html' import file_preview %}
+
+{% block title %}指导审批 - ALCOEN AI CATS{% endblock %}
+
+{% block extra_css %}
+<style>
+    .review-pass {
+        background-color: rgba(25, 135, 84, 0.08) !important;
+    }
+    .review-revise {
+        background-color: rgba(220, 53, 69, 0.08) !important;
+    }
+    .review-card {
+        border: 1px solid rgba(15, 23, 42, 0.08);
+        border-radius: 1rem;
+        overflow: hidden;
+        box-shadow: 0 0.5rem 1.5rem rgba(15, 23, 42, 0.04);
+    }
+    .review-btn {
+        width: 52px;
+        height: 52px;
+        border-radius: 50%;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.15rem;
+        padding: 0;
+    }
+    .research-thumb {
+        max-height: 220px;
+        max-width: 100%;
+    }
+    .review-preview-panel {
+        display: flex;
+        flex-direction: column;
+        gap: 0.75rem;
+    }
+    .review-status-panel,
+    .review-feedback-panel {
+        border: 1px solid rgba(15, 23, 42, 0.08);
+        border-radius: 0.9rem;
+        background: rgba(255, 255, 255, 0.88);
+        padding: 1rem;
+    }
+    .review-editor-stack {
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+    }
+    .review-secondary-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 1rem;
+    }
+    .review-result-buttons {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.75rem;
+    }
+    .review-status-label {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+        margin-top: 0.8rem;
+        color: #5f6c7b;
+        font-size: 0.82rem;
+        font-weight: 600;
+    }
+    .review-suggestion {
+        min-height: 140px;
+        resize: vertical;
+    }
+    .review-card .research-file-preview,
+    .review-card .research-file-link,
+    .review-card .research-file-link-text,
+    .review-feedback-panel,
+    .review-status-panel {
+        min-width: 0;
+    }
+    .review-feedback-panel .research-file-preview a {
+        max-width: 100%;
+    }
+    .info-note {
+        color: #6c757d;
+        font-size: 0.875rem;
+        line-height: 1.7;
+        margin-bottom: 0;
+    }
+    @media (max-width: 1199.98px) {
+        .review-secondary-grid {
+            grid-template-columns: 1fr;
+        }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+{% set status_info = batch.get_status_display() %}
+
+<div class="d-flex justify-content-between align-items-center flex-wrap gap-3 mb-4">
+    <h1 class="d-flex align-items-center gap-3 mb-0">
+        <i class="bi bi-chat-square-text text-warning" style="font-size: 2rem;"></i>
+        <span class="text-gradient" style="font-weight: 800; font-size: 2rem;">指导审批</span>
+        <span class="badge {{ status_info.badge }} fs-6">{{ status_info.text }}</span>
+    </h1>
+    <div class="d-flex gap-2 flex-wrap">
+        <a href="{{ url_for('qc.research_review_list') }}" class="btn btn-outline-secondary">
+            <i class="bi bi-arrow-left"></i> 返回列表
+        </a>
+    </div>
+</div>
+
+{% if batch.return_reason and batch.status == 'returned' %}
+<div class="alert alert-warning mb-4">
+    <i class="bi bi-arrow-counterclockwise"></i> 当前批次处于补充后再次查看阶段。
+    <div class="mt-2 small">上一轮退回原因：{{ batch.return_reason }}</div>
+</div>
+{% endif %}
+
+<div class="card mb-4">
+    <div class="card-header bg-primary text-white">
+        <h5 class="mb-0"><i class="bi bi-info-circle"></i> 基础信息</h5>
+    </div>
+    <div class="card-body">
+        <div class="row">
+            <div class="col-md-3 mb-3">
+                <label class="text-muted small">批次号</label>
+                <div class="fw-medium fs-5">{{ batch.batch_no }}</div>
+            </div>
+            <div class="col-md-3 mb-3">
+                <label class="text-muted small">研究项目</label>
+                <div class="fw-medium fs-5">{{ batch.project_display_name }}</div>
+            </div>
+            <div class="col-md-3 mb-3">
+                <label class="text-muted small">研发人员</label>
+                <div class="fw-medium fs-5">{{ batch.researcher.real_name or batch.researcher.username }}</div>
+            </div>
+            <div class="col-md-3 mb-3">
+                <label class="text-muted small">指导 / 验收人员</label>
+                <div class="fw-medium fs-5">{{ batch.reviewer.real_name or batch.reviewer.username if batch.reviewer else '-' }}</div>
+            </div>
+            <div class="col-md-3 mb-0">
+                <label class="text-muted small">样品数量 / 实验数量</label>
+                <div class="fw-medium fs-5">{{ '{:g}'.format(batch.sample_quantity or 0) }}</div>
+            </div>
+            <div class="col-md-3 mb-0">
+                <label class="text-muted small">当前状态</label>
+                <div class="fw-medium fs-5">{{ status_info.text }}</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% if batch.initiation_note_file_path or batch.phase_result_file_path or batch.supplementary_note_file_path %}
+<div class="card mb-4">
+    <div class="card-header bg-light">
+        <h5 class="mb-0"><i class="bi bi-paperclip"></i> 本批次补充文件</h5>
+    </div>
+    <div class="card-body">
+        <div class="row g-3">
+            <div class="col-md-4">
+                <label class="text-muted small d-block mb-2">立项补充资料</label>
+                {% if batch.initiation_note_file_path %}
+                {{ file_preview(batch.initiation_note_file_url, batch.initiation_note_filename, batch.initiation_note_file_type in ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'], batch.initiation_note_filename, 'btn-outline-secondary') }}
+                {% else %}
+                <span class="text-muted">-</span>
+                {% endif %}
+            </div>
+            <div class="col-md-4">
+                <label class="text-muted small d-block mb-2">过程记录 / 阶段结果</label>
+                {% if batch.phase_result_file_path %}
+                {{ file_preview(batch.phase_result_file_url, batch.phase_result_filename, batch.phase_result_file_type in ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'], batch.phase_result_filename, 'btn-outline-secondary') }}
+                {% else %}
+                <span class="text-muted">-</span>
+                {% endif %}
+            </div>
+            <div class="col-md-4">
+                <label class="text-muted small d-block mb-2">补充说明附件</label>
+                {% if batch.supplementary_note_file_path %}
+                {{ file_preview(batch.supplementary_note_file_url, batch.supplementary_note_filename, batch.supplementary_note_file_type in ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'], batch.supplementary_note_filename, 'btn-outline-secondary') }}
+                {% else %}
+                <span class="text-muted">-</span>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+{% if not can_review_batch and batch.status in ['research_submitted', 'review_completed'] %}
+<div class="alert alert-info">
+    <i class="bi bi-info-circle"></i> 您当前可以查看本批次，但没有提交指导审批结果的权限。
+</div>
+{% endif %}
+
+<form method="POST" action="" id="researchReviewForm" enctype="multipart/form-data">
+    {% for attachment in batch.attachments %}
+        {% set record = review_records_by_attachment.get(attachment.id) %}
+        <div class="card review-card mb-3 {% if record and record.result == 'approved' %}review-pass{% elif record and record.result == 'revise' %}review-revise{% endif %}" id="review-row-{{ attachment.id }}">
+            <div class="card-body">
+                <div class="row g-4 align-items-start">
+                    <div class="col-12 col-xl-4">
+                        <div class="review-preview-panel">
+                            <div>
+                                <div class="text-muted small mb-2">{{ attachment.review_label }}</div>
+                                <h6 class="fw-bold mb-2">{{ attachment.display_title }}</h6>
+                                {% if attachment.content %}
+                                <p class="text-muted small mb-0">{{ attachment.content }}</p>
+                                {% endif %}
+                            </div>
+                            {{ file_preview(attachment.file_url, attachment.file_path.split('/')[-1] if attachment.file_path else '', attachment.is_image, attachment.display_title) }}
+                        </div>
+                    </div>
+                    <div class="col-12 col-xl-8">
+                        <div class="review-editor-stack">
+                            <div>
+                                <label class="text-muted small d-block mb-2">指导建议</label>
+                                <textarea class="form-control review-suggestion"
+                                          name="suggestion_{{ attachment.id }}"
+                                          rows="6"
+                                          placeholder="填写指导建议、需补充点或注意事项"
+                                          {% if not can_review_batch %}readonly{% endif %}>{{ record.suggestion or '' if record else '' }}</textarea>
+                            </div>
+                            <div class="review-secondary-grid">
+                                <div class="review-status-panel">
+                                    <label class="text-muted small d-block mb-3">指导结果</label>
+                                    <div class="review-result-buttons">
+                                        <button type="button"
+                                                class="review-btn btn {{ 'btn-success' if record and record.result == 'approved' else 'btn-outline-success' }}"
+                                                id="btn-approved-{{ attachment.id }}"
+                                                onclick="setReviewResult({{ attachment.id }}, 'approved')"
+                                                {% if not can_review_batch %}disabled{% endif %}>
+                                            <i class="bi bi-check-lg"></i>
+                                        </button>
+                                        <button type="button"
+                                                class="review-btn btn {{ 'btn-danger' if record and record.result == 'revise' else 'btn-outline-danger' }}"
+                                                id="btn-revise-{{ attachment.id }}"
+                                                onclick="setReviewResult({{ attachment.id }}, 'revise')"
+                                                {% if not can_review_batch %}disabled{% endif %}>
+                                            <i class="bi bi-arrow-repeat"></i>
+                                        </button>
+                                    </div>
+                                    <input type="hidden" name="result_{{ attachment.id }}" id="result-{{ attachment.id }}" value="{{ record.result if record else '' }}">
+                                    <div class="review-status-label">
+                                        <i class="bi bi-palette"></i>
+                                        绿色表示通过，红色表示需补充
+                                    </div>
+                                </div>
+                                <div class="review-feedback-panel">
+                                    <label class="text-muted small d-block mb-2">反馈附件</label>
+                                    {% if record and record.feedback_file_path %}
+                                    <div class="mb-3">
+                                        {{ file_preview(record.feedback_file_url, record.feedback_filename, record.feedback_file_type in ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'], record.feedback_filename, 'btn-outline-secondary') }}
+                                    </div>
+                                    {% endif %}
+                                    <input type="file"
+                                           class="form-control"
+                                           name="feedback_file_{{ attachment.id }}"
+                                           accept="image/*,application/pdf"
+                                           {% if not can_review_batch %}disabled{% endif %}>
+                                    <div class="info-note mt-2">支持图片或 PDF。非图片文件只显示文件名，不会强行生成图片预览。</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    {% endfor %}
+
+    {% if can_review_batch %}
+    <input type="hidden" name="submit_action" id="submitAction" value="submit">
+    <div class="d-flex gap-3 mt-4 flex-wrap">
+        <button type="button" class="btn btn-success btn-lg flex-fill" onclick="submitReview('submit')">
+            <i class="bi bi-check-circle"></i> 提交指导结论
+        </button>
+        <button type="button" class="btn btn-outline-primary btn-lg" onclick="submitReview('draft')">
+            <i class="bi bi-save2"></i> 保存草稿
+        </button>
+    </div>
+    {% endif %}
+</form>
+
+{% if batch.histories %}
+<div class="card mt-4">
+    <div class="card-header bg-light">
+        <h5 class="mb-0"><i class="bi bi-clock-history"></i> 历史记录</h5>
+    </div>
+    <div class="card-body">
+        <div class="timeline-list">
+            {% for history in batch.histories %}
+            <div class="timeline-item">
+                <div class="timeline-dot"></div>
+                <div class="timeline-content">
+                    <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap">
+                        <div>
+                            <div class="fw-bold">{{ history.action }}</div>
+                            <div class="text-muted small">{{ history.operator_name }}</div>
+                            {% if history.detail %}
+                            <div class="mt-2">{{ history.detail }}</div>
+                            {% endif %}
+                        </div>
+                        <small class="text-muted">{{ history.created_at.strftime('%Y-%m-%d %H:%M:%S') }}</small>
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function setReviewResult(attachmentId, result) {
+    const row = document.getElementById(`review-row-${attachmentId}`);
+    const input = document.getElementById(`result-${attachmentId}`);
+    const btnApproved = document.getElementById(`btn-approved-${attachmentId}`);
+    const btnRevise = document.getElementById(`btn-revise-${attachmentId}`);
+
+    input.value = result;
+
+    row.classList.toggle('review-pass', result === 'approved');
+    row.classList.toggle('review-revise', result === 'revise');
+
+    btnApproved.classList.toggle('btn-success', result === 'approved');
+    btnApproved.classList.toggle('btn-outline-success', result !== 'approved');
+    btnRevise.classList.toggle('btn-danger', result === 'revise');
+    btnRevise.classList.toggle('btn-outline-danger', result !== 'revise');
+}
+
+function submitReview(action) {
+    document.getElementById('submitAction').value = action;
+    document.getElementById('researchReviewForm').submit();
+}
+</script>
+{% endblock %}

@@ -298,9 +298,13 @@ class ContractService:
         
         payment_amount = ContractService._to_float2(payment_data.get('payment_amount', 0))
         invoice_amount = ContractService._to_float2(payment_data.get('invoice_amount', 0))
-        if payment_amount <= 0:
+        if payment_amount < 0:
+            raise ValueError("回款金额不能为负数")
+        if invoice_amount < 0:
+            raise ValueError("开票金额不能为负数")
+        if payment_amount == 0 and payment_data.get('payment_amount') in (None, ''):
             payment_amount = None
-        if invoice_amount <= 0:
+        if invoice_amount == 0 and payment_data.get('invoice_amount') in (None, ''):
             invoice_amount = None
         if payment_amount is None and invoice_amount is None:
             raise ValueError("回款金额和开票金额至少填写一个")
@@ -496,8 +500,11 @@ class ContractService:
         # 计算回款状态（仅以实收金额目标作为完成基准）
         target_receivable_value = ContractService._to_float2(stats.get('target_receivable_value', 0))
         total_paid_value = ContractService._to_float2(stats.get('total_paid_value', 0))
+        has_zero_value_exemption = any(record.is_zero_value_exemption for record in contract.payment_records)
         
-        if target_receivable_value <= 0:
+        if has_zero_value_exemption:
+            payment_status = 'completed'
+        elif target_receivable_value <= 0:
             payment_status = 'completed'
         elif total_paid_value >= target_receivable_value:
             payment_status = 'completed'
@@ -529,7 +536,7 @@ class ContractService:
             contract.append_remark(f"发货状态更新：{status_text}")
         
         if old_payment_status != payment_status:
-            status_text = {'completed': '完成', 'partial': '部分', 'pending': '未'}[payment_status]
+            status_text = '不需要' if has_zero_value_exemption else {'completed': '完成', 'partial': '部分', 'pending': '未'}[payment_status]
             contract.append_remark(f"回款状态更新：{status_text}")
         
         db.session.commit()

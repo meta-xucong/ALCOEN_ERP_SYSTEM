@@ -3,6 +3,18 @@
 {% block title %}工件详情 - ALCOEN AI CATS{% endblock %}
 
 {% block content %}
+{% macro render_attachment_file(attachment, image_alt='附件') %}
+    {% if attachment.file_path %}
+    <a href="{{ attachment.file_url }}" target="_blank" class="btn btn-outline-primary btn-sm text-truncate mb-2" title="{{ attachment.file_path.split('/')[-1] }}">
+        <i class="bi bi-file-earmark-arrow-down"></i> {{ attachment.file_path.split('/')[-1] }}
+    </a>
+    {% if attachment.is_image %}
+    <div>
+        <img src="{{ attachment.file_url }}" class="img-thumbnail" style="max-height: 260px;" alt="{{ image_alt }}">
+    </div>
+    {% endif %}
+    {% endif %}
+{% endmacro %}
 <div class="d-flex justify-content-between align-items-center mb-4">
     <h1 class="d-flex align-items-center gap-3 mb-0">
         <i class="bi bi-box-seam text-gradient" style="font-size: 2rem; color: #198754;"></i>
@@ -42,6 +54,20 @@
                 <div class="fw-medium fs-5">{{ workpiece.workpiece_name }}</div>
             </div>
             <div class="col-md-3 mb-3">
+                <label class="text-muted small">工件类型</label>
+                <div class="fw-medium fs-5">
+                    <span class="badge {{ 'bg-info' if workpiece.is_outsourced else 'bg-success' }}">
+                        {{ workpiece.workpiece_type_display }}
+                    </span>
+                </div>
+            </div>
+            <div class="col-md-3 mb-3">
+                <label class="text-muted small">库存数量</label>
+                <div class="fw-medium fs-5">{{ '{:g}'.format(workpiece.stock_quantity or 0) }}</div>
+            </div>
+        </div>
+        <div class="row">
+            <div class="col-md-3 mb-3">
                 <label class="text-muted small">创建人</label>
                 <div class="fw-medium fs-5">{{ workpiece.creator.real_name or workpiece.creator.username }}</div>
             </div>
@@ -55,21 +81,21 @@
 
 <div class="card mb-4">
     <div class="card-header bg-info text-white">
-        <h5 class="mb-0"><i class="bi bi-image"></i> 图纸</h5>
+        <h5 class="mb-0">
+            <i class="bi {{ 'bi-folder-check' if workpiece.is_outsourced else 'bi-image' }}"></i>
+            {{ workpiece.primary_material_label }}
+        </h5>
     </div>
     <div class="card-body">
-        {% if workpiece.drawing_attachment %}
-            <p class="text-muted mb-2">{{ workpiece.drawing_attachment.file_path.split('/')[-1] }}</p>
-            {% if workpiece.drawing_attachment.is_image %}
-            <img src="{{ workpiece.drawing_attachment.file_url }}" class="img-thumbnail" style="max-height: 300px;">
-            {% else %}
-            <a href="{{ workpiece.drawing_attachment.file_url }}" target="_blank" class="btn btn-outline-primary btn-sm">
-                <i class="bi bi-download"></i> 下载查看
-            </a>
-            {% endif %}
+        {% for attachment in workpiece.primary_material_attachments %}
+            <div class="border rounded p-3 mb-3">
+                <h6 class="fw-bold">{{ attachment.display_title }}</h6>
+                {% if attachment.content %}<p class="text-muted mb-2">{{ attachment.content }}</p>{% endif %}
+                {{ render_attachment_file(attachment, attachment.display_title) }}
+            </div>
         {% else %}
-            <p class="text-muted mb-0">未上传图纸</p>
-        {% endif %}
+            <p class="text-muted mb-0">未上传{{ workpiece.primary_material_label }}</p>
+        {% endfor %}
     </div>
 </div>
 
@@ -81,16 +107,8 @@
         {% for attachment in workpiece.guide_attachments %}
         <div class="border rounded p-3 mb-3">
             <h6 class="fw-bold">{{ attachment.display_title }}</h6>
-            <p class="text-muted mb-2">{{ attachment.content or '' }}</p>
-            {% if attachment.file_path %}
-                {% if attachment.is_image %}
-                <img src="{{ attachment.file_url }}" class="img-thumbnail" style="max-height: 220px;">
-                {% else %}
-                <a href="{{ attachment.file_url }}" target="_blank" class="btn btn-outline-primary btn-sm">
-                    <i class="bi bi-download"></i> 下载查看
-                </a>
-                {% endif %}
-            {% endif %}
+            {% if attachment.content %}<p class="text-muted mb-2">{{ attachment.content }}</p>{% endif %}
+            {{ render_attachment_file(attachment, attachment.display_title) }}
         </div>
         {% else %}
         <p class="text-muted mb-0">未配置作业指导书</p>
@@ -108,16 +126,8 @@
             <div class="d-flex gap-2 mb-2">
                 <span class="badge {{ 'bg-danger' if attachment.is_required else 'bg-light text-dark' }}">{{ '必填' if attachment.is_required else '选填' }}</span>
             </div>
-            <p class="text-muted mb-2">{{ attachment.content or '' }}</p>
-            {% if attachment.file_path %}
-                {% if attachment.is_image %}
-                <img src="{{ attachment.file_url }}" class="img-thumbnail" style="max-height: 220px;">
-                {% else %}
-                <a href="{{ attachment.file_url }}" target="_blank" class="btn btn-outline-primary btn-sm">
-                    <i class="bi bi-download"></i> 下载查看
-                </a>
-                {% endif %}
-            {% endif %}
+            {% if attachment.content %}<p class="text-muted mb-2">{{ attachment.content }}</p>{% endif %}
+            {{ render_attachment_file(attachment, attachment.display_title) }}
         </div>
         {% else %}
         <p class="text-muted mb-0">未配置备注</p>

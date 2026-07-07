@@ -55,6 +55,7 @@
                     <tr>
                         <th>批次编号</th>
                         <th>工件名称</th>
+                        <th class="text-center">类型</th>
                         <th class="text-center">数量</th>
                         <th class="text-center">状态</th>
                         <th class="text-center">负责人</th>
@@ -68,6 +69,11 @@
                     <tr>
                         <td><strong>{{ order.batch_no }}</strong></td>
                         <td>{{ order.workpiece_name }}</td>
+                        <td class="text-center">
+                            <span class="badge {{ 'bg-info' if order.is_outsourced else 'bg-success' }}">
+                                {{ order.workpiece_type_display }}
+                            </span>
+                        </td>
                         <td class="text-center">{{ order.quantity }}</td>
                         <td class="text-center">
                             <span class="badge {{ status_info.badge }}">{{ status_info.text }}</span>
@@ -89,7 +95,7 @@
                     </tr>
                     {% else %}
                     <tr>
-                        <td colspan="7" class="text-center py-5 text-muted">
+                        <td colspan="8" class="text-center py-5 text-muted">
                             <i class="bi bi-inbox" style="font-size: 2rem;"></i>
                             <p class="mt-2">暂无工件订单</p>
                             {% if current_user.is_superadmin or (current_user.role.code in ['general_manager', 'gm_assistant', 'qc_controller'] and current_user.has_qc_permission('qc_work_order_create')) %}

@@ -1,0 +1,103 @@
+{% extends 'qc/base.html' %}
+
+{% block title %}{{ page_title }} - ALCOEN AI CATS{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center flex-wrap gap-3 mb-4">
+    <div>
+        <h1 class="mb-1"><i class="bi {{ page_icon }} text-warning"></i> {{ page_title }}</h1>
+        <p class="text-muted mb-0">按照研究发起、指导审批、共同验收的节奏，查看当前批次并进入具体操作页面。</p>
+    </div>
+    <div class="d-flex gap-2 flex-wrap">
+        {% if can_create_new and new_endpoint %}
+        <a href="{{ url_for(new_endpoint) }}" class="btn btn-primary">
+            <i class="bi bi-plus-circle"></i> 新增研究批次
+        </a>
+        {% endif %}
+        <a href="{{ url_for('qc.research_home') }}" class="btn btn-outline-secondary">
+            <i class="bi bi-arrow-left"></i> 返回研究/实验
+        </a>
+    </div>
+</div>
+
+<div class="card border-0 shadow-sm mb-4">
+    <div class="card-body">
+        <form method="GET" class="row g-3 align-items-end">
+            <div class="col-md-6">
+                <label class="form-label">关键词</label>
+                <input type="text" name="keyword" class="form-control" value="{{ keyword }}" placeholder="批次号 / 研究项目">
+            </div>
+            <div class="col-auto">
+                <button type="submit" class="btn btn-primary"><i class="bi bi-search"></i> 查询</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="card border-0 shadow-sm">
+    <div class="card-body">
+        {% if batches %}
+        <div class="table-responsive">
+            <table class="table align-middle mb-0">
+                <thead>
+                    <tr>
+                        <th>批次号</th>
+                        <th>研究项目</th>
+                        <th>研发人员</th>
+                        <th>指导 / 验收人员</th>
+                        <th>样品数量</th>
+                        <th>状态</th>
+                        <th>最近更新</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for batch in batches %}
+                    {% set status_info = batch.get_status_display() %}
+                    <tr>
+                        <td class="fw-semibold">
+                            <a href="{{ url_for(detail_endpoint, batch_id=batch.id) }}">{{ batch.batch_no }}</a>
+                        </td>
+                        <td>{{ batch.project_display_name }}</td>
+                        <td>{{ batch.researcher.real_name or batch.researcher.username }}</td>
+                        <td>{{ batch.reviewer.real_name or batch.reviewer.username if batch.reviewer else '-' }}</td>
+                        <td>{{ '{:g}'.format(batch.sample_quantity or 0) }}</td>
+                        <td><span class="badge {{ status_info.badge }}">{{ status_info.text }}</span></td>
+                        <td>{{ batch.updated_at.strftime('%Y-%m-%d %H:%M') }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="text-center text-muted py-5">{{ empty_text }}</div>
+        {% endif %}
+    </div>
+    {% if pagination and pagination.pages > 1 %}
+    <div class="card-footer bg-white">
+        <nav>
+            <ul class="pagination mb-0 justify-content-center">
+                {% if pagination.has_prev %}
+                <li class="page-item"><a class="page-link" href="{{ url_for(request.endpoint, page=pagination.prev_num, keyword=keyword) }}">上一页</a></li>
+                {% else %}
+                <li class="page-item disabled"><span class="page-link">上一页</span></li>
+                {% endif %}
+                {% for page_num in pagination.iter_pages(left_edge=1, right_edge=1, left_current=1, right_current=1) %}
+                    {% if page_num %}
+                        <li class="page-item {% if page_num == pagination.page %}active{% endif %}">
+                            <a class="page-link" href="{{ url_for(request.endpoint, page=page_num, keyword=keyword) }}">{{ page_num }}</a>
+                        </li>
+                    {% else %}
+                        <li class="page-item disabled"><span class="page-link">…</span></li>
+                    {% endif %}
+                {% endfor %}
+                {% if pagination.has_next %}
+                <li class="page-item"><a class="page-link" href="{{ url_for(request.endpoint, page=pagination.next_num, keyword=keyword) }}">下一页</a></li>
+                {% else %}
+                <li class="page-item disabled"><span class="page-link">下一页</span></li>
+                {% endif %}
+            </ul>
+        </nav>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

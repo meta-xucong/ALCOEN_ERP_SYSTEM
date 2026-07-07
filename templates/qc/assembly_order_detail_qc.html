@@ -1,0 +1,175 @@
+{% extends 'qc/base.html' %}
+
+{% block title %}装配单详情 - ALCOEN AI CATS{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h1 class="d-flex align-items-center gap-3 mb-0">
+        <i class="bi bi-tools text-gradient" style="font-size: 2rem; color: #198754;"></i>
+        <span class="text-gradient" style="font-weight: 700; font-size: 2rem;">装配单详情</span>
+        {% set status_info = order.get_acceptance_status_display() if order.status in ['inspection_completed', 'accepted'] else order.get_status_display() %}
+        <span class="badge {{ status_info.badge }} fs-6">{{ status_info.text }}</span>
+    </h1>
+    <div class="d-flex gap-2">
+        {% if current_user and order.status in ['draft', 'assembly_pending', 'rejected'] %}
+        <a href="{{ url_for('qc.assembly_launch_edit', order_id=order.id) }}" class="btn btn-info">
+            <i class="bi bi-pencil"></i> 编辑
+        </a>
+        {% endif %}
+        <a href="{{ url_for('qc.assembly_launch_list') }}" class="btn btn-outline-secondary">
+            <i class="bi bi-arrow-left"></i> 返回列表
+        </a>
+    </div>
+</div>
+
+{% if order.status == 'rejected' %}
+<div class="alert alert-danger mb-4">
+    <i class="bi bi-x-octagon-fill"></i> 该装配单曾被判定为不合格，请优先处理标红项目后重新提交。
+    {% if order.rejection_reason %}
+    <div class="mt-2 small">回退原因：{{ order.rejection_reason }}</div>
+    {% endif %}
+</div>
+{% endif %}
+
+<div class="card mb-4">
+    <div class="card-header bg-primary text-white">
+        <h5 class="mb-0"><i class="bi bi-info-circle"></i> 基础信息</h5>
+    </div>
+    <div class="card-body">
+        <div class="row">
+            <div class="col-md-3 mb-3">
+                <label class="text-muted small">批次编号</label>
+                <div class="fw-medium fs-5">{{ order.batch_no }}</div>
+            </div>
+            <div class="col-md-3 mb-3">
+                <label class="text-muted small">产品名称</label>
+                <div class="fw-medium fs-5">{{ order.product_name_snapshot }}</div>
+            </div>
+            <div class="col-md-3 mb-3">
+                <label class="text-muted small">装配数量</label>
+                <div class="fw-medium fs-5">{{ '{:g}'.format(order.quantity or 0) }}</div>
+            </div>
+            <div class="col-md-3 mb-3">
+                <label class="text-muted small">装配负责人</label>
+                <div class="fw-medium fs-5">{{ order.controller.real_name or order.controller.username }}</div>
+            </div>
+        </div>
+        {% if order.inspector %}
+        <div class="row">
+            <div class="col-md-3 mb-3">
+                <label class="text-muted small">指导 / 验收人员</label>
+                <div class="fw-medium fs-5">{{ order.inspector.real_name or order.inspector.username }}</div>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<div class="card mb-4">
+    <div class="card-header bg-info text-white">
+        <h5 class="mb-0"><i class="bi bi-diagram-3"></i> 装配结构快照</h5>
+    </div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-hover mb-0 align-middle">
+                <thead class="table-light">
+                    <tr>
+                        <th>工件编号</th>
+                        <th>工件名称</th>
+                        <th class="text-center">单件用量</th>
+                        <th class="text-center">本单需消耗</th>
+                        <th class="text-center">当前库存</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for component in order.components %}
+                    <tr>
+                        <td><strong>{{ component.workpiece_code_snapshot }}</strong></td>
+                        <td>{{ component.workpiece_name_snapshot }}</td>
+                        <td class="text-center">{{ '{:g}'.format(component.quantity_per_unit or 0) }}</td>
+                        <td class="text-center">{{ '{:g}'.format(component.total_required_quantity or 0) }}</td>
+                        <td class="text-center">{{ '{:g}'.format(component.workpiece.stock_quantity or 0) if component.workpiece else '-' }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<div class="card mb-4">
+    <div class="card-header bg-warning text-dark">
+        <h5 class="mb-0"><i class="bi bi-list-check"></i> 生产登记单</h5>
+    </div>
+    <div class="card-body">
+        {% for attachment in order.assembly_record_attachments %}
+        <div class="border rounded p-3 mb-3">
+            <h6 class="fw-bold">{{ attachment.display_title }}</h6>
+            {% if attachment.content %}<p class="text-muted mb-2">{{ attachment.content }}</p>{% endif %}
+            {% if attachment.file_path %}
+                <a href="{{ attachment.file_url }}" target="_blank" class="btn btn-outline-primary btn-sm mb-2">
+                    <i class="bi bi-file-earmark-arrow-down"></i> {{ attachment.file_path.split('/')[-1] }}
+                </a>
+            {% endif %}
+        </div>
+        {% else %}
+        <p class="text-muted mb-0">未带出生产登记单</p>
+        {% endfor %}
+    </div>
+</div>
+
+<div class="card mb-4">
+    <div class="card-header bg-secondary text-white">
+        <h5 class="mb-0"><i class="bi bi-sticky"></i> 备注</h5>
+    </div>
+    <div class="card-body">
+        {% for attachment in order.remark_attachments %}
+        <div class="border rounded p-3 mb-3">
+            <div class="d-flex gap-2 mb-2">
+                <span class="badge {{ 'bg-danger' if attachment.is_required else 'bg-light text-dark' }}">{{ '必填' if attachment.is_required else '选填' }}</span>
+            </div>
+            {% if attachment.content %}<p class="text-muted mb-2">{{ attachment.content }}</p>{% endif %}
+            {% if attachment.file_path %}
+                <a href="{{ attachment.file_url }}" target="_blank" class="btn btn-outline-primary btn-sm mb-2">
+                    <i class="bi bi-file-earmark-arrow-down"></i> {{ attachment.file_path.split('/')[-1] }}
+                </a>
+            {% endif %}
+        </div>
+        {% else %}
+        <p class="text-muted mb-0">未带出备注</p>
+        {% endfor %}
+    </div>
+</div>
+
+{% if order.status in ['draft', 'assembly_pending', 'rejected'] %}
+<div class="card border-primary">
+    <div class="card-header bg-primary text-white">
+        <h5 class="mb-0"><i class="bi bi-send-check"></i> 完成装配发起并推送</h5>
+    </div>
+    <div class="card-body">
+        <form method="POST" action="{{ url_for('qc.assembly_launch_complete', order_id=order.id) }}">
+            <div class="row align-items-end">
+                <div class="col-md-6 mb-3">
+                    <label class="form-label">选择指导 / 验收人员 <span class="text-danger">*</span></label>
+                    <select name="inspector_id" class="form-select" required>
+                        <option value="">-- 请选择 --</option>
+                        {% for reviewer in reviewers %}
+                        <option value="{{ reviewer.id }}" {% if order.inspector_id == reviewer.id %}selected{% endif %}>
+                            {{ reviewer.real_name or reviewer.username }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-6 mb-3">
+                    <button type="submit" class="btn btn-success btn-lg w-100">
+                        <i class="bi bi-check-circle"></i> 完成并推送至质量检测
+                    </button>
+                </div>
+            </div>
+        </form>
+    </div>
+</div>
+{% endif %}
+
+{% include 'qc/_work_order_history.html' %}
+{% endblock %}

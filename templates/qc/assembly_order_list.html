@@ -1,0 +1,133 @@
+{% extends 'qc/base.html' %}
+
+{% block title %}{{ page_title }} - ALCOEN AI CATS{% endblock %}
+
+{% block extra_css %}
+<style>
+    .assembly-order-name {
+        display: inline-block;
+        max-width: 240px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        vertical-align: bottom;
+        white-space: nowrap;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center flex-wrap gap-3 mb-4">
+    <div>
+        <h1 class="mb-1"><i class="bi {{ page_icon }} text-warning"></i> {{ page_title }}</h1>
+        <p class="text-muted mb-0">围绕产品模板、装配发起、质量检测、验收/出厂查看当前批次并进入具体操作页面。</p>
+    </div>
+    <div class="d-flex gap-2 flex-wrap">
+        {% if can_create_new and new_endpoint %}
+        <a href="{{ url_for(new_endpoint) }}" class="btn btn-primary">
+            <i class="bi bi-plus-circle"></i> 新增装配单
+        </a>
+        {% endif %}
+        <a href="{{ url_for(back_endpoint) }}" class="btn btn-outline-secondary">
+            <i class="bi bi-arrow-left"></i> 返回装配/出厂
+        </a>
+    </div>
+</div>
+
+<div class="card border-0 shadow-sm mb-4">
+    <div class="card-body">
+        <form method="GET" class="row g-3 align-items-end">
+            <div class="col-md-5">
+                <label class="form-label">关键词</label>
+                <input type="text" name="keyword" class="form-control" value="{{ keyword }}" placeholder="批次号 / 产品名称">
+            </div>
+            {% if status is not none %}
+            <div class="col-md-4">
+                <label class="form-label">状态</label>
+                <select name="status" class="form-select">
+                    <option value="">全部状态</option>
+                    <option value="draft" {% if status == 'draft' %}selected{% endif %}>草稿</option>
+                    <option value="assembly_pending" {% if status == 'assembly_pending' %}selected{% endif %}>装配准备中</option>
+                    <option value="assembly_completed" {% if status == 'assembly_completed' %}selected{% endif %}>待加工批次</option>
+                    <option value="inspection_pending" {% if status == 'inspection_pending' %}selected{% endif %}>质检未完成</option>
+                    <option value="inspection_completed" {% if status == 'inspection_completed' %}selected{% endif %}>质检已完成</option>
+                    <option value="accepted" {% if status == 'accepted' %}selected{% endif %}>质检已完成</option>
+                    <option value="rejected" {% if status == 'rejected' %}selected{% endif %}>质检不合格</option>
+                </select>
+            </div>
+            {% endif %}
+            <div class="col-auto">
+                <button type="submit" class="btn btn-primary"><i class="bi bi-search"></i> 查询</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="card border-0 shadow-sm">
+    <div class="card-body">
+        {% if orders %}
+        <div class="table-responsive">
+            <table class="table align-middle mb-0">
+                <thead>
+                    <tr>
+                        <th>批次号</th>
+                        <th>产品名称</th>
+                        <th>装配负责人</th>
+                        <th>指导 / 验收人员</th>
+                        <th>数量</th>
+                        <th>状态</th>
+                        <th>最近更新</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for order in orders %}
+                    {% set status_info = order.get_acceptance_status_display() if order.status in ['inspection_completed', 'accepted'] else order.get_status_display() %}
+                    <tr>
+                        <td class="fw-semibold"><a href="{{ url_for(detail_endpoint, order_id=order.id) }}">{{ order.batch_no }}</a></td>
+                        <td>
+                            <span class="assembly-order-name" title="{{ order.product_display_name }}">
+                                {{ order.product_display_name }}
+                            </span>
+                        </td>
+                        <td>{{ order.controller.real_name or order.controller.username }}</td>
+                        <td>{{ order.inspector.real_name or order.inspector.username if order.inspector else '-' }}</td>
+                        <td>{{ '{:g}'.format(order.quantity or 0) }}</td>
+                        <td><span class="badge {{ status_info.badge }}">{{ status_info.text }}</span></td>
+                        <td>{{ order.updated_at.strftime('%Y-%m-%d %H:%M') }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="text-center text-muted py-5">{{ empty_text }}</div>
+        {% endif %}
+    </div>
+    {% if pagination and pagination.pages > 1 %}
+    <div class="card-footer bg-white">
+        <nav>
+            <ul class="pagination mb-0 justify-content-center">
+                {% if pagination.has_prev %}
+                <li class="page-item"><a class="page-link" href="{{ url_for(request.endpoint, page=pagination.prev_num, keyword=keyword, status=status) }}">上一页</a></li>
+                {% else %}
+                <li class="page-item disabled"><span class="page-link">上一页</span></li>
+                {% endif %}
+                {% for page_num in pagination.iter_pages(left_edge=1, right_edge=1, left_current=1, right_current=1) %}
+                    {% if page_num %}
+                        <li class="page-item {% if page_num == pagination.page %}active{% endif %}">
+                            <a class="page-link" href="{{ url_for(request.endpoint, page=page_num, keyword=keyword, status=status) }}">{{ page_num }}</a>
+                        </li>
+                    {% else %}
+                        <li class="page-item disabled"><span class="page-link">…</span></li>
+                    {% endif %}
+                {% endfor %}
+                {% if pagination.has_next %}
+                <li class="page-item"><a class="page-link" href="{{ url_for(request.endpoint, page=pagination.next_num, keyword=keyword, status=status) }}">下一页</a></li>
+                {% else %}
+                <li class="page-item disabled"><span class="page-link">下一页</span></li>
+                {% endif %}
+            </ul>
+        </nav>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

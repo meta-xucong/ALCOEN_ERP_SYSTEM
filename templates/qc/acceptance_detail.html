@@ -38,7 +38,7 @@
     <div class="card-body">
         <div class="row g-3">
             <div class="col-md-4">
-                <label class="text-muted small d-block mb-2">图纸批注信息</label>
+                <label class="text-muted small d-block mb-2">{{ order.primary_material_label }}批注信息</label>
                 {% if order.drawing_note_file_path %}
                 <a href="{{ order.drawing_note_file_url }}" target="_blank" class="d-inline-block text-truncate truncate-name" title="{{ order.drawing_note_filename }}">
                     {{ order.drawing_note_filename }}
@@ -87,6 +87,14 @@
                 <div class="fw-medium fs-5">{{ order.workpiece_name }}</div>
             </div>
             <div class="col-md-3 mb-3">
+                <label class="text-muted small">工件类型</label>
+                <div class="fw-medium fs-5">
+                    <span class="badge {{ 'bg-info' if order.is_outsourced else 'bg-success' }}">
+                        {{ order.workpiece_type_display }}
+                    </span>
+                </div>
+            </div>
+            <div class="col-md-3 mb-3">
                 <label class="text-muted small">生产数量</label>
                 <div class="fw-medium fs-5">{{ order.quantity }}</div>
             </div>
@@ -127,8 +135,8 @@
                     {% set record = inspection_records_by_attachment.get(attachment.id) %}
                     <tr>
                         <td>
-                            {% if attachment.attach_type == 'drawing' %}
-                                <i class="bi bi-image"></i> 图纸
+                            {% if attachment.attach_type in ['drawing', 'qc_material'] %}
+                                <i class="bi {{ 'bi-folder-check' if attachment.attach_type == 'qc_material' else 'bi-image' }}"></i> {{ attachment.display_title }}
                             {% elif attachment.attach_type == 'remark' %}
                                 <i class="bi bi-sticky"></i> 备注
                             {% else %}
@@ -187,7 +195,14 @@
                                 <i class="bi bi-check-circle-fill" style="font-size: 2rem;"></i>
                             </div>
                             <p class="mb-0">已确认</p>
-                            <small class="text-muted">{{ signatures['qc_controller'].signed_at.strftime('%Y-%m-%d %H:%M') }}</small>
+                            <small class="text-muted d-block mb-2">{{ signatures['qc_controller'].signed_at.strftime('%Y-%m-%d %H:%M') }}</small>
+                            {% if can_cancel_signatures.get('qc_controller') %}
+                            <form method="POST" action="{{ url_for('qc.acceptance_cancel_signature', order_id=order.id, signer_role='qc_controller') }}" onsubmit="return confirm('确认取消质控人验收确认？');">
+                                <button type="submit" class="btn btn-outline-warning btn-sm">
+                                    <i class="bi bi-arrow-counterclockwise"></i> 取消确认
+                                </button>
+                            </form>
+                            {% endif %}
                         {% else %}
                             <div class="text-muted mb-2">
                                 <i class="bi bi-circle" style="font-size: 2rem;"></i>
@@ -195,6 +210,7 @@
                             <p class="text-muted">待确认</p>
                             {% if order.status == 'inspection_completed' and ((current_user.role.code == 'qc_controller' and order.controller_id == current_user.id and current_user.has_qc_permission('qc_acceptance_perform')) or current_user.is_superadmin or (current_user.role.code in ['general_manager', 'gm_assistant'] and current_user.has_qc_permission('qc_acceptance_perform'))) %}
                             <form method="POST" action="{{ url_for('qc.acceptance_sign', order_id=order.id) }}">
+                                <input type="hidden" name="signer_role" value="qc_controller">
                                 <button type="submit" class="btn btn-success">
                                     <i class="bi bi-check-lg"></i> 点击确认
                                 </button>
@@ -213,7 +229,14 @@
                                 <i class="bi bi-check-circle-fill" style="font-size: 2rem;"></i>
                             </div>
                             <p class="mb-0">已确认</p>
-                            <small class="text-muted">{{ signatures['qc_inspector'].signed_at.strftime('%Y-%m-%d %H:%M') }}</small>
+                            <small class="text-muted d-block mb-2">{{ signatures['qc_inspector'].signed_at.strftime('%Y-%m-%d %H:%M') }}</small>
+                            {% if can_cancel_signatures.get('qc_inspector') %}
+                            <form method="POST" action="{{ url_for('qc.acceptance_cancel_signature', order_id=order.id, signer_role='qc_inspector') }}" onsubmit="return confirm('确认取消供应商验收确认？');">
+                                <button type="submit" class="btn btn-outline-warning btn-sm">
+                                    <i class="bi bi-arrow-counterclockwise"></i> 取消确认
+                                </button>
+                            </form>
+                            {% endif %}
                         {% else %}
                             <div class="text-muted mb-2">
                                 <i class="bi bi-circle" style="font-size: 2rem;"></i>
@@ -221,6 +244,7 @@
                             <p class="text-muted">待确认</p>
                             {% if order.status == 'inspection_completed' and ((current_user.role.code == 'qc_inspector' and order.inspector_id == current_user.id and current_user.has_qc_permission('qc_acceptance_perform')) or current_user.is_superadmin or (current_user.role.code in ['general_manager', 'gm_assistant'] and current_user.has_qc_permission('qc_acceptance_perform'))) %}
                             <form method="POST" action="{{ url_for('qc.acceptance_sign', order_id=order.id) }}">
+                                <input type="hidden" name="signer_role" value="qc_inspector">
                                 <button type="submit" class="btn btn-success">
                                     <i class="bi bi-check-lg"></i> 点击确认
                                 </button>
@@ -233,7 +257,7 @@
         </div>
         {% if current_user.is_superadmin or current_user.role.code in ['general_manager', 'gm_assistant'] %}
         <div class="alert alert-info mb-0">
-            <i class="bi bi-info-circle"></i> 管理员、总经理、总经理助理可代双方完成确认。
+            <i class="bi bi-info-circle"></i> 管理员、总经理、总经理助理可分别代两方确认，但需要逐项点击。
         </div>
         {% endif %}
     </div>
@@ -282,5 +306,7 @@
     </div>
 </div>
 {% endif %}
+
+{% include 'qc/_work_order_history.html' %}
 {% endblock %}
 

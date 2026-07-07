@@ -42,6 +42,9 @@ class Config:
     VERIFY_CODE_EXPIRE_MINUTES = 15  # 验证码有效期（分钟）
     TRUSTED_DEVICE_DAYS = 30  # 受信任设备有效期（天）
 
+    # AI CATS 测试期开关：开启后，所有已激活 ERP 用户临时拥有 AI CATS 完整操作权限。
+    AI_CATS_TEST_OPEN_ACCESS = os.environ.get('AI_CATS_TEST_OPEN_ACCESS', '1').lower() not in ('0', 'false', 'no')
+
 
 class DevelopmentConfig(Config):
     """开发环境"""

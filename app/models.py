@@ -1,4 +1,5 @@
 from datetime import datetime
+from flask import current_app, has_app_context
 from sqlalchemy import String, Float, ForeignKey, DateTime, Text, Date, Integer, event
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app import db
@@ -154,6 +155,8 @@ class Contract(db.Model):
     
     def get_payment_status_display(self):
         """[v1.4] 获取回款状态显示：部分回款黄色，未回款红色"""
+        if any(record.is_zero_value_exemption for record in self.payment_records):
+            return {'text': '不需要回款', 'class': 'secondary', 'badge': 'bg-secondary'}
         status_map = {
             'completed': {'text': '回款完成', 'class': 'success', 'badge': 'bg-success'},
             'partial': {'text': '部分回款', 'class': 'warning', 'badge': 'bg-warning'},
@@ -163,6 +166,8 @@ class Contract(db.Model):
 
     def get_invoice_status_display(self):
         """获取开票状态显示。"""
+        if any(record.is_zero_value_exemption for record in self.payment_records):
+            return {'text': '不需要开票', 'class': 'secondary', 'badge': 'bg-secondary'}
         has_invoice = any(
             (p.invoice_date or (p.invoice_amount or 0) > 0)
             for p in self.payment_records
@@ -330,8 +335,16 @@ class PaymentRecord(db.Model):
         return (self.invoice_amount or 0) > 0
 
     @property
+    def is_zero_value_exemption(self) -> bool:
+        """Whether this record explicitly marks a no-payment/no-invoice giveaway."""
+        return self.payment_amount == 0 and self.invoice_amount == 0
+
+    @property
     def status_flags(self) -> list[str]:
         flags: list[str] = []
+        if self.is_zero_value_exemption:
+            flags.append('不需要回款/开票')
+            return flags
         if self.has_payment and not self.has_invoice:
             flags.append('已回款，未开票')
         if self.has_invoice and not self.has_payment:
@@ -715,6 +728,60 @@ class User(db.Model):
         if self.is_superadmin:
             return True
         return bool(self.role and self.role.has_qc_permission(permission_code))
+
+    @staticmethod
+    def _ai_cats_test_access_enabled() -> bool:
+        """Return whether AI CATS test-period open access is enabled."""
+        if not has_app_context():
+            return False
+        return bool(current_app.config.get('AI_CATS_TEST_OPEN_ACCESS', False))
+
+    @property
+    def has_ai_cats_test_access(self) -> bool:
+        """Return whether the current user should receive temporary broad AI CATS access."""
+        if not self.is_active or not self._ai_cats_test_access_enabled():
+            return False
+        if self.is_superadmin:
+            return False
+        if self.role and self.role.code in QC_ADMIN_ROLE_CODES:
+            return False
+        return True
+
+    @property
+    def ai_cats_effective_role_code(self) -> str:
+        """Return the effective AI CATS role code after applying the temporary test-access mapping."""
+        if self.is_superadmin:
+            return 'superadmin'
+        if self.role and self.role.code in QC_ADMIN_ROLE_CODES:
+            return self.role.code
+        if self.has_ai_cats_test_access:
+            return 'gm_assistant'
+        return self.role.code if self.role else ''
+
+    @property
+    def ai_cats_is_manager(self) -> bool:
+        """Return whether the effective AI CATS role should behave like a manager."""
+        return self.is_superadmin or self.ai_cats_effective_role_code in QC_MANAGER_ROLE_CODES
+
+    @property
+    def ai_cats_is_controller(self) -> bool:
+        """Return whether the effective AI CATS role should behave like a controller."""
+        return self.ai_cats_effective_role_code == 'qc_controller'
+
+    @property
+    def ai_cats_is_inspector(self) -> bool:
+        """Return whether the effective AI CATS role should behave like an inspector."""
+        return self.ai_cats_effective_role_code == 'qc_inspector'
+
+    def has_ai_cats_permission(self, permission_code: str) -> bool:
+        """Return whether the user can perform one AI CATS action under current test-access rules."""
+        if self.is_superadmin:
+            return True
+        if permission_code not in QC_PERMISSIONS:
+            return False
+        if self.has_ai_cats_test_access:
+            return True
+        return self.has_qc_permission(permission_code)
     
     def can_view_financial(self) -> bool:
         """是否可以查看资金信息（物流经理脱敏）"""
@@ -983,7 +1050,60 @@ QC_ROLE_EDITABLE_PERMISSIONS = {
     for role_code, permission_codes in QC_DEFAULT_PERMISSION_CODES.items()
 }
 
+QC_WORKPIECE_TYPE_SELF = 'self_produced'
+QC_WORKPIECE_TYPE_OUTSOURCED = 'outsourced'
+QC_WORKPIECE_TYPES = (QC_WORKPIECE_TYPE_SELF, QC_WORKPIECE_TYPE_OUTSOURCED)
+QC_WORKPIECE_TYPE_DISPLAY = {
+    QC_WORKPIECE_TYPE_SELF: '自产',
+    QC_WORKPIECE_TYPE_OUTSOURCED: '外采',
+}
+QC_QUALITY_MATERIAL_ATTACHMENT_TYPE = 'qc_material'
 QC_GUIDE_ATTACHMENT_TYPES = ('inspection_point', 'instruction')
+
+RESEARCH_STATUS_DISPLAY = {
+    'draft': {'text': '草稿', 'badge': 'bg-secondary'},
+    'research_pending': {'text': '研究准备中', 'badge': 'bg-primary'},
+    'research_submitted': {'text': '待指导审批', 'badge': 'bg-warning text-dark'},
+    'review_completed': {'text': '指导完成', 'badge': 'bg-info text-dark'},
+    'accepted': {'text': '阶段研发完成', 'badge': 'bg-success'},
+    'returned': {'text': '已退回补充', 'badge': 'bg-danger'},
+}
+
+RESEARCH_ATTACHMENT_TYPE_DISPLAY = {
+    'initiation_material': '立项资料',
+    'research_material': '研究资料',
+    'experiment_plan': '实验方案',
+    'validation_item': '观察项 / 验证目标',
+    'risk_note': '风险提示 / 补充说明',
+}
+
+ASSEMBLY_STATUS_DISPLAY = {
+    'draft': {'text': '草稿', 'badge': 'bg-secondary'},
+    'assembly_pending': {'text': '装配准备中', 'badge': 'bg-primary'},
+    'assembly_completed': {'text': '待加工批次', 'badge': 'bg-info'},
+    'inspection_pending': {'text': '质检未完成', 'badge': 'bg-warning text-dark'},
+    'inspection_completed': {'text': '质检已完成', 'badge': 'bg-primary'},
+    'accepted': {'text': '质检已完成', 'badge': 'bg-success'},
+    'rejected': {'text': '质检不合格', 'badge': 'bg-danger'},
+}
+
+ASSEMBLY_PRODUCT_ATTACHMENT_TITLE_PREFIX = {
+    'assembly_sheet': '装配单',
+    'remark': '备注',
+}
+
+RESEARCH_ATTACHMENT_TITLE_PREFIX = {
+    'initiation_material': '立项资料',
+    'research_material': '研究资料',
+    'experiment_plan': '实验方案',
+    'validation_item': '观察项',
+    'risk_note': '风险提示',
+}
+
+
+def normalize_qc_workpiece_type(value: str | None) -> str:
+    """Return a safe workpiece type code."""
+    return value if value in QC_WORKPIECE_TYPES else QC_WORKPIECE_TYPE_SELF
 
 
 def normalize_qc_guide_title(title: str | None, index: int | None = None) -> str:
@@ -1232,6 +1352,13 @@ class QCWorkpiece(db.Model):
     id: Mapped[int] = mapped_column(primary_key=True)
     workpiece_code: Mapped[str] = mapped_column(String(100), unique=True, nullable=False, index=True)
     workpiece_name: Mapped[str] = mapped_column(String(200), nullable=False, index=True)
+    workpiece_type: Mapped[str] = mapped_column(
+        String(20),
+        default=QC_WORKPIECE_TYPE_SELF,
+        nullable=False,
+        index=True,
+    )
+    stock_quantity: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
     creator_id: Mapped[int] = mapped_column(ForeignKey('users.id'), nullable=False, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now, onupdate=datetime.now)
@@ -1248,8 +1375,48 @@ class QCWorkpiece(db.Model):
         return f'<QCWorkpiece {self.workpiece_code}>'
 
     @property
+    def normalized_type(self) -> str:
+        return normalize_qc_workpiece_type(self.workpiece_type)
+
+    @property
+    def is_outsourced(self) -> bool:
+        return self.normalized_type == QC_WORKPIECE_TYPE_OUTSOURCED
+
+    @property
+    def workpiece_type_display(self) -> str:
+        return QC_WORKPIECE_TYPE_DISPLAY.get(self.normalized_type, '自产')
+
+    @property
+    def primary_material_label(self) -> str:
+        return '质检材料' if self.is_outsourced else '图纸'
+
+    @property
     def drawing_attachment(self) -> 'QCWorkpieceAttachment | None':
         return next((attachment for attachment in self.attachments if attachment.attach_type == 'drawing'), None)
+
+    @property
+    def drawing_attachments(self) -> list['QCWorkpieceAttachment']:
+        drawings = [
+            attachment
+            for attachment in self.attachments
+            if attachment.attach_type == 'drawing'
+        ]
+        return sorted(drawings, key=lambda attachment: (attachment.sort_order, attachment.id))
+
+    @property
+    def quality_material_attachments(self) -> list['QCWorkpieceAttachment']:
+        materials = [
+            attachment
+            for attachment in self.attachments
+            if attachment.attach_type == QC_QUALITY_MATERIAL_ATTACHMENT_TYPE
+        ]
+        return sorted(materials, key=lambda attachment: (attachment.sort_order, attachment.id))
+
+    @property
+    def primary_material_attachments(self) -> list['QCWorkpieceAttachment']:
+        if self.is_outsourced:
+            return self.quality_material_attachments
+        return self.drawing_attachments
 
     @property
     def guide_attachments(self) -> list['QCWorkpieceAttachment']:
@@ -1270,6 +1437,12 @@ class QCWorkOrder(db.Model):
     batch_no: Mapped[str] = mapped_column(String(100), unique=True, nullable=False, index=True)
     workpiece_id: Mapped[int] = mapped_column(ForeignKey('qc_workpieces.id', ondelete='SET NULL'), nullable=True, index=True)
     workpiece_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    workpiece_type: Mapped[str] = mapped_column(
+        String(20),
+        default=QC_WORKPIECE_TYPE_SELF,
+        nullable=False,
+        index=True,
+    )
     quantity: Mapped[float] = mapped_column(Float, nullable=False)
     controller_id: Mapped[int] = mapped_column(ForeignKey('users.id'), nullable=False)
     inspector_id: Mapped[int] = mapped_column(ForeignKey('users.id'), nullable=True)
@@ -1277,6 +1450,7 @@ class QCWorkOrder(db.Model):
     qc_completed_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
     inspection_completed_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
     accepted_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
+    inventory_posted_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
     rejected_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
     rejection_reason: Mapped[str] = mapped_column(Text, nullable=True)
     drawing_note_file_path: Mapped[str] = mapped_column(String(500), nullable=True)
@@ -1309,6 +1483,11 @@ class QCWorkOrder(db.Model):
         cascade='all, delete-orphan',
         order_by='QCAcceptanceSignature.id'
     )
+    histories: Mapped[list['QCWorkOrderHistory']] = relationship(
+        back_populates='work_order',
+        cascade='all, delete-orphan',
+        order_by='QCWorkOrderHistory.created_at.asc(), QCWorkOrderHistory.id.asc()'
+    )
     
     def __repr__(self):
         return f'<QCWorkOrder {self.batch_no}>'
@@ -1331,8 +1510,50 @@ class QCWorkOrder(db.Model):
         return self.get_status_display()
 
     @property
+    def normalized_type(self) -> str:
+        return normalize_qc_workpiece_type(self.workpiece_type)
+
+    @property
+    def is_outsourced(self) -> bool:
+        return self.normalized_type == QC_WORKPIECE_TYPE_OUTSOURCED
+
+    @property
+    def workpiece_type_display(self) -> str:
+        return QC_WORKPIECE_TYPE_DISPLAY.get(self.normalized_type, '自产')
+
+    @property
+    def primary_material_label(self) -> str:
+        return '质检材料' if self.is_outsourced else '图纸'
+
+    @property
     def drawing_attachment(self) -> 'QCWorkOrderAttachment | None':
         return next((attachment for attachment in self.attachments if attachment.attach_type == 'drawing'), None)
+
+    @property
+    def drawing_attachments(self) -> list['QCWorkOrderAttachment']:
+        drawings = [
+            attachment
+            for attachment in self.attachments
+            if attachment.attach_type == 'drawing'
+        ]
+        return sorted(drawings, key=lambda attachment: (attachment.sort_order, attachment.id))
+
+    @property
+    def quality_material_attachments(self) -> list['QCWorkOrderAttachment']:
+        materials = [
+            attachment
+            for attachment in self.attachments
+            if attachment.attach_type == QC_QUALITY_MATERIAL_ATTACHMENT_TYPE
+        ]
+        return sorted(materials, key=lambda attachment: (attachment.sort_order, attachment.id))
+
+    @property
+    def primary_material_attachments(self) -> list['QCWorkOrderAttachment']:
+        if self.is_outsourced:
+            materials = self.quality_material_attachments
+            if materials:
+                return materials
+        return self.drawing_attachments
 
     @property
     def guide_attachments(self) -> list['QCWorkOrderAttachment']:
@@ -1351,10 +1572,9 @@ class QCWorkOrder(db.Model):
 
     @property
     def ordered_attachments(self) -> list['QCWorkOrderAttachment']:
-        """Return attachments in the UI order: drawing, guides, then remarks."""
+        """Return attachments in the UI order: primary material, guides, then remarks."""
         ordered: list['QCWorkOrderAttachment'] = []
-        if self.drawing_attachment:
-            ordered.append(self.drawing_attachment)
+        ordered.extend(self.primary_material_attachments)
         ordered.extend(self.guide_attachments)
         ordered.extend(self.remark_attachments)
 
@@ -1407,9 +1627,9 @@ class QCWorkOrder(db.Model):
         """判断指定用户是否可以编辑此订单"""
         if user.is_superadmin:
             return True
-        if user.role.code in QC_MANAGER_ROLE_CODES and user.has_qc_permission('qc_work_order_edit'):
+        if user.ai_cats_is_manager and user.has_ai_cats_permission('qc_work_order_edit'):
             return self.status in ['draft', 'qc_pending', 'rejected']
-        if user.role.code == 'qc_controller' and user.has_qc_permission('qc_work_order_edit') and self.controller_id == user.id:
+        if user.ai_cats_is_controller and user.has_ai_cats_permission('qc_work_order_edit') and self.controller_id == user.id:
             return self.status in ['draft', 'qc_pending', 'rejected']
         return False
 
@@ -1417,9 +1637,9 @@ class QCWorkOrder(db.Model):
         """判断指定用户是否可以删除此订单"""
         if user.is_superadmin:
             return True
-        if user.role.code in QC_MANAGER_ROLE_CODES and user.has_qc_permission('qc_work_order_delete'):
+        if user.ai_cats_is_manager and user.has_ai_cats_permission('qc_work_order_delete'):
             return True
-        if user.role.code == 'qc_controller' and user.has_qc_permission('qc_work_order_delete') and self.controller_id == user.id:
+        if user.ai_cats_is_controller and user.has_ai_cats_permission('qc_work_order_delete') and self.controller_id == user.id:
             return True
         return False
     
@@ -1427,10 +1647,10 @@ class QCWorkOrder(db.Model):
         """判断指定用户是否有权查看此订单"""
         if self.status == 'draft':
             return user.is_superadmin or (
-                user.role.code == 'qc_controller'
+                user.ai_cats_is_controller
                 and self.controller_id == user.id
                 and any(
-                    user.has_qc_permission(permission_code)
+                    user.has_ai_cats_permission(permission_code)
                     for permission_code in (
                         'qc_work_order_view',
                         'qc_work_order_create',
@@ -1441,9 +1661,9 @@ class QCWorkOrder(db.Model):
             )
         if user.is_superadmin:
             return True
-        if user.role.code in QC_MANAGER_ROLE_CODES:
+        if user.ai_cats_is_manager:
             return any(
-                user.has_qc_permission(permission_code)
+                user.has_ai_cats_permission(permission_code)
                 for permission_code in (
                     'qc_work_order_view',
                     'qc_work_order_create',
@@ -1455,9 +1675,9 @@ class QCWorkOrder(db.Model):
                     'qc_acceptance_rollback',
                 )
             )
-        if user.role.code == 'qc_controller' and self.controller_id == user.id:
+        if user.ai_cats_is_controller and self.controller_id == user.id:
             return any(
-                user.has_qc_permission(permission_code)
+                user.has_ai_cats_permission(permission_code)
                 for permission_code in (
                     'qc_work_order_view',
                     'qc_work_order_create',
@@ -1468,9 +1688,9 @@ class QCWorkOrder(db.Model):
                     'qc_acceptance_rollback',
                 )
             )
-        if user.role.code == 'qc_inspector' and self.inspector_id == user.id:
+        if user.ai_cats_is_inspector and self.inspector_id == user.id:
             return any(
-                user.has_qc_permission(permission_code)
+                user.has_ai_cats_permission(permission_code)
                 for permission_code in (
                     'qc_inspection_view',
                     'qc_inspection_perform',
@@ -1515,7 +1735,9 @@ class QCWorkpieceAttachment(db.Model):
     def display_title(self) -> str:
         """Return a normalized attachment title."""
         if self.attach_type == 'drawing':
-            return '图纸'
+            return self.title or f'图纸{self.sort_order + 1}'
+        if self.attach_type == QC_QUALITY_MATERIAL_ATTACHMENT_TYPE:
+            return self.title or f'质检材料{self.sort_order + 1}'
         if self.attach_type in QC_GUIDE_ATTACHMENT_TYPES:
             return normalize_qc_guide_title(self.title, self.sort_order + 1)
         return self.title or '备注'
@@ -1563,7 +1785,9 @@ class QCWorkOrderAttachment(db.Model):
     def display_title(self) -> str:
         """Return a normalized attachment title."""
         if self.attach_type == 'drawing':
-            return '图纸'
+            return self.title or f'图纸{self.sort_order + 1}'
+        if self.attach_type == QC_QUALITY_MATERIAL_ATTACHMENT_TYPE:
+            return self.title or f'质检材料{self.sort_order + 1}'
         if self.attach_type in QC_GUIDE_ATTACHMENT_TYPES:
             return normalize_qc_guide_title(self.title, self.sort_order + 1)
         return self.title or '备注'
@@ -1578,6 +1802,8 @@ class QCWorkOrderAttachment(db.Model):
         """Return the report-column label for the inspection page."""
         if self.attach_type == 'drawing':
             return '图纸确认函（可选）'
+        if self.attach_type == QC_QUALITY_MATERIAL_ATTACHMENT_TYPE:
+            return '质检材料确认函（可选）'
         if self.attach_type in QC_GUIDE_ATTACHMENT_TYPES:
             return '合格报告'
         return ''
@@ -1668,3 +1894,822 @@ class QCAcceptanceSignature(db.Model):
 
     def __repr__(self):
         return f'<QCAcceptanceSignature {self.work_order_id}:{self.signer_role}>'
+
+
+class QCWorkOrderHistory(db.Model):
+    """Immutable operation history for a QC work order."""
+    __tablename__ = 'qc_work_order_histories'
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    work_order_id: Mapped[int] = mapped_column(ForeignKey('qc_work_orders.id', ondelete='CASCADE'), nullable=False, index=True)
+    operator_id: Mapped[int] = mapped_column(ForeignKey('users.id'), nullable=True, index=True)
+    action: Mapped[str] = mapped_column(String(100), nullable=False)
+    detail: Mapped[str] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now, index=True)
+
+    work_order: Mapped['QCWorkOrder'] = relationship(back_populates='histories')
+    operator: Mapped['User'] = relationship(foreign_keys=[operator_id])
+
+    @property
+    def operator_name(self) -> str:
+        if self.operator:
+            return self.operator.real_name or self.operator.username
+        return '系统'
+
+    def __repr__(self):
+        return f'<QCWorkOrderHistory {self.work_order_id}:{self.action}>'
+
+
+class ResearchProject(db.Model):
+    """Research project template for the AI CATS research module."""
+
+    __tablename__ = 'research_projects'
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    project_code: Mapped[str] = mapped_column(String(100), unique=True, nullable=False, index=True)
+    project_name: Mapped[str] = mapped_column(String(200), nullable=False, index=True)
+    project_category: Mapped[str] = mapped_column(String(50), nullable=True, index=True)
+    research_direction: Mapped[str] = mapped_column(String(200), nullable=True)
+    creator_id: Mapped[int] = mapped_column(ForeignKey('users.id'), nullable=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now, onupdate=datetime.now)
+
+    creator: Mapped['User'] = relationship(foreign_keys=[creator_id])
+    attachments: Mapped[list['ResearchProjectAttachment']] = relationship(
+        back_populates='project',
+        cascade='all, delete-orphan',
+        order_by='ResearchProjectAttachment.sort_order'
+    )
+    batches: Mapped[list['ResearchBatch']] = relationship(back_populates='project')
+
+    def __repr__(self):
+        return f'<ResearchProject {self.project_code}>'
+
+    @property
+    def initiation_materials(self) -> list['ResearchProjectAttachment']:
+        return [
+            attachment for attachment in self.attachments
+            if attachment.attach_type == 'initiation_material'
+        ]
+
+    @property
+    def research_materials(self) -> list['ResearchProjectAttachment']:
+        return [
+            attachment for attachment in self.attachments
+            if attachment.attach_type == 'research_material'
+        ]
+
+    @property
+    def experiment_plans(self) -> list['ResearchProjectAttachment']:
+        return [
+            attachment for attachment in self.attachments
+            if attachment.attach_type == 'experiment_plan'
+        ]
+
+    @property
+    def validation_items(self) -> list['ResearchProjectAttachment']:
+        return [
+            attachment for attachment in self.attachments
+            if attachment.attach_type == 'validation_item'
+        ]
+
+    @property
+    def risk_notes(self) -> list['ResearchProjectAttachment']:
+        return [
+            attachment for attachment in self.attachments
+            if attachment.attach_type == 'risk_note'
+        ]
+
+
+class ResearchBatch(db.Model):
+    """Research execution batch."""
+
+    __tablename__ = 'research_batches'
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    batch_no: Mapped[str] = mapped_column(String(100), unique=True, nullable=False, index=True)
+    project_id: Mapped[int] = mapped_column(ForeignKey('research_projects.id', ondelete='SET NULL'), nullable=True, index=True)
+    project_name_snapshot: Mapped[str] = mapped_column(String(200), nullable=False)
+    sample_quantity: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+    researcher_id: Mapped[int] = mapped_column(ForeignKey('users.id'), nullable=False, index=True)
+    reviewer_id: Mapped[int] = mapped_column(ForeignKey('users.id'), nullable=True, index=True)
+    status: Mapped[str] = mapped_column(String(50), default='draft', nullable=False, index=True)
+    research_submitted_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
+    review_completed_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
+    accepted_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
+    returned_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
+    return_reason: Mapped[str] = mapped_column(Text, nullable=True)
+    initiation_note_file_path: Mapped[str] = mapped_column(String(500), nullable=True)
+    initiation_note_file_type: Mapped[str] = mapped_column(String(50), nullable=True)
+    initiation_note_original_name: Mapped[str] = mapped_column(String(255), nullable=True)
+    phase_result_file_path: Mapped[str] = mapped_column(String(500), nullable=True)
+    phase_result_file_type: Mapped[str] = mapped_column(String(50), nullable=True)
+    phase_result_original_name: Mapped[str] = mapped_column(String(255), nullable=True)
+    supplementary_note_file_path: Mapped[str] = mapped_column(String(500), nullable=True)
+    supplementary_note_file_type: Mapped[str] = mapped_column(String(50), nullable=True)
+    supplementary_note_original_name: Mapped[str] = mapped_column(String(255), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now, onupdate=datetime.now)
+
+    project: Mapped['ResearchProject'] = relationship(back_populates='batches')
+    researcher: Mapped['User'] = relationship(foreign_keys=[researcher_id])
+    reviewer: Mapped['User'] = relationship(foreign_keys=[reviewer_id])
+    attachments: Mapped[list['ResearchBatchAttachment']] = relationship(
+        back_populates='batch',
+        cascade='all, delete-orphan',
+        order_by='ResearchBatchAttachment.sort_order'
+    )
+    review_records: Mapped[list['ResearchReviewRecord']] = relationship(
+        back_populates='batch',
+        cascade='all, delete-orphan',
+        order_by='ResearchReviewRecord.id'
+    )
+    signatures: Mapped[list['ResearchAcceptanceSignature']] = relationship(
+        back_populates='batch',
+        cascade='all, delete-orphan',
+        order_by='ResearchAcceptanceSignature.id'
+    )
+    histories: Mapped[list['ResearchBatchHistory']] = relationship(
+        back_populates='batch',
+        cascade='all, delete-orphan',
+        order_by='ResearchBatchHistory.created_at.asc(), ResearchBatchHistory.id.asc()'
+    )
+
+    def __repr__(self):
+        return f'<ResearchBatch {self.batch_no}>'
+
+    def _attachments_of_type(self, attach_type: str) -> list['ResearchBatchAttachment']:
+        """Return batch attachments filtered by one type."""
+        return [
+            attachment for attachment in self.attachments
+            if attachment.attach_type == attach_type
+        ]
+
+    def get_status_display(self) -> dict:
+        """Return the display badge for the current research status."""
+        return RESEARCH_STATUS_DISPLAY.get(self.status, RESEARCH_STATUS_DISPLAY['draft'])
+
+    def get_acceptance_status_display(self) -> dict:
+        """Return the acceptance progress display badge."""
+        if self.status == 'accepted':
+            return RESEARCH_STATUS_DISPLAY['accepted']
+        if self.status == 'review_completed':
+            signed_roles = {signature.signer_role for signature in self.signatures}
+            if signed_roles:
+                return {'text': '待另一方确认', 'badge': 'bg-warning text-dark'}
+        return self.get_status_display()
+
+    @property
+    def initiation_note_file_url(self) -> str:
+        if not self.initiation_note_file_path:
+            return ''
+        return f'/uploads/research/batches/{self.id}/{self.initiation_note_file_path}'
+
+    @property
+    def initiation_note_filename(self) -> str:
+        return self.initiation_note_original_name or (
+            self.initiation_note_file_path.split('/')[-1] if self.initiation_note_file_path else ''
+        )
+
+    @property
+    def phase_result_file_url(self) -> str:
+        if not self.phase_result_file_path:
+            return ''
+        return f'/uploads/research/batches/{self.id}/{self.phase_result_file_path}'
+
+    @property
+    def phase_result_filename(self) -> str:
+        return self.phase_result_original_name or (
+            self.phase_result_file_path.split('/')[-1] if self.phase_result_file_path else ''
+        )
+
+    @property
+    def supplementary_note_file_url(self) -> str:
+        if not self.supplementary_note_file_path:
+            return ''
+        return f'/uploads/research/batches/{self.id}/{self.supplementary_note_file_path}'
+
+    @property
+    def supplementary_note_filename(self) -> str:
+        return self.supplementary_note_original_name or (
+            self.supplementary_note_file_path.split('/')[-1] if self.supplementary_note_file_path else ''
+        )
+
+    @property
+    def initiation_materials(self) -> list['ResearchBatchAttachment']:
+        return self._attachments_of_type('initiation_material')
+
+    @property
+    def research_materials(self) -> list['ResearchBatchAttachment']:
+        return self._attachments_of_type('research_material')
+
+    @property
+    def experiment_plans(self) -> list['ResearchBatchAttachment']:
+        return self._attachments_of_type('experiment_plan')
+
+    @property
+    def validation_items(self) -> list['ResearchBatchAttachment']:
+        return self._attachments_of_type('validation_item')
+
+    @property
+    def risk_notes(self) -> list['ResearchBatchAttachment']:
+        return self._attachments_of_type('risk_note')
+
+    @property
+    def project_display_name(self) -> str:
+        """Return the best available display name for the linked research project."""
+        if self.project:
+            code = (self.project.project_code or '').strip()
+            name = (self.project.project_name or '').strip()
+            if code and name:
+                return f'{code} / {name}'
+            if code or name:
+                return code or name
+        return (self.project_name_snapshot or '').strip() or '-'
+
+    @property
+    def signatures_by_role(self) -> dict[str, 'ResearchAcceptanceSignature']:
+        return {signature.signer_role: signature for signature in self.signatures}
+
+
+class ResearchProjectAttachment(db.Model):
+    """Attachment for research project templates."""
+
+    __tablename__ = 'research_project_attachments'
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    project_id: Mapped[int] = mapped_column(ForeignKey('research_projects.id', ondelete='CASCADE'), nullable=False, index=True)
+    attach_type: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
+    title: Mapped[str] = mapped_column(String(255), nullable=True)
+    content: Mapped[str] = mapped_column(Text, nullable=True)
+    file_path: Mapped[str] = mapped_column(String(500), nullable=False)
+    file_type: Mapped[str] = mapped_column(String(50), nullable=True)
+    is_required: Mapped[bool] = mapped_column(default=True)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+
+    project: Mapped['ResearchProject'] = relationship(back_populates='attachments')
+
+    @property
+    def file_url(self) -> str:
+        if not self.file_path:
+            return ''
+        return f'/uploads/research/projects/{self.project_id}/{self.file_path}'
+
+    @property
+    def is_image(self) -> bool:
+        return bool(self.file_type and self.file_type.lower() in ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'])
+
+    @property
+    def display_title(self) -> str:
+        prefix = RESEARCH_ATTACHMENT_TITLE_PREFIX.get(self.attach_type, '研究附件')
+        return self.title or f'{prefix}{self.sort_order + 1}'
+
+
+class ResearchBatchAttachment(db.Model):
+    """Attachment snapshot or runtime upload for a research batch."""
+
+    __tablename__ = 'research_batch_attachments'
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    batch_id: Mapped[int] = mapped_column(ForeignKey('research_batches.id', ondelete='CASCADE'), nullable=False, index=True)
+    attach_type: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
+    source_type: Mapped[str] = mapped_column(String(30), default='project_snapshot', nullable=False)
+    title: Mapped[str] = mapped_column(String(255), nullable=True)
+    content: Mapped[str] = mapped_column(Text, nullable=True)
+    file_path: Mapped[str] = mapped_column(String(500), nullable=False)
+    file_type: Mapped[str] = mapped_column(String(50), nullable=True)
+    is_required: Mapped[bool] = mapped_column(default=True)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+
+    batch: Mapped['ResearchBatch'] = relationship(back_populates='attachments')
+    review_records: Mapped[list['ResearchReviewRecord']] = relationship(
+        back_populates='attachment',
+        cascade='all, delete-orphan'
+    )
+
+    @property
+    def file_url(self) -> str:
+        if not self.file_path:
+            return ''
+        return f'/uploads/research/batches/{self.batch_id}/{self.file_path}'
+
+    @property
+    def is_image(self) -> bool:
+        return bool(self.file_type and self.file_type.lower() in ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'])
+
+    @property
+    def display_title(self) -> str:
+        prefix = RESEARCH_ATTACHMENT_TITLE_PREFIX.get(self.attach_type, '研究附件')
+        return self.title or f'{prefix}{self.sort_order + 1}'
+
+    @property
+    def review_label(self) -> str:
+        return RESEARCH_ATTACHMENT_TYPE_DISPLAY.get(self.attach_type, '研究附件')
+
+
+class ResearchReviewRecord(db.Model):
+    """Review record for a research batch attachment."""
+
+    __tablename__ = 'research_review_records'
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    batch_id: Mapped[int] = mapped_column(ForeignKey('research_batches.id', ondelete='CASCADE'), nullable=False, index=True)
+    reviewer_id: Mapped[int] = mapped_column(ForeignKey('users.id'), nullable=False, index=True)
+    attachment_id: Mapped[int] = mapped_column(ForeignKey('research_batch_attachments.id', ondelete='CASCADE'), nullable=False, index=True)
+    result: Mapped[str] = mapped_column(String(20), nullable=False, default='draft')
+    suggestion: Mapped[str] = mapped_column(Text, nullable=True)
+    feedback_file_path: Mapped[str] = mapped_column(String(500), nullable=True)
+    feedback_file_type: Mapped[str] = mapped_column(String(50), nullable=True)
+    feedback_original_name: Mapped[str] = mapped_column(String(255), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now, onupdate=datetime.now)
+
+    batch: Mapped['ResearchBatch'] = relationship(back_populates='review_records')
+    reviewer: Mapped['User'] = relationship(foreign_keys=[reviewer_id])
+    attachment: Mapped['ResearchBatchAttachment'] = relationship(back_populates='review_records')
+
+    @property
+    def feedback_file_url(self) -> str:
+        if not self.feedback_file_path:
+            return ''
+        return f'/uploads/research/batches/{self.batch_id}/{self.feedback_file_path}'
+
+    @property
+    def feedback_filename(self) -> str:
+        return self.feedback_original_name or (
+            self.feedback_file_path.split('/')[-1] if self.feedback_file_path else ''
+        )
+
+
+class ResearchAcceptanceSignature(db.Model):
+    """Acceptance signature for a research batch."""
+
+    __tablename__ = 'research_acceptance_signatures'
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    batch_id: Mapped[int] = mapped_column(ForeignKey('research_batches.id', ondelete='CASCADE'), nullable=False, index=True)
+    signer_id: Mapped[int] = mapped_column(ForeignKey('users.id'), nullable=False, index=True)
+    signer_role: Mapped[str] = mapped_column(String(50), nullable=False)
+    signed_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+
+    batch: Mapped['ResearchBatch'] = relationship(back_populates='signatures')
+    signer: Mapped['User'] = relationship(foreign_keys=[signer_id])
+
+    @property
+    def signer_role_display(self) -> str:
+        if self.signer_role == 'researcher':
+            return '研发人员'
+        if self.signer_role == 'reviewer':
+            return '指导/验收人员'
+        return self.signer_role
+
+
+class ResearchBatchHistory(db.Model):
+    """Immutable history log for research batches."""
+
+    __tablename__ = 'research_batch_histories'
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    batch_id: Mapped[int] = mapped_column(ForeignKey('research_batches.id', ondelete='CASCADE'), nullable=False, index=True)
+    operator_id: Mapped[int] = mapped_column(ForeignKey('users.id'), nullable=True, index=True)
+    action: Mapped[str] = mapped_column(String(100), nullable=False)
+    detail: Mapped[str] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now, index=True)
+
+    batch: Mapped['ResearchBatch'] = relationship(back_populates='histories')
+    operator: Mapped['User'] = relationship(foreign_keys=[operator_id])
+
+    @property
+    def operator_name(self) -> str:
+        if not self.operator:
+            return '系统'
+        return self.operator.real_name or self.operator.username
+
+
+class AssemblyProduct(db.Model):
+    """Product template for the AI CATS assembly/shipping module."""
+
+    __tablename__ = 'assembly_products'
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    product_code: Mapped[str] = mapped_column(String(100), unique=True, nullable=False, index=True)
+    product_name: Mapped[str] = mapped_column(String(200), nullable=False, index=True)
+    creator_id: Mapped[int] = mapped_column(ForeignKey('users.id'), nullable=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now, onupdate=datetime.now)
+
+    creator: Mapped['User'] = relationship(foreign_keys=[creator_id])
+    components: Mapped[list['AssemblyProductComponent']] = relationship(
+        back_populates='product',
+        cascade='all, delete-orphan',
+        order_by='AssemblyProductComponent.sort_order'
+    )
+    attachments: Mapped[list['AssemblyProductAttachment']] = relationship(
+        back_populates='product',
+        cascade='all, delete-orphan',
+        order_by='AssemblyProductAttachment.sort_order'
+    )
+    orders: Mapped[list['AssemblyOrder']] = relationship(back_populates='product')
+
+    def __repr__(self):
+        return f'<AssemblyProduct {self.product_code}>'
+
+    @property
+    def assembly_sheet_attachments(self) -> list['AssemblyProductAttachment']:
+        return [
+            attachment for attachment in self.attachments
+            if attachment.attach_type == 'assembly_sheet'
+        ]
+
+    @property
+    def remark_attachments(self) -> list['AssemblyProductAttachment']:
+        return [
+            attachment for attachment in self.attachments
+            if attachment.attach_type == 'remark'
+        ]
+
+
+class AssemblyProductComponent(db.Model):
+    """BOM row for an assembly product."""
+
+    __tablename__ = 'assembly_product_components'
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    product_id: Mapped[int] = mapped_column(ForeignKey('assembly_products.id', ondelete='CASCADE'), nullable=False, index=True)
+    workpiece_id: Mapped[int] = mapped_column(ForeignKey('qc_workpieces.id', ondelete='RESTRICT'), nullable=False, index=True)
+    workpiece_code_snapshot: Mapped[str] = mapped_column(String(100), nullable=False)
+    workpiece_name_snapshot: Mapped[str] = mapped_column(String(200), nullable=False)
+    quantity_per_unit: Mapped[float] = mapped_column(Float, nullable=False, default=1.0)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+
+    product: Mapped['AssemblyProduct'] = relationship(back_populates='components')
+    workpiece: Mapped['QCWorkpiece'] = relationship(foreign_keys=[workpiece_id])
+
+    def __repr__(self):
+        return f'<AssemblyProductComponent {self.product_id}:{self.workpiece_code_snapshot}>'
+
+    @property
+    def total_required_for_one(self) -> float:
+        return float(self.quantity_per_unit or 0)
+
+
+class AssemblyProductAttachment(db.Model):
+    """Attachment for an assembly product template."""
+
+    __tablename__ = 'assembly_product_attachments'
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    product_id: Mapped[int] = mapped_column(ForeignKey('assembly_products.id', ondelete='CASCADE'), nullable=False, index=True)
+    attach_type: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
+    title: Mapped[str] = mapped_column(String(255), nullable=True)
+    content: Mapped[str] = mapped_column(Text, nullable=True)
+    file_path: Mapped[str] = mapped_column(String(500), nullable=False)
+    file_type: Mapped[str] = mapped_column(String(50), nullable=True)
+    is_required: Mapped[bool] = mapped_column(default=True)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+
+    product: Mapped['AssemblyProduct'] = relationship(back_populates='attachments')
+
+    @property
+    def file_url(self) -> str:
+        if not self.file_path:
+            return ''
+        return f'/uploads/assembly/products/{self.product_id}/{self.file_path}'
+
+    @property
+    def is_image(self) -> bool:
+        return bool(self.file_type and self.file_type.lower() in ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'])
+
+    @property
+    def display_title(self) -> str:
+        prefix = ASSEMBLY_PRODUCT_ATTACHMENT_TITLE_PREFIX.get(self.attach_type, '产品附件')
+        return self.title or f'{prefix}{self.sort_order + 1}'
+
+
+class AssemblyOrder(db.Model):
+    """Assembly work order that consumes workpiece inventory."""
+
+    __tablename__ = 'assembly_orders'
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    batch_no: Mapped[str] = mapped_column(String(100), unique=True, nullable=False, index=True)
+    product_id: Mapped[int] = mapped_column(ForeignKey('assembly_products.id', ondelete='SET NULL'), nullable=True, index=True)
+    product_name_snapshot: Mapped[str] = mapped_column(String(200), nullable=False)
+    quantity: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    controller_id: Mapped[int] = mapped_column(ForeignKey('users.id'), nullable=False, index=True)
+    inspector_id: Mapped[int] = mapped_column(ForeignKey('users.id'), nullable=True, index=True)
+    status: Mapped[str] = mapped_column(String(50), nullable=False, default='draft', index=True)
+    assembly_submitted_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
+    inspection_completed_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
+    accepted_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
+    inventory_posted_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
+    rejected_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
+    rejection_reason: Mapped[str] = mapped_column(Text, nullable=True)
+    registration_note_file_path: Mapped[str] = mapped_column(String(500), nullable=True)
+    registration_note_file_type: Mapped[str] = mapped_column(String(50), nullable=True)
+    registration_note_original_name: Mapped[str] = mapped_column(String(255), nullable=True)
+    certificate_note_file_path: Mapped[str] = mapped_column(String(500), nullable=True)
+    certificate_note_file_type: Mapped[str] = mapped_column(String(50), nullable=True)
+    certificate_note_original_name: Mapped[str] = mapped_column(String(255), nullable=True)
+    remark_note_file_path: Mapped[str] = mapped_column(String(500), nullable=True)
+    remark_note_file_type: Mapped[str] = mapped_column(String(50), nullable=True)
+    remark_note_original_name: Mapped[str] = mapped_column(String(255), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now, onupdate=datetime.now)
+
+    product: Mapped['AssemblyProduct'] = relationship(back_populates='orders')
+    controller: Mapped['User'] = relationship(foreign_keys=[controller_id])
+    inspector: Mapped['User'] = relationship(foreign_keys=[inspector_id])
+    components: Mapped[list['AssemblyOrderComponent']] = relationship(
+        back_populates='order',
+        cascade='all, delete-orphan',
+        order_by='AssemblyOrderComponent.sort_order'
+    )
+    attachments: Mapped[list['AssemblyOrderAttachment']] = relationship(
+        back_populates='order',
+        cascade='all, delete-orphan',
+        order_by='AssemblyOrderAttachment.sort_order'
+    )
+    inspection_records: Mapped[list['AssemblyInspectionRecord']] = relationship(
+        back_populates='order',
+        cascade='all, delete-orphan',
+        order_by='AssemblyInspectionRecord.id'
+    )
+    signatures: Mapped[list['AssemblyAcceptanceSignature']] = relationship(
+        back_populates='order',
+        cascade='all, delete-orphan',
+        order_by='AssemblyAcceptanceSignature.id'
+    )
+    histories: Mapped[list['AssemblyOrderHistory']] = relationship(
+        back_populates='order',
+        cascade='all, delete-orphan',
+        order_by='AssemblyOrderHistory.created_at.asc(), AssemblyOrderHistory.id.asc()'
+    )
+
+    def __repr__(self):
+        return f'<AssemblyOrder {self.batch_no}>'
+
+    def get_status_display(self) -> dict:
+        return ASSEMBLY_STATUS_DISPLAY.get(self.status, ASSEMBLY_STATUS_DISPLAY['draft'])
+
+    def get_acceptance_status_display(self) -> dict:
+        if self.status == 'accepted':
+            return ASSEMBLY_STATUS_DISPLAY['accepted']
+        if self.status == 'inspection_completed':
+            signed_roles = {signature.signer_role for signature in self.signatures}
+            if signed_roles:
+                return {'text': '待另一方确认', 'badge': 'bg-warning text-dark'}
+        return self.get_status_display()
+
+    @property
+    def product_display_name(self) -> str:
+        if self.product:
+            code = (self.product.product_code or '').strip()
+            name = (self.product.product_name or '').strip()
+            if code and name:
+                return f'{code} / {name}'
+            if code or name:
+                return code or name
+        return (self.product_name_snapshot or '').strip() or '-'
+
+    @property
+    def assembly_record_attachments(self) -> list['AssemblyOrderAttachment']:
+        return [
+            attachment for attachment in self.attachments
+            if attachment.attach_type == 'assembly_record'
+        ]
+
+    @property
+    def certificate_attachments(self) -> list['AssemblyOrderAttachment']:
+        return [
+            attachment for attachment in self.attachments
+            if attachment.attach_type == 'certificate'
+        ]
+
+    @property
+    def remark_attachments(self) -> list['AssemblyOrderAttachment']:
+        return [
+            attachment for attachment in self.attachments
+            if attachment.attach_type == 'remark'
+        ]
+
+    @property
+    def ordered_attachments(self) -> list['AssemblyOrderAttachment']:
+        ordered: list['AssemblyOrderAttachment'] = []
+        ordered.extend(self.assembly_record_attachments)
+        ordered.extend(self.certificate_attachments)
+        ordered.extend(self.remark_attachments)
+
+        remaining = [
+            attachment
+            for attachment in self.attachments
+            if attachment not in ordered
+        ]
+        ordered.extend(sorted(remaining, key=lambda attachment: (attachment.sort_order, attachment.id)))
+        return ordered
+
+    @property
+    def signatures_by_role(self) -> dict[str, 'AssemblyAcceptanceSignature']:
+        return {signature.signer_role: signature for signature in self.signatures}
+
+    def _build_file_url(self, relative_path: str | None) -> str:
+        if not relative_path:
+            return ''
+        return f'/uploads/assembly/orders/{self.id}/{relative_path}'
+
+    @staticmethod
+    def _display_filename(original_name: str | None, relative_path: str | None) -> str:
+        if original_name:
+            return original_name
+        if relative_path:
+            return relative_path.split('/')[-1]
+        return ''
+
+    @property
+    def registration_note_file_url(self) -> str:
+        return self._build_file_url(self.registration_note_file_path)
+
+    @property
+    def registration_note_filename(self) -> str:
+        return self._display_filename(self.registration_note_original_name, self.registration_note_file_path)
+
+    @property
+    def certificate_note_file_url(self) -> str:
+        return self._build_file_url(self.certificate_note_file_path)
+
+    @property
+    def certificate_note_filename(self) -> str:
+        return self._display_filename(self.certificate_note_original_name, self.certificate_note_file_path)
+
+    @property
+    def remark_note_file_url(self) -> str:
+        return self._build_file_url(self.remark_note_file_path)
+
+    @property
+    def remark_note_filename(self) -> str:
+        return self._display_filename(self.remark_note_original_name, self.remark_note_file_path)
+
+
+class AssemblyOrderComponent(db.Model):
+    """Immutable BOM snapshot row captured on one assembly order."""
+
+    __tablename__ = 'assembly_order_components'
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    order_id: Mapped[int] = mapped_column(ForeignKey('assembly_orders.id', ondelete='CASCADE'), nullable=False, index=True)
+    workpiece_id: Mapped[int] = mapped_column(ForeignKey('qc_workpieces.id', ondelete='SET NULL'), nullable=True, index=True)
+    workpiece_code_snapshot: Mapped[str] = mapped_column(String(100), nullable=False)
+    workpiece_name_snapshot: Mapped[str] = mapped_column(String(200), nullable=False)
+    quantity_per_unit: Mapped[float] = mapped_column(Float, nullable=False, default=1.0)
+    total_required_quantity: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+
+    order: Mapped['AssemblyOrder'] = relationship(back_populates='components')
+    workpiece: Mapped['QCWorkpiece'] = relationship(foreign_keys=[workpiece_id])
+
+    def __repr__(self):
+        return f'<AssemblyOrderComponent {self.order_id}:{self.workpiece_code_snapshot}>'
+
+    @property
+    def available_stock(self) -> float:
+        return float(self.workpiece.stock_quantity or 0) if self.workpiece else 0.0
+
+
+class AssemblyOrderAttachment(db.Model):
+    """Attachment snapshot or runtime upload for one assembly order."""
+
+    __tablename__ = 'assembly_order_attachments'
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    order_id: Mapped[int] = mapped_column(ForeignKey('assembly_orders.id', ondelete='CASCADE'), nullable=False, index=True)
+    attach_type: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
+    source_type: Mapped[str] = mapped_column(String(30), default='product_snapshot', nullable=False)
+    title: Mapped[str] = mapped_column(String(255), nullable=True)
+    content: Mapped[str] = mapped_column(Text, nullable=True)
+    file_path: Mapped[str] = mapped_column(String(500), nullable=False)
+    file_type: Mapped[str] = mapped_column(String(50), nullable=True)
+    is_required: Mapped[bool] = mapped_column(default=True)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+
+    order: Mapped['AssemblyOrder'] = relationship(back_populates='attachments')
+    inspection_records: Mapped[list['AssemblyInspectionRecord']] = relationship(
+        back_populates='attachment',
+        cascade='all, delete-orphan'
+    )
+
+    @property
+    def file_url(self) -> str:
+        if not self.file_path:
+            return ''
+        return f'/uploads/assembly/orders/{self.order_id}/{self.file_path}'
+
+    @property
+    def is_image(self) -> bool:
+        return bool(self.file_type and self.file_type.lower() in ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'])
+
+    @property
+    def display_title(self) -> str:
+        if self.attach_type == 'assembly_record':
+            return self.title or f'生产登记单{self.sort_order + 1}'
+        if self.attach_type == 'certificate':
+            return self.title or f'生产合格证{self.sort_order + 1}'
+        if self.attach_type == 'remark':
+            return self.title or '备注'
+        return self.title or '装配附件'
+
+    @property
+    def requires_report(self) -> bool:
+        return self.attach_type in ['assembly_record', 'certificate']
+
+    @property
+    def report_label(self) -> str:
+        if self.attach_type == 'assembly_record':
+            return '生产登记单确认件（可选）'
+        if self.attach_type == 'certificate':
+            return '合格报告'
+        return '附加文件'
+
+
+class AssemblyInspectionRecord(db.Model):
+    """Quality-inspection record for one assembly attachment."""
+
+    __tablename__ = 'assembly_inspection_records'
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    order_id: Mapped[int] = mapped_column(ForeignKey('assembly_orders.id', ondelete='CASCADE'), nullable=False, index=True)
+    inspector_id: Mapped[int] = mapped_column(ForeignKey('users.id'), nullable=False, index=True)
+    attachment_id: Mapped[int] = mapped_column(ForeignKey('assembly_order_attachments.id', ondelete='CASCADE'), nullable=False, index=True)
+    result: Mapped[str] = mapped_column(String(20), nullable=False, default='draft')
+    remark: Mapped[str] = mapped_column(Text, nullable=True)
+    report_file_path: Mapped[str] = mapped_column(String(500), nullable=True)
+    report_file_type: Mapped[str] = mapped_column(String(50), nullable=True)
+    report_original_name: Mapped[str] = mapped_column(String(255), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now, onupdate=datetime.now)
+
+    order: Mapped['AssemblyOrder'] = relationship(back_populates='inspection_records')
+    inspector: Mapped['User'] = relationship(foreign_keys=[inspector_id])
+    attachment: Mapped['AssemblyOrderAttachment'] = relationship(back_populates='inspection_records')
+
+    @property
+    def report_url(self) -> str:
+        if not self.report_file_path:
+            return ''
+        return f'/uploads/assembly/orders/{self.order_id}/{self.report_file_path}'
+
+    @property
+    def report_filename(self) -> str:
+        return self.report_original_name or (
+            self.report_file_path.split('/')[-1] if self.report_file_path else ''
+        )
+
+
+class AssemblyAcceptanceSignature(db.Model):
+    """Acceptance signature for one assembly order."""
+
+    __tablename__ = 'assembly_acceptance_signatures'
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    order_id: Mapped[int] = mapped_column(ForeignKey('assembly_orders.id', ondelete='CASCADE'), nullable=False, index=True)
+    signer_id: Mapped[int] = mapped_column(ForeignKey('users.id'), nullable=False, index=True)
+    signer_role: Mapped[str] = mapped_column(String(50), nullable=False)
+    signed_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+
+    order: Mapped['AssemblyOrder'] = relationship(back_populates='signatures')
+    signer: Mapped['User'] = relationship(foreign_keys=[signer_id])
+
+    @property
+    def signer_role_display(self) -> str:
+        if self.signer_role == 'qc_controller':
+            return '装配负责人'
+        if self.signer_role == 'qc_inspector':
+            return '指导 / 验收人员'
+        return self.signer_role
+
+
+class AssemblyOrderHistory(db.Model):
+    """Immutable history log for assembly orders."""
+
+    __tablename__ = 'assembly_order_histories'
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    order_id: Mapped[int] = mapped_column(ForeignKey('assembly_orders.id', ondelete='CASCADE'), nullable=False, index=True)
+    operator_id: Mapped[int] = mapped_column(ForeignKey('users.id'), nullable=True, index=True)
+    action: Mapped[str] = mapped_column(String(100), nullable=False)
+    detail: Mapped[str] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now, index=True)
+
+    order: Mapped['AssemblyOrder'] = relationship(back_populates='histories')
+    operator: Mapped['User'] = relationship(foreign_keys=[operator_id])
+
+    @property
+    def operator_name(self) -> str:
+        if not self.operator:
+            return '系统'
+        return self.operator.real_name or self.operator.username

@@ -21,6 +21,9 @@
     .preview-item + .preview-item {
         margin-top: 1rem;
     }
+    .file-preview + .file-preview {
+        margin-top: 0.75rem;
+    }
     .section-upload-block {
         border-top: 1px solid rgba(0, 0, 0, 0.08);
         margin-top: 1rem;
@@ -40,6 +43,21 @@
 {% endblock %}
 
 {% block content %}
+{% set selected_type = order.normalized_type if order else 'self_produced' %}
+{% macro preview_file(file_url, filename, is_image, image_alt='', button_class='btn-outline-primary') %}
+    {% if file_url %}
+    <div class="file-preview">
+        <a href="{{ file_url }}" target="_blank" class="btn {{ button_class }} btn-sm text-truncate upload-filename mb-2" title="{{ filename }}">
+            <i class="bi bi-file-earmark-arrow-down"></i> {{ filename }}
+        </a>
+        {% if is_image %}
+        <div>
+            <img src="{{ file_url }}" class="preview-thumb" alt="{{ image_alt or filename }}">
+        </div>
+        {% endif %}
+    </div>
+    {% endif %}
+{% endmacro %}
 <div class="row mb-4">
     <div class="col-12">
         <h1 class="d-flex align-items-center gap-3 mb-0">
@@ -58,23 +76,31 @@
         </div>
         <div class="card-body">
             <div class="row">
-                <div class="col-md-4 mb-3">
+                <div class="col-md-3 mb-3">
                     <label class="form-label">批次编号 <span class="text-danger">*</span></label>
                     <input type="text" class="form-control" name="batch_no" value="{{ order.batch_no if order else '' }}">
                 </div>
-                <div class="col-md-4 mb-3">
+                <div class="col-md-3 mb-3">
+                    <label class="form-label">工件类型 <span class="text-danger">*</span></label>
+                    <select class="form-select" name="workpiece_type" id="workpieceTypeSelect">
+                        {% for type_code, type_label in workpiece_types.items() %}
+                        <option value="{{ type_code }}" {% if selected_type == type_code %}selected{% endif %}>{{ type_label }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-3 mb-3">
                     <label class="form-label">工件名称 <span class="text-danger">*</span></label>
                     <select class="form-select" name="workpiece_id" id="workpieceSelect">
                         <option value="">-- 请选择工件 --</option>
                         {% for workpiece in workpieces %}
-                        <option value="{{ workpiece.id }}" {% if order and order.workpiece_id == workpiece.id %}selected{% endif %}>
+                        <option value="{{ workpiece.id }}" data-type="{{ workpiece.normalized_type }}" {% if order and order.workpiece_id == workpiece.id %}selected{% endif %}>
                             {{ workpiece.workpiece_code }} / {{ workpiece.workpiece_name }}
                         </option>
                         {% endfor %}
                     </select>
                     <input type="hidden" name="workpiece_name" id="workpieceNameInput" value="{{ order.workpiece_name if order else '' }}">
                 </div>
-                <div class="col-md-4 mb-3">
+                <div class="col-md-3 mb-3">
                     <label class="form-label">生产数量 <span class="text-danger">*</span></label>
                     <input type="number" step="0.01" class="form-control" name="quantity" value="{{ order.quantity if order else '' }}">
                 </div>
@@ -113,33 +139,31 @@
         <div class="col-lg-4">
             <div class="card preview-card h-100">
                 <div class="card-header bg-info text-white">
-                    <h5 class="mb-0"><i class="bi bi-image"></i> 图纸</h5>
+                    <h5 class="mb-0">
+                        <i class="bi {{ 'bi-folder-check' if order and order.is_outsourced else 'bi-image' }}" id="primaryMaterialIcon"></i>
+                        <span id="primaryMaterialTitle">{{ order.primary_material_label if order else '图纸' }}</span>
+                    </h5>
                 </div>
                 <div class="card-body">
-                    <div id="drawingPreview">
-                        {% if order and order.drawing_attachment %}
-                        <div class="preview-item">
-                            <p class="text-muted small mb-2">{{ order.drawing_attachment.file_path.split('/')[-1] }}</p>
-                            {% if order.drawing_attachment.is_image %}
-                            <img src="{{ order.drawing_attachment.file_url }}" class="preview-thumb" alt="图纸预览">
-                            {% else %}
-                            <a href="{{ order.drawing_attachment.file_url }}" target="_blank" class="btn btn-outline-primary btn-sm">
-                                <i class="bi bi-download"></i> 下载查看
-                            </a>
-                            {% endif %}
-                        </div>
+                    <div id="primaryMaterialPreview">
+                        {% if order and order.primary_material_attachments %}
+                            {% for attachment in order.primary_material_attachments %}
+                            <div class="preview-item">
+                                <h6 class="fw-bold">{{ attachment.display_title }}</h6>
+                                {% if attachment.content %}<p class="text-muted small mb-2">{{ attachment.content }}</p>{% endif %}
+                                {{ preview_file(attachment.file_url, attachment.file_path.split('/')[-1], attachment.is_image, attachment.display_title) }}
+                            </div>
+                            {% endfor %}
                         {% else %}
-                        <div class="preview-empty">选择工件后自动带出图纸</div>
+                        <div class="preview-empty">选择工件后自动带出{{ order.primary_material_label if order else '图纸' }}</div>
                         {% endif %}
                     </div>
 
                     <div class="section-upload-block">
-                        <label class="section-upload-label">批注信息</label>
+                        <label class="section-upload-label" id="primaryNoteLabel">{{ order.primary_material_label if order else '图纸' }}批注信息</label>
                         {% if order and order.drawing_note_file_path %}
                         <div class="mb-2">
-                            <a href="{{ order.drawing_note_file_url }}" target="_blank" class="btn btn-outline-secondary btn-sm text-truncate upload-filename">
-                                <i class="bi bi-file-earmark-arrow-down"></i> {{ order.drawing_note_filename }}
-                            </a>
+                            {{ preview_file(order.drawing_note_file_url, order.drawing_note_filename, order.drawing_note_file_type in ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'], order.drawing_note_filename, 'btn-outline-secondary') }}
                         </div>
                         {% endif %}
                         <label class="form-label">文件上传</label>
@@ -160,16 +184,8 @@
                             {% for attachment in order.guide_attachments %}
                             <div class="preview-item">
                                 <h6 class="fw-bold">{{ attachment.display_title }}</h6>
-                                <p class="text-muted small mb-2">{{ attachment.content or '' }}</p>
-                                {% if attachment.file_path %}
-                                    {% if attachment.is_image %}
-                                    <img src="{{ attachment.file_url }}" class="preview-thumb" alt="{{ attachment.display_title }}">
-                                    {% else %}
-                                    <a href="{{ attachment.file_url }}" target="_blank" class="btn btn-outline-primary btn-sm">
-                                        <i class="bi bi-download"></i> 下载查看
-                                    </a>
-                                    {% endif %}
-                                {% endif %}
+                                {% if attachment.content %}<p class="text-muted small mb-2">{{ attachment.content }}</p>{% endif %}
+                                {{ preview_file(attachment.file_url, attachment.file_path.split('/')[-1], attachment.is_image, attachment.display_title) }}
                             </div>
                             {% endfor %}
                         {% else %}
@@ -181,9 +197,7 @@
                         <label class="section-upload-label">生产凭证</label>
                         {% if order and order.guide_certificate_file_path %}
                         <div class="mb-2">
-                            <a href="{{ order.guide_certificate_file_url }}" target="_blank" class="btn btn-outline-secondary btn-sm text-truncate upload-filename">
-                                <i class="bi bi-file-earmark-arrow-down"></i> {{ order.guide_certificate_filename }}
-                            </a>
+                            {{ preview_file(order.guide_certificate_file_url, order.guide_certificate_filename, order.guide_certificate_file_type in ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'], order.guide_certificate_filename, 'btn-outline-secondary') }}
                         </div>
                         {% endif %}
                         <label class="form-label">文件上传</label>
@@ -208,16 +222,8 @@
                                         {{ '必填' if attachment.is_required else '选填' }}
                                     </span>
                                 </div>
-                                <p class="text-muted small mb-2">{{ attachment.content or '' }}</p>
-                                {% if attachment.file_path %}
-                                    {% if attachment.is_image %}
-                                    <img src="{{ attachment.file_url }}" class="preview-thumb" alt="备注附件">
-                                    {% else %}
-                                    <a href="{{ attachment.file_url }}" target="_blank" class="btn btn-outline-primary btn-sm">
-                                        <i class="bi bi-download"></i> 下载查看
-                                    </a>
-                                    {% endif %}
-                                {% endif %}
+                                {% if attachment.content %}<p class="text-muted small mb-2">{{ attachment.content }}</p>{% endif %}
+                                {{ preview_file(attachment.file_url, attachment.file_path.split('/')[-1], attachment.is_image, '备注附件') }}
                             </div>
                             {% endfor %}
                         {% else %}
@@ -229,9 +235,7 @@
                         <label class="section-upload-label">批注信息</label>
                         {% if order and order.remark_note_file_path %}
                         <div class="mb-2">
-                            <a href="{{ order.remark_note_file_url }}" target="_blank" class="btn btn-outline-secondary btn-sm text-truncate upload-filename">
-                                <i class="bi bi-file-earmark-arrow-down"></i> {{ order.remark_note_filename }}
-                            </a>
+                            {{ preview_file(order.remark_note_file_url, order.remark_note_filename, order.remark_note_file_type in ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'], order.remark_note_filename, 'btn-outline-secondary') }}
                         </div>
                         {% endif %}
                         <label class="form-label">文件上传</label>
@@ -265,6 +269,7 @@
 
 {% block extra_js %}
 <script>
+const workpieceTypeSelect = document.getElementById('workpieceTypeSelect');
 const workpieceSelect = document.getElementById('workpieceSelect');
 const workpieceNameInput = document.getElementById('workpieceNameInput');
 
@@ -277,57 +282,74 @@ function escapeHtml(value) {
         .replaceAll("'", '&#39;');
 }
 
-function renderFilePreview(item, emptyText) {
-    if (!item) {
-        return `<div class="preview-empty">${escapeHtml(emptyText)}</div>`;
-    }
-
+function renderAttachmentPreview(item, fallbackTitle) {
+    const title = escapeHtml(item.title || fallbackTitle || '附件');
+    const content = escapeHtml(item.content || '');
     const filename = escapeHtml(item.filename || '');
-    if (item.url && item.is_image) {
-        return `
-            <div class="preview-item">
-                <p class="text-muted small mb-2">${filename}</p>
-                <img src="${item.url}" class="preview-thumb" alt="${filename || '文件预览'}">
-            </div>
-        `;
-    }
-
-    if (item.url) {
-        return `
-            <div class="preview-item">
-                <p class="text-muted small mb-2">${filename}</p>
-                <a href="${item.url}" target="_blank" class="btn btn-outline-primary btn-sm">
-                    <i class="bi bi-download"></i> 下载查看
-                </a>
-            </div>
-        `;
-    }
-
-    return `<div class="preview-empty">${escapeHtml(emptyText)}</div>`;
+    const fileBlock = item.url ? `
+        <a href="${item.url}" target="_blank" class="btn btn-outline-primary btn-sm text-truncate upload-filename mb-2" title="${filename}">
+            <i class="bi bi-file-earmark-arrow-down"></i> ${filename || '查看文件'}
+        </a>
+        ${item.is_image ? `<div><img src="${item.url}" class="preview-thumb" alt="${title}"></div>` : ''}
+    ` : '';
+    return `
+        <div class="preview-item">
+            <h6 class="fw-bold">${title}</h6>
+            ${content ? `<p class="text-muted small mb-2">${content}</p>` : ''}
+            ${fileBlock}
+        </div>
+    `;
 }
 
-function renderDrawingPreview(drawing) {
-    const container = document.getElementById('drawingPreview');
-    container.innerHTML = renderFilePreview(drawing, '所选工件没有图纸');
+function renderAttachmentList(items, emptyText, fallbackTitle) {
+    if (!items || !items.length) {
+        return `<div class="preview-empty">${escapeHtml(emptyText)}</div>`;
+    }
+    return items.map((item) => renderAttachmentPreview(item, fallbackTitle)).join('');
+}
+
+function getPrimaryMaterialLabel(type) {
+    return type === 'outsourced' ? '质检材料' : '图纸';
+}
+
+function syncPrimaryMaterialTitle(type) {
+    const label = getPrimaryMaterialLabel(type || (workpieceTypeSelect ? workpieceTypeSelect.value : 'self_produced'));
+    const title = document.getElementById('primaryMaterialTitle');
+    const noteLabel = document.getElementById('primaryNoteLabel');
+    const icon = document.getElementById('primaryMaterialIcon');
+    if (title) {
+        title.textContent = label;
+    }
+    if (noteLabel) {
+        noteLabel.textContent = `${label}批注信息`;
+    }
+    if (icon) {
+        icon.classList.toggle('bi-folder-check', type === 'outsourced');
+        icon.classList.toggle('bi-image', type !== 'outsourced');
+    }
+}
+
+function renderPrimaryMaterialPreview(workpiece) {
+    const container = document.getElementById('primaryMaterialPreview');
+    const type = workpiece ? workpiece.workpiece_type : (workpieceTypeSelect ? workpieceTypeSelect.value : 'self_produced');
+    syncPrimaryMaterialTitle(type);
+
+    if (!workpiece) {
+        container.innerHTML = `<div class="preview-empty">选择工件后自动带出${escapeHtml(getPrimaryMaterialLabel(type))}</div>`;
+        return;
+    }
+
+    if (type === 'outsourced') {
+        container.innerHTML = renderAttachmentList(workpiece.quality_materials, '所选外采工件没有质检材料', '质检材料');
+        return;
+    }
+
+    container.innerHTML = renderAttachmentList(workpiece.drawings || (workpiece.drawing ? [workpiece.drawing] : []), '所选工件没有图纸', '图纸');
 }
 
 function renderGuidePreview(guides) {
     const container = document.getElementById('guidePreview');
-    if (!guides || !guides.length) {
-        container.innerHTML = '<div class="preview-empty">所选工件没有作业指导书</div>';
-        return;
-    }
-
-    container.innerHTML = guides.map((guide) => `
-        <div class="preview-item">
-            <h6 class="fw-bold">${escapeHtml(guide.title)}</h6>
-            <p class="text-muted small mb-2">${escapeHtml(guide.content || '')}</p>
-            ${guide.url ? (guide.is_image
-                ? `<img src="${guide.url}" class="preview-thumb" alt="${escapeHtml(guide.title)}">`
-                : `<a href="${guide.url}" target="_blank" class="btn btn-outline-primary btn-sm"><i class="bi bi-download"></i> 下载查看</a>`)
-                : ''}
-        </div>
-    `).join('');
+    container.innerHTML = renderAttachmentList(guides, '所选工件没有作业指导书', '作业指导书');
 }
 
 function renderRemarkPreview(remarks) {
@@ -342,11 +364,13 @@ function renderRemarkPreview(remarks) {
             <div class="mb-2">
                 <span class="badge ${remark.is_required ? 'bg-danger' : 'bg-light text-dark'}">${remark.is_required ? '必填' : '选填'}</span>
             </div>
-            <p class="text-muted small mb-2">${escapeHtml(remark.content || '')}</p>
-            ${remark.url ? (remark.is_image
-                ? `<img src="${remark.url}" class="preview-thumb" alt="备注附件">`
-                : `<a href="${remark.url}" target="_blank" class="btn btn-outline-primary btn-sm"><i class="bi bi-download"></i> 下载查看</a>`)
-                : ''}
+            ${remark.content ? `<p class="text-muted small mb-2">${escapeHtml(remark.content)}</p>` : ''}
+            ${remark.url ? `
+                <a href="${remark.url}" target="_blank" class="btn btn-outline-primary btn-sm text-truncate upload-filename mb-2" title="${escapeHtml(remark.filename || '')}">
+                    <i class="bi bi-file-earmark-arrow-down"></i> ${escapeHtml(remark.filename || '查看文件')}
+                </a>
+                ${remark.is_image ? `<div><img src="${remark.url}" class="preview-thumb" alt="备注附件"></div>` : ''}
+            ` : ''}
         </div>
     `).join('');
 }
@@ -355,7 +379,7 @@ async function loadWorkpieceSnapshot() {
     const workpieceId = workpieceSelect.value;
     if (!workpieceId) {
         workpieceNameInput.value = '';
-        renderDrawingPreview(null);
+        renderPrimaryMaterialPreview(null);
         renderGuidePreview([]);
         renderRemarkPreview([]);
         return;
@@ -370,12 +394,47 @@ async function loadWorkpieceSnapshot() {
 
         const workpiece = payload.workpiece;
         workpieceNameInput.value = workpiece.workpiece_name || '';
-        renderDrawingPreview(workpiece.drawing);
+        if (workpieceTypeSelect && workpiece.workpiece_type) {
+            workpieceTypeSelect.value = workpiece.workpiece_type;
+            filterWorkpieceOptions(false);
+        }
+        renderPrimaryMaterialPreview(workpiece);
         renderGuidePreview(workpiece.guides);
         renderRemarkPreview(workpiece.remarks);
     } catch (error) {
         workpieceNameInput.value = '';
-        renderDrawingPreview(null);
+        renderPrimaryMaterialPreview(null);
+        renderGuidePreview([]);
+        renderRemarkPreview([]);
+    }
+}
+
+function filterWorkpieceOptions(resetSelection = true) {
+    if (!workpieceTypeSelect || !workpieceSelect) {
+        return;
+    }
+    const selectedType = workpieceTypeSelect.value || 'self_produced';
+    let currentOptionVisible = true;
+
+    Array.from(workpieceSelect.options).forEach((option) => {
+        if (!option.value) {
+            option.hidden = false;
+            option.disabled = false;
+            return;
+        }
+        const isMatch = option.dataset.type === selectedType;
+        option.hidden = !isMatch;
+        option.disabled = !isMatch;
+        if (option.selected && !isMatch) {
+            currentOptionVisible = false;
+        }
+    });
+
+    syncPrimaryMaterialTitle(selectedType);
+    if (resetSelection && !currentOptionVisible) {
+        workpieceSelect.value = '';
+        workpieceNameInput.value = '';
+        renderPrimaryMaterialPreview(null);
         renderGuidePreview([]);
         renderRemarkPreview([]);
     }
@@ -388,8 +447,14 @@ function submitNewOrder(action) {
 
 if (workpieceSelect) {
     workpieceSelect.addEventListener('change', loadWorkpieceSnapshot);
+    if (workpieceTypeSelect) {
+        workpieceTypeSelect.addEventListener('change', () => filterWorkpieceOptions(true));
+        filterWorkpieceOptions(false);
+    }
     {% if order and order.workpiece_id %}
     loadWorkpieceSnapshot();
+    {% else %}
+    renderPrimaryMaterialPreview(null);
     {% endif %}
 }
 </script>

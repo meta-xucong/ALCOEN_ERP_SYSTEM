@@ -16,14 +16,19 @@ from app import db
 from app.models import (
     QC_GUIDE_ATTACHMENT_TYPES,
     QC_MANAGER_ROLE_CODES,
+    QC_QUALITY_MATERIAL_ATTACHMENT_TYPE,
+    QC_WORKPIECE_TYPE_OUTSOURCED,
+    QC_WORKPIECE_TYPE_SELF,
     QCWorkOrder,
     QCWorkOrderAttachment,
+    QCWorkOrderHistory,
     QCInspectionRecord,
     QCAcceptanceSignature,
     QCWorkpiece,
     QCWorkpieceAttachment,
     User,
     normalize_qc_guide_title,
+    normalize_qc_workpiece_type,
 )
 
 
@@ -34,6 +39,7 @@ class QCService:
 
     _ATTACH_SUBFOLDER_MAP = {
         'drawing': 'drawings',
+        'qc_material': 'qc_materials',
         'instruction': 'instructions',
         'inspection_point': 'inspection_points',
         'remark': 'remarks',
@@ -53,6 +59,63 @@ class QCService:
         ),
         'remark': ('remark_note_file_path', 'remark_note_file_type', 'remark_note_original_name', 'remark_note'),
     }
+
+    @staticmethod
+    def add_order_history(
+        work_order: QCWorkOrder,
+        action: str,
+        detail: str | None = None,
+        user: User | None = None,
+    ) -> QCWorkOrderHistory:
+        """Append an immutable history entry for a work order."""
+        history = QCWorkOrderHistory(
+            work_order_id=work_order.id,
+            operator_id=user.id if user else None,
+            action=action,
+            detail=detail,
+        )
+        db.session.add(history)
+        return history
+
+    @staticmethod
+    def _post_inventory_if_needed(work_order: QCWorkOrder, user: User | None = None) -> None:
+        """Increase workpiece stock once when a work order reaches final acceptance."""
+        if work_order.inventory_posted_at or not work_order.workpiece_id or not work_order.workpiece:
+            return
+
+        quantity = float(work_order.quantity or 0)
+        if quantity <= 0:
+            return
+
+        work_order.workpiece.stock_quantity = float(work_order.workpiece.stock_quantity or 0) + quantity
+        work_order.inventory_posted_at = datetime.now()
+        QCService.add_order_history(
+            work_order,
+            '验收入库',
+            f'工件库存增加 {quantity:g}，当前库存 {work_order.workpiece.stock_quantity:g}',
+            user,
+        )
+
+    @staticmethod
+    def _reverse_inventory_if_posted(work_order: QCWorkOrder, user: User | None = None) -> None:
+        """Reverse the stock increase when an accepted order is rolled back."""
+        if not work_order.inventory_posted_at or not work_order.workpiece_id or not work_order.workpiece:
+            return
+
+        quantity = float(work_order.quantity or 0)
+        if quantity <= 0:
+            work_order.inventory_posted_at = None
+            return
+
+        current_stock = float(work_order.workpiece.stock_quantity or 0)
+        work_order.workpiece.stock_quantity = max(0.0, current_stock - quantity)
+        work_order.inventory_posted_at = None
+        QCService.add_order_history(
+            work_order,
+            '撤销入库',
+            f'验收回退，工件库存扣回 {quantity:g}，当前库存 {work_order.workpiece.stock_quantity:g}',
+            user,
+        )
 
     @staticmethod
     def _allowed_file(filename: str) -> bool:
@@ -276,9 +339,9 @@ class QCService:
         """Return whether the user can access the workpiece library."""
         if user.is_superadmin:
             return True
-        if user.role.code in QC_MANAGER_ROLE_CODES:
+        if user.ai_cats_is_manager:
             return any(
-                user.has_qc_permission(permission_code)
+                user.has_ai_cats_permission(permission_code)
                 for permission_code in (
                     'qc_workpiece_view',
                     'qc_workpiece_create',
@@ -286,9 +349,9 @@ class QCService:
                     'qc_workpiece_delete',
                 )
             )
-        if user.role.code == 'qc_controller':
+        if user.ai_cats_is_controller:
             return any(
-                user.has_qc_permission(permission_code)
+                user.has_ai_cats_permission(permission_code)
                 for permission_code in (
                     'qc_workpiece_view',
                     'qc_workpiece_create',
@@ -303,9 +366,9 @@ class QCService:
         """Return whether the user can access the quality-control module."""
         if user.is_superadmin:
             return True
-        if user.role.code in QC_MANAGER_ROLE_CODES:
+        if user.ai_cats_is_manager:
             return any(
-                user.has_qc_permission(permission_code)
+                user.has_ai_cats_permission(permission_code)
                 for permission_code in (
                     'qc_work_order_view',
                     'qc_work_order_create',
@@ -313,9 +376,9 @@ class QCService:
                     'qc_work_order_delete',
                 )
             )
-        if user.role.code == 'qc_controller':
+        if user.ai_cats_is_controller:
             return any(
-                user.has_qc_permission(permission_code)
+                user.has_ai_cats_permission(permission_code)
                 for permission_code in (
                     'qc_work_order_view',
                     'qc_work_order_create',
@@ -335,6 +398,7 @@ class QCService:
     @staticmethod
     def _reset_work_order_snapshot(work_order: QCWorkOrder) -> None:
         """Clear copied attachments, report files, inspection records, and signatures."""
+        QCService._reverse_inventory_if_posted(work_order)
         QCService._delete_inspection_report_files(work_order)
         for attachment in list(work_order.attachments):
             if attachment.file_path:
@@ -359,6 +423,7 @@ class QCService:
 
         work_order.workpiece_id = workpiece.id
         work_order.workpiece_name = workpiece.workpiece_name
+        work_order.workpiece_type = normalize_qc_workpiece_type(workpiece.workpiece_type)
 
         for attachment in workpiece.attachments:
             file_path = ''
@@ -392,6 +457,10 @@ class QCService:
             'id': workpiece.id,
             'workpiece_code': workpiece.workpiece_code,
             'workpiece_name': workpiece.workpiece_name,
+            'workpiece_type': workpiece.normalized_type,
+            'workpiece_type_display': workpiece.workpiece_type_display,
+            'stock_quantity': float(workpiece.stock_quantity or 0),
+            'primary_material_label': workpiece.primary_material_label,
             'creator_name': workpiece.creator.real_name or workpiece.creator.username,
             'drawing': None if not drawing else {
                 'title': drawing.display_title,
@@ -399,6 +468,26 @@ class QCService:
                 'url': drawing.file_url,
                 'is_image': drawing.is_image,
             },
+            'drawings': [
+                {
+                    'title': attachment.display_title,
+                    'content': attachment.content or '',
+                    'filename': os.path.basename(attachment.file_path) if attachment.file_path else '',
+                    'url': attachment.file_url,
+                    'is_image': attachment.is_image,
+                }
+                for attachment in workpiece.drawing_attachments
+            ],
+            'quality_materials': [
+                {
+                    'title': attachment.display_title,
+                    'content': attachment.content or '',
+                    'filename': os.path.basename(attachment.file_path) if attachment.file_path else '',
+                    'url': attachment.file_url,
+                    'is_image': attachment.is_image,
+                }
+                for attachment in workpiece.quality_material_attachments
+            ],
             'guides': [
                 {
                     'title': attachment.display_title,
@@ -431,19 +520,19 @@ class QCService:
         """Return whether the user can create workpieces."""
         if user.is_superadmin:
             return True
-        if user.role.code in QC_MANAGER_ROLE_CODES:
-            return user.has_qc_permission('qc_workpiece_create')
-        return user.role.code == 'qc_controller' and user.has_qc_permission('qc_workpiece_create')
+        if user.ai_cats_is_manager:
+            return user.has_ai_cats_permission('qc_workpiece_create')
+        return user.ai_cats_is_controller and user.has_ai_cats_permission('qc_workpiece_create')
 
     @staticmethod
     def can_edit_workpiece(user: User, workpiece: QCWorkpiece) -> bool:
         """Return whether the user can edit the workpiece."""
         if user.is_superadmin:
             return True
-        if user.role.code in QC_MANAGER_ROLE_CODES:
-            return user.has_qc_permission('qc_workpiece_edit')
-        if user.role.code == 'qc_controller' and workpiece.creator_id == user.id:
-            return user.has_qc_permission('qc_workpiece_edit')
+        if user.ai_cats_is_manager:
+            return user.has_ai_cats_permission('qc_workpiece_edit')
+        if user.ai_cats_is_controller and workpiece.creator_id == user.id:
+            return user.has_ai_cats_permission('qc_workpiece_edit')
         return False
 
     @staticmethod
@@ -451,10 +540,10 @@ class QCService:
         """Return whether the user can delete the workpiece."""
         if user.is_superadmin:
             return True
-        if user.role.code in QC_MANAGER_ROLE_CODES:
-            return user.has_qc_permission('qc_workpiece_delete')
-        if user.role.code == 'qc_controller' and workpiece.creator_id == user.id:
-            return user.has_qc_permission('qc_workpiece_delete')
+        if user.ai_cats_is_manager:
+            return user.has_ai_cats_permission('qc_workpiece_delete')
+        if user.ai_cats_is_controller and workpiece.creator_id == user.id:
+            return user.has_ai_cats_permission('qc_workpiece_delete')
         return False
 
     @staticmethod
@@ -467,21 +556,21 @@ class QCService:
         """Return whether the user can create a work order."""
         if user.is_superadmin:
             return True
-        if user.role.code in QC_MANAGER_ROLE_CODES:
-            return user.has_qc_permission('qc_work_order_create')
-        return user.role.code == 'qc_controller' and user.has_qc_permission('qc_work_order_create')
+        if user.ai_cats_is_manager:
+            return user.has_ai_cats_permission('qc_work_order_create')
+        return user.ai_cats_is_controller and user.has_ai_cats_permission('qc_work_order_create')
 
     @staticmethod
     def can_access_inspection(user: User) -> bool:
         """Return whether the user can open the inspection module."""
         if user.is_superadmin:
             return True
-        if user.role.code in QC_MANAGER_ROLE_CODES:
-            return user.has_qc_permission('qc_inspection_view') or user.has_qc_permission('qc_inspection_perform')
-        if user.role.code == 'qc_controller':
-            return user.has_qc_permission('qc_inspection_view')
-        if user.role.code == 'qc_inspector':
-            return user.has_qc_permission('qc_inspection_view') or user.has_qc_permission('qc_inspection_perform')
+        if user.ai_cats_is_manager:
+            return user.has_ai_cats_permission('qc_inspection_view') or user.has_ai_cats_permission('qc_inspection_perform')
+        if user.ai_cats_is_controller:
+            return user.has_ai_cats_permission('qc_inspection_view')
+        if user.ai_cats_is_inspector:
+            return user.has_ai_cats_permission('qc_inspection_view') or user.has_ai_cats_permission('qc_inspection_perform')
         return False
 
     @staticmethod
@@ -489,12 +578,12 @@ class QCService:
         """Return whether the user can open the acceptance module."""
         if user.is_superadmin:
             return True
-        if user.role.code in QC_MANAGER_ROLE_CODES:
-            return user.has_qc_permission('qc_acceptance_perform') or user.has_qc_permission('qc_acceptance_rollback')
-        if user.role.code == 'qc_controller':
-            return user.has_qc_permission('qc_acceptance_perform') or user.has_qc_permission('qc_acceptance_rollback')
-        if user.role.code == 'qc_inspector':
-            return user.has_qc_permission('qc_acceptance_perform')
+        if user.ai_cats_is_manager:
+            return user.has_ai_cats_permission('qc_acceptance_perform') or user.has_ai_cats_permission('qc_acceptance_rollback')
+        if user.ai_cats_is_controller:
+            return user.has_ai_cats_permission('qc_acceptance_perform') or user.has_ai_cats_permission('qc_acceptance_rollback')
+        if user.ai_cats_is_inspector:
+            return user.has_ai_cats_permission('qc_acceptance_perform')
         return False
 
     @staticmethod
@@ -502,7 +591,7 @@ class QCService:
         """Return whether the user can view the work order."""
         if work_order.status == 'draft':
             return user.is_superadmin or (
-                user.role.code == 'qc_controller'
+                user.ai_cats_is_controller
                 and work_order.controller_id == user.id
                 and QCService._can_access_work_order_scope(user)
             )
@@ -523,34 +612,59 @@ class QCService:
         """Return whether the user can perform inspection on the work order."""
         if user.is_superadmin:
             return True
-        if user.role.code in QC_MANAGER_ROLE_CODES and user.has_qc_permission('qc_inspection_perform'):
+        if user.ai_cats_is_manager and user.has_ai_cats_permission('qc_inspection_perform'):
             return work_order.status in ['qc_completed', 'inspection_pending']
-        if user.role.code == 'qc_inspector' and work_order.inspector_id == user.id:
-            return user.has_qc_permission('qc_inspection_perform') and work_order.status in ['qc_completed', 'inspection_pending']
+        if user.ai_cats_is_inspector and work_order.inspector_id == user.id:
+            return user.has_ai_cats_permission('qc_inspection_perform') and work_order.status in ['qc_completed', 'inspection_pending']
         return False
 
     @staticmethod
     def can_accept_work_order(user: User, work_order: QCWorkOrder) -> bool:
         """Return whether the user can sign acceptance for the work order."""
+        return bool(QCService.eligible_acceptance_signer_roles(user, work_order))
+
+    @staticmethod
+    def eligible_acceptance_signer_roles(user: User, work_order: QCWorkOrder) -> list[str]:
+        """Return every acceptance signer role the user can act as for one work order."""
+        if work_order.status != 'inspection_completed':
+            return []
         if user.is_superadmin:
-            return True
-        if user.role.code in QC_MANAGER_ROLE_CODES and user.has_qc_permission('qc_acceptance_perform'):
-            return work_order.status == 'inspection_completed'
-        if user.role.code == 'qc_controller' and work_order.controller_id == user.id:
-            return user.has_qc_permission('qc_acceptance_perform') and work_order.status == 'inspection_completed'
-        if user.role.code == 'qc_inspector' and work_order.inspector_id == user.id:
-            return user.has_qc_permission('qc_acceptance_perform') and work_order.status == 'inspection_completed'
-        return False
+            return ['qc_controller', 'qc_inspector']
+        if user.ai_cats_is_manager and user.has_ai_cats_permission('qc_acceptance_perform'):
+            return ['qc_controller', 'qc_inspector']
+        signer_roles: list[str] = []
+        if user.ai_cats_is_controller and work_order.controller_id == user.id:
+            if user.has_ai_cats_permission('qc_acceptance_perform'):
+                signer_roles.append('qc_controller')
+        if user.ai_cats_is_inspector and work_order.inspector_id == user.id:
+            if user.has_ai_cats_permission('qc_acceptance_perform'):
+                signer_roles.append('qc_inspector')
+        return signer_roles
 
     @staticmethod
     def can_rollback_work_order(user: User, work_order: QCWorkOrder) -> bool:
         """Return whether the user can roll back acceptance for the work order."""
         if user.is_superadmin:
             return True
-        if user.role.code in QC_MANAGER_ROLE_CODES and user.has_qc_permission('qc_acceptance_rollback'):
+        if user.ai_cats_is_manager and user.has_ai_cats_permission('qc_acceptance_rollback'):
             return work_order.status in ['inspection_completed', 'accepted']
-        if user.role.code == 'qc_controller' and work_order.controller_id == user.id:
-            return user.has_qc_permission('qc_acceptance_rollback') and work_order.status in ['inspection_completed', 'accepted']
+        if user.ai_cats_is_controller and work_order.controller_id == user.id:
+            return user.has_ai_cats_permission('qc_acceptance_rollback') and work_order.status in ['inspection_completed', 'accepted']
+        return False
+
+    @staticmethod
+    def can_cancel_acceptance_signature(user: User, work_order: QCWorkOrder, signer_role: str) -> bool:
+        """Return whether the user can cancel one acceptance signature."""
+        if work_order.status not in ['inspection_completed', 'accepted']:
+            return False
+        if user.is_superadmin:
+            return True
+        if user.ai_cats_is_manager and user.has_ai_cats_permission('qc_acceptance_rollback'):
+            return signer_role in ['qc_controller', 'qc_inspector']
+        if signer_role == 'qc_controller' and user.ai_cats_is_controller and work_order.controller_id == user.id:
+            return user.has_ai_cats_permission('qc_acceptance_perform')
+        if signer_role == 'qc_inspector' and user.ai_cats_is_inspector and work_order.inspector_id == user.id:
+            return user.has_ai_cats_permission('qc_acceptance_perform')
         return False
 
     @staticmethod
@@ -601,10 +715,10 @@ class QCService:
 
         if user.is_superadmin:
             query = query
-        elif user.role.code in QC_MANAGER_ROLE_CODES and QCService.can_access_quality_control(user):
+        elif user.ai_cats_is_manager and QCService.can_access_quality_control(user):
             query = query.filter(QCWorkOrder.status != 'draft')
         else:
-            if user.role.code == 'qc_controller' and QCService.can_access_quality_control(user):
+            if user.ai_cats_is_controller and QCService.can_access_quality_control(user):
                 query = query.filter(QCWorkOrder.controller_id == user.id)
             else:
                 query = query.filter(False)
@@ -636,11 +750,11 @@ class QCService:
         )
 
         if not user.is_superadmin:
-            if user.role.code in QC_MANAGER_ROLE_CODES and QCService.can_access_inspection(user):
+            if user.ai_cats_is_manager and QCService.can_access_inspection(user):
                 query = query
-            elif user.role.code == 'qc_inspector' and QCService.can_access_inspection(user):
+            elif user.ai_cats_is_inspector and QCService.can_access_inspection(user):
                 query = query.filter(QCWorkOrder.inspector_id == user.id)
-            elif user.role.code == 'qc_controller' and QCService.can_access_inspection(user):
+            elif user.ai_cats_is_controller and QCService.can_access_inspection(user):
                 query = query.filter(QCWorkOrder.controller_id == user.id)
             else:
                 query = query.filter(False)
@@ -669,11 +783,11 @@ class QCService:
         )
 
         if not user.is_superadmin:
-            if user.role.code in QC_MANAGER_ROLE_CODES and QCService.can_access_acceptance(user):
+            if user.ai_cats_is_manager and QCService.can_access_acceptance(user):
                 query = query
-            elif user.role.code == 'qc_controller' and QCService.can_access_acceptance(user):
+            elif user.ai_cats_is_controller and QCService.can_access_acceptance(user):
                 query = query.filter(QCWorkOrder.controller_id == user.id)
-            elif user.role.code == 'qc_inspector' and QCService.can_access_acceptance(user):
+            elif user.ai_cats_is_inspector and QCService.can_access_acceptance(user):
                 query = query.filter(QCWorkOrder.inspector_id == user.id)
             else:
                 query = query.filter(False)
@@ -699,6 +813,7 @@ class QCService:
         """Create a workpiece."""
         workpiece_code = (data.get('workpiece_code') or '').strip()
         workpiece_name = (data.get('workpiece_name') or '').strip()
+        workpiece_type = normalize_qc_workpiece_type(data.get('workpiece_type'))
 
         if not workpiece_code:
             raise ValueError('工件编号不能为空')
@@ -712,6 +827,8 @@ class QCService:
         workpiece = QCWorkpiece(
             workpiece_code=workpiece_code,
             workpiece_name=workpiece_name,
+            workpiece_type=workpiece_type,
+            stock_quantity=0,
             creator_id=creator_id,
         )
         db.session.add(workpiece)
@@ -732,6 +849,7 @@ class QCService:
 
         workpiece_code = (data.get('workpiece_code') or '').strip()
         workpiece_name = (data.get('workpiece_name') or '').strip()
+        workpiece_type = normalize_qc_workpiece_type(data.get('workpiece_type'))
 
         if not workpiece_code:
             raise ValueError('工件编号不能为空')
@@ -745,6 +863,7 @@ class QCService:
 
         workpiece.workpiece_code = workpiece_code
         workpiece.workpiece_name = workpiece_name
+        workpiece.workpiece_type = workpiece_type
         db.session.commit()
         return workpiece
 
@@ -755,6 +874,8 @@ class QCService:
         remark_items: list[dict],
         drawing_file,
         user: User,
+        material_items: list[dict] | None = None,
+        drawing_items: list[dict] | None = None,
     ) -> QCWorkpiece:
         """Synchronize workpiece-library attachments from the form."""
         workpiece = QCWorkpiece.query.get(workpiece_id)
@@ -763,36 +884,124 @@ class QCService:
         if not QCService.can_edit_workpiece(user, workpiece):
             raise ValueError('没有权限编辑此工件')
 
-        existing_drawing = QCWorkpieceAttachment.query.filter_by(
+        material_items = material_items or []
+        drawing_items = drawing_items or []
+
+        if not drawing_items and drawing_file and drawing_file.filename:
+            drawing_items = [{'title': '图纸1', 'content': '', 'file': drawing_file}]
+
+        existing_drawings = QCWorkpieceAttachment.query.filter_by(
             workpiece_id=workpiece.id,
             attach_type='drawing',
-        ).order_by(QCWorkpieceAttachment.id.asc()).first()
+        ).order_by(QCWorkpieceAttachment.sort_order.asc(), QCWorkpieceAttachment.id.asc()).all()
 
-        if drawing_file and drawing_file.filename:
-            if existing_drawing:
-                QCService._replace_workpiece_attachment_file(existing_drawing, drawing_file, 'drawing')
-                existing_drawing.title = '图纸'
-                existing_drawing.is_required = True
-            else:
-                relative_path, file_type = QCService._save_file_for_workpiece_attachment(
-                    file=drawing_file,
-                    workpiece_id=workpiece.id,
-                    attach_type='drawing',
-                )
-                db.session.add(
-                    QCWorkpieceAttachment(
+        existing_materials = QCWorkpieceAttachment.query.filter_by(
+            workpiece_id=workpiece.id,
+            attach_type=QC_QUALITY_MATERIAL_ATTACHMENT_TYPE,
+        ).order_by(QCWorkpieceAttachment.sort_order.asc(), QCWorkpieceAttachment.id.asc()).all()
+
+        if workpiece.is_outsourced:
+            for drawing in existing_drawings:
+                if drawing.file_path:
+                    QCService._remove_workpiece_file(workpiece.id, drawing.file_path)
+                db.session.delete(drawing)
+
+            if not material_items:
+                raise ValueError('请至少添加一项质检材料')
+
+            for idx, item in enumerate(material_items):
+                title = (item.get('title') or '').strip() or f'质检材料{idx + 1}'
+                content = (item.get('content') or '').strip()
+                upload = item.get('file')
+
+                if idx < len(existing_materials):
+                    material = existing_materials[idx]
+                    material.title = title
+                    material.content = content
+                    material.is_required = True
+                    material.sort_order = idx
+                    if upload and upload.filename:
+                        QCService._replace_workpiece_attachment_file(
+                            material,
+                            upload,
+                            QC_QUALITY_MATERIAL_ATTACHMENT_TYPE,
+                        )
+                    if not material.file_path:
+                        raise ValueError('质检材料必须上传文件')
+                else:
+                    if not upload or not upload.filename:
+                        raise ValueError('新增质检材料必须上传文件')
+                    relative_path, file_type = QCService._save_file_for_workpiece_attachment(
+                        file=upload,
+                        workpiece_id=workpiece.id,
+                        attach_type=QC_QUALITY_MATERIAL_ATTACHMENT_TYPE,
+                    )
+                    db.session.add(
+                        QCWorkpieceAttachment(
+                            workpiece_id=workpiece.id,
+                            attach_type=QC_QUALITY_MATERIAL_ATTACHMENT_TYPE,
+                            title=title,
+                            content=content,
+                            file_path=relative_path,
+                            file_type=file_type,
+                            is_required=True,
+                            sort_order=idx,
+                        )
+                    )
+
+            for redundant in existing_materials[len(material_items):]:
+                if redundant.file_path:
+                    QCService._remove_workpiece_file(workpiece.id, redundant.file_path)
+                db.session.delete(redundant)
+        else:
+            for redundant in existing_materials:
+                if redundant.file_path:
+                    QCService._remove_workpiece_file(workpiece.id, redundant.file_path)
+                db.session.delete(redundant)
+
+            if not drawing_items:
+                raise ValueError('请至少添加一项图纸')
+
+            for idx, item in enumerate(drawing_items):
+                title = (item.get('title') or '').strip() or f'图纸{idx + 1}'
+                content = (item.get('content') or '').strip()
+                upload = item.get('file')
+
+                if idx < len(existing_drawings):
+                    drawing = existing_drawings[idx]
+                    drawing.title = title
+                    drawing.content = content
+                    drawing.is_required = True
+                    drawing.sort_order = idx
+                    if upload and upload.filename:
+                        QCService._replace_workpiece_attachment_file(drawing, upload, 'drawing')
+                    if not drawing.file_path:
+                        raise ValueError('图纸必须上传文件')
+                else:
+                    if not upload or not upload.filename:
+                        raise ValueError('新增图纸必须上传文件')
+                    relative_path, file_type = QCService._save_file_for_workpiece_attachment(
+                        file=upload,
                         workpiece_id=workpiece.id,
                         attach_type='drawing',
-                        title='图纸',
-                        content='',
-                        file_path=relative_path,
-                        file_type=file_type,
-                        is_required=True,
-                        sort_order=0,
                     )
-                )
-        elif not existing_drawing:
-            raise ValueError('请上传图纸')
+                    db.session.add(
+                        QCWorkpieceAttachment(
+                            workpiece_id=workpiece.id,
+                            attach_type='drawing',
+                            title=title,
+                            content=content,
+                            file_path=relative_path,
+                            file_type=file_type,
+                            is_required=True,
+                            sort_order=idx,
+                        )
+                    )
+
+            for redundant in existing_drawings[len(drawing_items):]:
+                if redundant.file_path:
+                    QCService._remove_workpiece_file(workpiece.id, redundant.file_path)
+                db.session.delete(redundant)
 
         existing_guides = QCWorkpieceAttachment.query.filter(
             QCWorkpieceAttachment.workpiece_id == workpiece.id,
@@ -936,6 +1145,7 @@ class QCService:
         quantity = data.get('quantity')
         workpiece_id = data.get('workpiece_id')
         workpiece_name = (data.get('workpiece_name') or '').strip()
+        workpiece_type = normalize_qc_workpiece_type(data.get('workpiece_type'))
 
         selected_workpiece = None
         if workpiece_id:
@@ -943,6 +1153,7 @@ class QCService:
             if not selected_workpiece:
                 raise ValueError('请选择有效的工件')
             workpiece_name = selected_workpiece.workpiece_name
+            workpiece_type = selected_workpiece.normalized_type
 
         if allow_partial:
             if not batch_no:
@@ -975,15 +1186,21 @@ class QCService:
             batch_no=batch_no,
             workpiece_id=selected_workpiece.id if selected_workpiece else None,
             workpiece_name=workpiece_name,
+            workpiece_type=workpiece_type,
             quantity=quantity,
             controller_id=controller_id,
             status=status,
         )
         db.session.add(work_order)
+        db.session.flush()
+        QCService.add_order_history(
+            work_order,
+            '创建工件订单' if status != 'draft' else '保存工件订单草稿',
+            f'批次 {work_order.batch_no}，工件 {work_order.workpiece_name}，数量 {float(work_order.quantity or 0):g}',
+            User.query.get(controller_id),
+        )
         if auto_commit:
             db.session.commit()
-        else:
-            db.session.flush()
         return work_order
 
     @staticmethod
@@ -1000,6 +1217,7 @@ class QCService:
         quantity = data.get('quantity')
         workpiece_id = data.get('workpiece_id')
         workpiece_name = (data.get('workpiece_name') or '').strip()
+        workpiece_type = normalize_qc_workpiece_type(data.get('workpiece_type') or work_order.workpiece_type)
 
         selected_workpiece = None
         if workpiece_id:
@@ -1007,6 +1225,7 @@ class QCService:
             if not selected_workpiece:
                 raise ValueError('请选择有效的工件')
             workpiece_name = selected_workpiece.workpiece_name
+            workpiece_type = selected_workpiece.normalized_type
 
         if allow_partial:
             batch_no = batch_no or work_order.batch_no
@@ -1036,11 +1255,18 @@ class QCService:
 
         work_order.batch_no = batch_no
         work_order.quantity = quantity
+        work_order.workpiece_type = workpiece_type
         if selected_workpiece:
             work_order.workpiece_id = selected_workpiece.id
             work_order.workpiece_name = selected_workpiece.workpiece_name
         else:
             work_order.workpiece_name = workpiece_name
+        QCService.add_order_history(
+            work_order,
+            '编辑工件订单',
+            f'批次 {work_order.batch_no}，工件 {work_order.workpiece_name}，数量 {float(work_order.quantity or 0):g}',
+            user,
+        )
         db.session.commit()
         return work_order
 
@@ -1059,13 +1285,28 @@ class QCService:
         if not QCService.can_access_workpiece_library(user):
             raise ValueError('没有权限使用工件库')
 
-        drawing = workpiece.drawing_attachment
-        if not drawing or not drawing.file_path:
-            raise ValueError('所选工件未配置图纸')
+        if workpiece.is_outsourced:
+            if not workpiece.quality_material_attachments:
+                raise ValueError('所选外采工件未配置质检材料')
+            for idx, material in enumerate(workpiece.quality_material_attachments, start=1):
+                if not material.file_path:
+                    raise ValueError(f'请完善质检材料{idx}')
+        else:
+            if not workpiece.drawing_attachments:
+                raise ValueError('所选工件未配置图纸')
+            for idx, drawing in enumerate(workpiece.drawing_attachments, start=1):
+                if not drawing.file_path:
+                    raise ValueError(f'请完善图纸{idx}')
         if not workpiece.guide_attachments:
             raise ValueError('所选工件未配置作业指导书')
 
         QCService._apply_workpiece_snapshot(work_order, workpiece)
+        QCService.add_order_history(
+            work_order,
+            '应用工件库快照',
+            f'来源工件 {workpiece.workpiece_code}，类型 {workpiece.workpiece_type_display}',
+            user,
+        )
         db.session.commit()
         return work_order
 
@@ -1327,10 +1568,16 @@ class QCService:
         if not inspector.role or inspector.role.code != 'qc_inspector':
             raise ValueError('请选择供应商角色用户')
 
-        drawing = work_order.drawing_attachment
+        primary_materials = work_order.primary_material_attachments
         guides = work_order.guide_attachments
 
-        if not drawing or not drawing.file_path:
+        if work_order.is_outsourced:
+            if not primary_materials:
+                raise ValueError('请上传质检材料')
+            for idx, material in enumerate(primary_materials, start=1):
+                if not material.file_path:
+                    raise ValueError(f'请完善质检材料{idx}')
+        elif not primary_materials or not primary_materials[0].file_path:
             raise ValueError('请上传图纸')
         if not guides:
             raise ValueError('请至少添加一项作业指导书')
@@ -1353,6 +1600,12 @@ class QCService:
         work_order.accepted_at = None
         work_order.rejected_at = None
         work_order.rejection_reason = None
+        QCService.add_order_history(
+            work_order,
+            '完成质量控制',
+            f'已分配给 {inspector.real_name or inspector.username}，进入质量检测',
+            user,
+        )
         db.session.commit()
         return work_order
 
@@ -1464,54 +1717,67 @@ class QCService:
                 work_order.status = 'rejected'
                 work_order.rejected_at = datetime.now()
                 work_order.inspection_completed_at = None
+                QCService.add_order_history(
+                    work_order,
+                    '提交质量检测',
+                    '质检不合格，退回质量控制流程',
+                    user,
+                )
             else:
                 work_order.status = 'inspection_completed'
                 work_order.inspection_completed_at = datetime.now()
                 work_order.rejected_at = None
                 work_order.rejection_reason = None
+                QCService.add_order_history(
+                    work_order,
+                    '提交质量检测',
+                    '质检合格，进入验收确认',
+                    user,
+                )
         else:
             if touched_records or existing_records:
                 work_order.status = 'inspection_pending'
                 work_order.inspection_completed_at = None
+                QCService.add_order_history(
+                    work_order,
+                    '保存质检草稿',
+                    f'已保存 {len(touched_records)} 项质检结果',
+                    user,
+                )
 
         db.session.commit()
         return work_order
 
     @staticmethod
-    def sign_acceptance(order_id: int, user: User) -> dict:
-        """Sign acceptance for the current user role."""
+    def sign_acceptance(order_id: int, user: User, signer_role: Optional[str] = None) -> dict:
+        """Sign one acceptance role for the current user."""
         work_order = QCWorkOrder.query.get(order_id)
         if not work_order:
             raise ValueError('工件订单不存在')
 
-        if not QCService.can_accept_work_order(user, work_order):
-            raise ValueError('没有权限执行验收确认')
-
         if work_order.status != 'inspection_completed':
             raise ValueError('当前订单尚未进入验收确认阶段')
 
-        signer_role = user.role.code
-        if signer_role not in ['qc_controller', 'qc_inspector', 'superadmin', *QC_MANAGER_ROLE_CODES]:
-            raise ValueError('当前角色无权验收')
-
-        if user.is_superadmin or signer_role in QC_MANAGER_ROLE_CODES:
-            QCAcceptanceSignature.query.filter_by(work_order_id=work_order.id).delete()
-            db.session.flush()
-            db.session.add_all([
-                QCAcceptanceSignature(work_order_id=work_order.id, signer_id=user.id, signer_role='qc_controller'),
-                QCAcceptanceSignature(work_order_id=work_order.id, signer_id=user.id, signer_role='qc_inspector'),
-            ])
-            work_order.status = 'accepted'
-            work_order.accepted_at = datetime.now()
-            db.session.commit()
-            return {'completed': True, 'message': '管理层已代双方确认，验收完成'}
+        eligible_roles = QCService.eligible_acceptance_signer_roles(user, work_order)
+        if signer_role:
+            signer_role = signer_role.strip()
+            if signer_role not in ['qc_controller', 'qc_inspector']:
+                raise ValueError('无效的确认角色')
+            if signer_role not in eligible_roles:
+                raise ValueError('没有权限执行该角色的验收确认')
+        else:
+            if not eligible_roles:
+                raise ValueError('没有权限执行验收确认')
+            if len(eligible_roles) != 1:
+                raise ValueError('请指定确认角色')
+            signer_role = eligible_roles[0]
 
         existing = QCAcceptanceSignature.query.filter_by(
             work_order_id=work_order.id,
             signer_role=signer_role,
         ).first()
         if existing:
-            raise ValueError('您已完成验收确认，无需重复操作')
+            raise ValueError('该角色已完成验收确认，无需重复操作')
 
         signature = QCAcceptanceSignature(
             work_order_id=work_order.id,
@@ -1520,17 +1786,60 @@ class QCService:
         )
         db.session.add(signature)
         db.session.flush()
+        QCService.add_order_history(
+            work_order,
+            '验收确认',
+            f'{signature.signer_role_display}已确认',
+            user,
+        )
 
         signatures = QCAcceptanceSignature.query.filter_by(work_order_id=work_order.id).all()
         roles_signed = {signature.signer_role for signature in signatures}
         if 'qc_controller' in roles_signed and 'qc_inspector' in roles_signed:
             work_order.status = 'accepted'
             work_order.accepted_at = datetime.now()
+            QCService.add_order_history(work_order, '验收完成', '双方确认完成，订单最终验收通过', user)
+            QCService._post_inventory_if_needed(work_order, user)
             db.session.commit()
             return {'completed': True, 'message': '双方已确认，验收完成'}
 
         db.session.commit()
         return {'completed': False, 'message': '验收确认已提交，等待另一方确认'}
+
+    @staticmethod
+    def cancel_acceptance_signature(order_id: int, signer_role: str, user: User) -> QCWorkOrder:
+        """Cancel one acceptance signature without rolling the order back to earlier modules."""
+        work_order = QCWorkOrder.query.get(order_id)
+        if not work_order:
+            raise ValueError('工件订单不存在')
+        if signer_role not in ['qc_controller', 'qc_inspector']:
+            raise ValueError('无效的确认角色')
+        if not QCService.can_cancel_acceptance_signature(user, work_order, signer_role):
+            raise ValueError('没有权限取消该验收确认')
+
+        signature = QCAcceptanceSignature.query.filter_by(
+            work_order_id=work_order.id,
+            signer_role=signer_role,
+        ).first()
+        if not signature:
+            raise ValueError('该角色尚未完成验收确认')
+
+        was_accepted = work_order.status == 'accepted'
+        if was_accepted:
+            QCService._reverse_inventory_if_posted(work_order, user)
+            work_order.status = 'inspection_completed'
+            work_order.accepted_at = None
+
+        role_display = signature.signer_role_display
+        db.session.delete(signature)
+        QCService.add_order_history(
+            work_order,
+            '取消验收确认',
+            f'{role_display}确认已取消',
+            user,
+        )
+        db.session.commit()
+        return work_order
 
     @staticmethod
     def rollback_acceptance(order_id: int, target: str, reason: str, user: User) -> QCWorkOrder:
@@ -1551,6 +1860,10 @@ class QCService:
         if not reason or not reason.strip():
             raise ValueError('请填写回退原因')
 
+        was_accepted = work_order.status == 'accepted'
+        if was_accepted:
+            QCService._reverse_inventory_if_posted(work_order, user)
+
         QCAcceptanceSignature.query.filter_by(work_order_id=work_order.id).delete()
         work_order.accepted_at = None
 
@@ -1564,6 +1877,12 @@ class QCService:
             work_order.inspection_completed_at = None
 
         work_order.rejection_reason = reason.strip()
+        QCService.add_order_history(
+            work_order,
+            '验收回退',
+            f'回退至{"质量控制" if target == "qc" else "质量检测"}：{reason.strip()}',
+            user,
+        )
         db.session.commit()
         return work_order
 

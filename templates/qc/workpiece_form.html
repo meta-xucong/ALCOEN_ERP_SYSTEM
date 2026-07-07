@@ -2,155 +2,373 @@
 
 {% block title %}{% if is_edit %}编辑{% else %}新增{% endif %}工件 - ALCOEN AI CATS{% endblock %}
 
+{% block extra_css %}
+<style>
+    .attachment-card {
+        border: 1px solid rgba(0, 0, 0, 0.08);
+        border-radius: 1rem;
+        background: rgba(255, 255, 255, 0.92);
+        box-shadow: 0 0.5rem 1.5rem rgba(15, 23, 42, 0.04);
+    }
+    .attachment-item {
+        border: 1px solid rgba(0, 0, 0, 0.08);
+        border-radius: 0.875rem;
+        padding: 1rem;
+        background: linear-gradient(180deg, #ffffff 0%, #f8fbf9 100%);
+    }
+    .attachment-item + .attachment-item {
+        margin-top: 1rem;
+    }
+    .attachment-toolbar {
+        display: flex;
+        justify-content: space-between;
+        gap: 1rem;
+        align-items: center;
+        flex-wrap: wrap;
+    }
+    .current-file {
+        max-width: 100%;
+    }
+    .help-copy {
+        color: #6c757d;
+        font-size: 0.875rem;
+    }
+</style>
+{% endblock %}
+
 {% block content %}
-<div class="row mb-4">
-    <div class="col-12">
-        <h1 class="d-flex align-items-center gap-3 mb-0">
-            <i class="bi bi-box-seam text-gradient" style="font-size: 2rem; color: #198754;"></i>
-            <span class="text-gradient" style="font-weight: 700; font-size: 2rem;">
-                {% if is_edit %}编辑工件{% else %}新增工件{% endif %}
-            </span>
-        </h1>
-    </div>
+{% set selected_type = workpiece.normalized_type if workpiece else 'self_produced' %}
+{% set drawing_attachments = workpiece.drawing_attachments if workpiece else [] %}
+{% set material_attachments = workpiece.quality_material_attachments if workpiece else [] %}
+{% set guide_attachments = workpiece.guide_attachments if workpiece else [] %}
+{% set remark_attachments = workpiece.remark_attachments if workpiece else [] %}
+{% set creator_name = (workpiece.creator.real_name or workpiece.creator.username) if workpiece else (current_user.real_name or current_user.username) %}
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h1 class="d-flex align-items-center gap-3 mb-0">
+        <i class="bi bi-box-seam text-gradient" style="font-size: 2rem; color: #198754;"></i>
+        <span class="text-gradient" style="font-weight: 700; font-size: 2rem;">
+            {% if is_edit %}编辑工件{% else %}新增工件{% endif %}
+        </span>
+    </h1>
+    <a href="{{ url_for('qc.workpiece_list') }}" class="btn btn-outline-secondary">
+        <i class="bi bi-arrow-left"></i> 返回工件库
+    </a>
 </div>
 
-<form method="POST" enctype="multipart/form-data">
+<form method="POST" action="" enctype="multipart/form-data" id="workpieceForm">
     <div class="card mb-4">
         <div class="card-header bg-primary text-white">
             <h5 class="mb-0"><i class="bi bi-info-circle"></i> 基础信息</h5>
         </div>
         <div class="card-body">
             <div class="row">
-                <div class="col-md-4 mb-3">
+                <div class="col-md-3 mb-3">
                     <label class="form-label">工件编号 <span class="text-danger">*</span></label>
-                    <input type="text" class="form-control" name="workpiece_code" value="{{ workpiece.workpiece_code if workpiece else '' }}">
+                    <input type="text" class="form-control" name="workpiece_code" value="{{ workpiece.workpiece_code if workpiece else '' }}" required>
                 </div>
-                <div class="col-md-4 mb-3">
+                <div class="col-md-3 mb-3">
                     <label class="form-label">工件名称 <span class="text-danger">*</span></label>
-                    <input type="text" class="form-control" name="workpiece_name" value="{{ workpiece.workpiece_name if workpiece else '' }}">
+                    <input type="text" class="form-control" name="workpiece_name" value="{{ workpiece.workpiece_name if workpiece else '' }}" required>
                 </div>
-                <div class="col-md-4 mb-3">
+                <div class="col-md-3 mb-3">
+                    <label class="form-label">工件类型 <span class="text-danger">*</span></label>
+                    <select class="form-select" name="workpiece_type" id="workpieceTypeSelect" required>
+                        {% for type_code, type_label in workpiece_types.items() %}
+                        <option value="{{ type_code }}" {% if selected_type == type_code %}selected{% endif %}>{{ type_label }}</option>
+                        {% endfor %}
+                    </select>
+                    <div class="help-copy mt-1">选择后，下方资料卡片会自动切换。</div>
+                </div>
+                <div class="col-md-3 mb-3">
                     <label class="form-label">创建人</label>
-                    <input type="text" class="form-control" value="{{ workpiece.creator.real_name or workpiece.creator.username if workpiece else (current_user.real_name or current_user.username) }}" readonly>
+                    <input type="text" class="form-control" value="{{ creator_name }}" readonly>
+                </div>
+            </div>
+            {% if workpiece %}
+            <div class="row">
+                <div class="col-md-3 mb-3">
+                    <label class="form-label">库存数量</label>
+                    <input type="text" class="form-control" value="{{ '{:g}'.format(workpiece.stock_quantity or 0) }}" readonly>
+                    <div class="help-copy mt-1">库存由最终验收入库自动增加。</div>
+                </div>
+                <div class="col-md-3 mb-3">
+                    <label class="form-label">最后更新</label>
+                    <input type="text" class="form-control" value="{{ workpiece.updated_at.strftime('%Y-%m-%d %H:%M') }}" readonly>
+                </div>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="row g-4">
+        <div class="col-12" id="drawingSection">
+            <div class="attachment-card h-100">
+                <div class="card-header bg-info text-white rounded-top-4">
+                    <div class="attachment-toolbar">
+                        <h5 class="mb-0"><i class="bi bi-image"></i> 图纸 <span class="text-danger">*</span></h5>
+                        <button type="button" class="btn btn-light btn-sm" onclick="addDrawing()">
+                            <i class="bi bi-plus-circle"></i> 增加图纸
+                        </button>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <div id="drawingContainer">
+                        {% if drawing_attachments %}
+                            {% for drawing in drawing_attachments %}
+                            <div class="attachment-item drawing-item" data-index="{{ loop.index0 }}">
+                                <div class="attachment-toolbar mb-3">
+                                    <h6 class="fw-bold mb-0">图纸 {{ loop.index }}</h6>
+                                    <button type="button" class="btn btn-outline-danger btn-sm" onclick="removeDrawing(this)">
+                                        <i class="bi bi-trash"></i> 删除
+                                    </button>
+                                </div>
+                                <div class="row">
+                                    <div class="col-md-6 mb-3">
+                                        <label class="form-label">图纸名称</label>
+                                        <input type="text" class="form-control" name="drawing_title_{{ loop.index0 }}" value="{{ drawing.title or drawing.display_title }}" placeholder="例如：总装图、尺寸图">
+                                    </div>
+                                    <div class="col-md-6 mb-3">
+                                        <label class="form-label">文件{% if not drawing.file_path %} <span class="text-danger">*</span>{% endif %}</label>
+                                        <input type="file" class="form-control" name="drawing_file_{{ loop.index0 }}" accept="image/*,application/pdf">
+                                    </div>
+                                </div>
+                                <div class="mb-3">
+                                    <label class="form-label">说明</label>
+                                    <textarea class="form-control" name="drawing_content_{{ loop.index0 }}" rows="2" placeholder="可填写图纸版本、注意事项等">{{ drawing.content or '' }}</textarea>
+                                </div>
+                                {% if drawing.file_path %}
+                                <a href="{{ drawing.file_url }}" target="_blank" class="btn btn-outline-primary btn-sm text-truncate current-file">
+                                    <i class="bi bi-file-earmark-arrow-down"></i> {{ drawing.file_path.split('/')[-1] }}
+                                </a>
+                                {% endif %}
+                            </div>
+                            {% endfor %}
+                        {% else %}
+                        <div class="attachment-item drawing-item" data-index="0">
+                            <div class="attachment-toolbar mb-3">
+                                <h6 class="fw-bold mb-0">图纸 1</h6>
+                                <button type="button" class="btn btn-outline-danger btn-sm" onclick="removeDrawing(this)">
+                                    <i class="bi bi-trash"></i> 删除
+                                </button>
+                            </div>
+                            <div class="row">
+                                <div class="col-md-6 mb-3">
+                                    <label class="form-label">图纸名称</label>
+                                    <input type="text" class="form-control" name="drawing_title_0" value="图纸1" placeholder="例如：总装图、尺寸图">
+                                </div>
+                                <div class="col-md-6 mb-3">
+                                    <label class="form-label">文件 <span class="text-danger">*</span></label>
+                                    <input type="file" class="form-control" name="drawing_file_0" accept="image/*,application/pdf">
+                                </div>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">说明</label>
+                                <textarea class="form-control" name="drawing_content_0" rows="2" placeholder="可填写图纸版本、注意事项等"></textarea>
+                            </div>
+                        </div>
+                        {% endif %}
+                    </div>
+                    <div class="help-copy mt-3">自产工件使用图纸作为主资料，可按图纸版本或类别分项上传。</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-12" id="materialSection">
+            <div class="attachment-card h-100">
+                <div class="card-header bg-info text-white rounded-top-4">
+                    <div class="attachment-toolbar">
+                        <h5 class="mb-0"><i class="bi bi-folder-check"></i> 质检材料 <span class="text-danger">*</span></h5>
+                        <button type="button" class="btn btn-light btn-sm" onclick="addMaterial()">
+                            <i class="bi bi-plus-circle"></i> 增加质检材料
+                        </button>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <div id="materialContainer">
+                        {% if material_attachments %}
+                            {% for material in material_attachments %}
+                            <div class="attachment-item material-item" data-index="{{ loop.index0 }}">
+                                <div class="attachment-toolbar mb-3">
+                                    <h6 class="fw-bold mb-0">质检材料 {{ loop.index }}</h6>
+                                    <button type="button" class="btn btn-outline-danger btn-sm" onclick="removeMaterial(this)">
+                                        <i class="bi bi-trash"></i> 删除
+                                    </button>
+                                </div>
+                                <div class="row">
+                                    <div class="col-md-6 mb-3">
+                                        <label class="form-label">材料名称</label>
+                                        <input type="text" class="form-control" name="material_title_{{ loop.index0 }}" value="{{ material.title or material.display_title }}" placeholder="例如：供应商质检报告">
+                                    </div>
+                                    <div class="col-md-6 mb-3">
+                                        <label class="form-label">文件{% if not material.file_path %} <span class="text-danger">*</span>{% endif %}</label>
+                                        <input type="file" class="form-control" name="material_file_{{ loop.index0 }}" accept="image/*,application/pdf">
+                                    </div>
+                                </div>
+                                <div class="mb-3">
+                                    <label class="form-label">说明</label>
+                                    <textarea class="form-control" name="material_content_{{ loop.index0 }}" rows="2" placeholder="可填写检验标准、供应商批次等">{{ material.content or '' }}</textarea>
+                                </div>
+                                {% if material.file_path %}
+                                <a href="{{ material.file_url }}" target="_blank" class="btn btn-outline-primary btn-sm text-truncate current-file">
+                                    <i class="bi bi-file-earmark-arrow-down"></i> {{ material.file_path.split('/')[-1] }}
+                                </a>
+                                {% endif %}
+                            </div>
+                            {% endfor %}
+                        {% else %}
+                        <div class="attachment-item material-item" data-index="0">
+                            <div class="attachment-toolbar mb-3">
+                                <h6 class="fw-bold mb-0">质检材料 1</h6>
+                                <button type="button" class="btn btn-outline-danger btn-sm" onclick="removeMaterial(this)">
+                                    <i class="bi bi-trash"></i> 删除
+                                </button>
+                            </div>
+                            <div class="row">
+                                <div class="col-md-6 mb-3">
+                                    <label class="form-label">材料名称</label>
+                                    <input type="text" class="form-control" name="material_title_0" value="质检材料1" placeholder="例如：供应商质检报告">
+                                </div>
+                                <div class="col-md-6 mb-3">
+                                    <label class="form-label">文件 <span class="text-danger">*</span></label>
+                                    <input type="file" class="form-control" name="material_file_0" accept="image/*,application/pdf">
+                                </div>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">说明</label>
+                                <textarea class="form-control" name="material_content_0" rows="2" placeholder="可填写检验标准、供应商批次等"></textarea>
+                            </div>
+                        </div>
+                        {% endif %}
+                    </div>
+                    <div class="help-copy mt-3">外采工件不再使用“图纸”作为主资料，质检材料可按供应商报告、检验照片、批次文件等分项上传。</div>
                 </div>
             </div>
         </div>
     </div>
 
-    <div class="card mb-4">
-        <div class="card-header bg-info text-white">
-            <h5 class="mb-0"><i class="bi bi-image"></i> 图纸 <span class="text-danger">*</span></h5>
+    <div class="card mt-4 mb-4">
+        <div class="card-header bg-warning text-dark">
+            <div class="attachment-toolbar">
+                <h5 class="mb-0"><i class="bi bi-list-check"></i> 作业指导书 <span class="text-danger">*</span></h5>
+                <button type="button" class="btn btn-light btn-sm" onclick="addGuide()">
+                    <i class="bi bi-plus-circle"></i> 增加作业指导书
+                </button>
+            </div>
         </div>
         <div class="card-body">
-            {% if workpiece and workpiece.drawing_attachment %}
-            <div class="mb-3">
-                <p class="text-muted small mb-2">当前文件：{{ workpiece.drawing_attachment.file_path.split('/')[-1] }}</p>
-                {% if workpiece.drawing_attachment.is_image %}
-                <img src="{{ workpiece.drawing_attachment.file_url }}" class="img-thumbnail" style="max-height: 220px;">
+            <div id="guideContainer">
+                {% if guide_attachments %}
+                    {% for guide in guide_attachments %}
+                    <div class="attachment-item guide-item" data-index="{{ loop.index0 }}">
+                        <div class="attachment-toolbar mb-3">
+                            <h6 class="fw-bold mb-0">作业指导书 {{ loop.index }}</h6>
+                            <button type="button" class="btn btn-outline-danger btn-sm" onclick="removeGuide(this)">
+                                <i class="bi bi-trash"></i> 删除
+                            </button>
+                        </div>
+                        <div class="row">
+                            <div class="col-md-4 mb-3">
+                                <label class="form-label">标题</label>
+                                <input type="text" class="form-control" name="guide_title_{{ loop.index0 }}" value="{{ guide.display_title }}">
+                            </div>
+                            <div class="col-md-4 mb-3">
+                                <label class="form-label">内容</label>
+                                <input type="text" class="form-control" name="guide_content_{{ loop.index0 }}" value="{{ guide.content or '' }}">
+                            </div>
+                            <div class="col-md-4 mb-3">
+                                <label class="form-label">文件{% if not guide.file_path %} <span class="text-danger">*</span>{% endif %}</label>
+                                <input type="file" class="form-control" name="guide_file_{{ loop.index0 }}" accept="image/*,application/pdf">
+                            </div>
+                        </div>
+                        {% if guide.file_path %}
+                        <a href="{{ guide.file_url }}" target="_blank" class="btn btn-outline-primary btn-sm text-truncate current-file">
+                            <i class="bi bi-file-earmark-arrow-down"></i> {{ guide.file_path.split('/')[-1] }}
+                        </a>
+                        {% endif %}
+                    </div>
+                    {% endfor %}
+                {% else %}
+                <div class="attachment-item guide-item" data-index="0">
+                    <div class="attachment-toolbar mb-3">
+                        <h6 class="fw-bold mb-0">作业指导书 1</h6>
+                        <button type="button" class="btn btn-outline-danger btn-sm" onclick="removeGuide(this)">
+                            <i class="bi bi-trash"></i> 删除
+                        </button>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-4 mb-3">
+                            <label class="form-label">标题</label>
+                            <input type="text" class="form-control" name="guide_title_0" value="作业指导书1">
+                        </div>
+                        <div class="col-md-4 mb-3">
+                            <label class="form-label">内容</label>
+                            <input type="text" class="form-control" name="guide_content_0">
+                        </div>
+                        <div class="col-md-4 mb-3">
+                            <label class="form-label">文件 <span class="text-danger">*</span></label>
+                            <input type="file" class="form-control" name="guide_file_0" accept="image/*,application/pdf">
+                        </div>
+                    </div>
+                </div>
                 {% endif %}
             </div>
-            {% endif %}
-            <input type="file" class="form-control" name="drawing" accept="image/*,application/pdf">
-            <small class="text-muted">支持图片或 PDF 文件。</small>
         </div>
     </div>
 
     <div class="card mb-4">
-        <div class="card-header bg-warning text-dark d-flex justify-content-between align-items-center">
-            <h5 class="mb-0"><i class="bi bi-list-check"></i> 作业指导书 <span class="text-danger">*</span></h5>
-            <button type="button" class="btn btn-sm btn-light" onclick="addGuide()">
-                <i class="bi bi-plus"></i> 新增作业指导书
-            </button>
-        </div>
-        <div class="card-body" id="guides-container">
-            {% if workpiece and workpiece.guide_attachments %}
-                {% for attachment in workpiece.guide_attachments %}
-                <div class="guide-item border rounded p-3 mb-3" data-index="{{ loop.index0 }}">
-                    <div class="d-flex justify-content-between align-items-center mb-2">
-                        <span class="badge bg-secondary guide-number">作业指导书{{ loop.index }}</span>
-                        <button type="button" class="btn btn-sm btn-outline-danger" onclick="removeGuide(this)">
-                            <i class="bi bi-trash"></i> 删除
-                        </button>
-                    </div>
-                    <div class="mb-2">
-                        <label class="form-label">标题 <span class="text-danger">*</span></label>
-                        <input type="text" class="form-control" name="guide_title_{{ loop.index0 }}" value="{{ attachment.display_title }}">
-                    </div>
-                    <div class="mb-2">
-                        <label class="form-label">说明</label>
-                        <textarea class="form-control" name="guide_content_{{ loop.index0 }}" rows="2">{{ attachment.content or '' }}</textarea>
-                    </div>
-                    <div class="mb-2">
-                        <label class="form-label">文件 <span class="text-danger">*</span></label>
-                        <p class="text-muted small mb-2">{{ attachment.file_path.split('/')[-1] if attachment.file_path else '未上传' }}</p>
-                        <input type="file" class="form-control" name="guide_file_{{ loop.index0 }}" accept="image/*,application/pdf">
-                    </div>
-                </div>
-                {% endfor %}
-            {% else %}
-            <div class="guide-item border rounded p-3 mb-3" data-index="0">
-                <div class="d-flex justify-content-between align-items-center mb-2">
-                    <span class="badge bg-secondary guide-number">作业指导书1</span>
-                    <button type="button" class="btn btn-sm btn-outline-danger" onclick="removeGuide(this)">
-                        <i class="bi bi-trash"></i> 删除
-                    </button>
-                </div>
-                <div class="mb-2">
-                    <label class="form-label">标题 <span class="text-danger">*</span></label>
-                    <input type="text" class="form-control" name="guide_title_0" value="作业指导书1">
-                </div>
-                <div class="mb-2">
-                    <label class="form-label">说明</label>
-                    <textarea class="form-control" name="guide_content_0" rows="2"></textarea>
-                </div>
-                <div class="mb-2">
-                    <label class="form-label">文件 <span class="text-danger">*</span></label>
-                    <input type="file" class="form-control" name="guide_file_0" accept="image/*,application/pdf">
-                </div>
+        <div class="card-header bg-secondary text-white">
+            <div class="attachment-toolbar">
+                <h5 class="mb-0"><i class="bi bi-sticky"></i> 备注</h5>
+                <button type="button" class="btn btn-light btn-sm" onclick="addRemark()">
+                    <i class="bi bi-plus-circle"></i> 增加备注
+                </button>
             </div>
-            {% endif %}
         </div>
-    </div>
-
-    <div class="card mb-4">
-        <div class="card-header bg-secondary text-white d-flex justify-content-between align-items-center">
-            <h5 class="mb-0"><i class="bi bi-sticky"></i> 备注</h5>
-            <button type="button" class="btn btn-sm btn-light" onclick="addRemark()">
-                <i class="bi bi-plus"></i> 新增备注
-            </button>
-        </div>
-        <div class="card-body" id="remarks-container">
-            {% if workpiece and workpiece.remark_attachments %}
-                {% for attachment in workpiece.remark_attachments %}
-                <div class="remark-item border rounded p-3 mb-3" data-index="{{ loop.index0 }}">
-                    <div class="d-flex justify-content-between align-items-center mb-2">
-                        <span class="badge bg-secondary">备注{{ loop.index }}</span>
-                        <button type="button" class="btn btn-sm btn-outline-danger" onclick="removeRemark(this)">
+        <div class="card-body">
+            <div id="remarkContainer">
+                {% for remark in remark_attachments %}
+                <div class="attachment-item remark-item" data-index="{{ loop.index0 }}">
+                    <div class="attachment-toolbar mb-3">
+                        <h6 class="fw-bold mb-0">备注 {{ loop.index }}</h6>
+                        <button type="button" class="btn btn-outline-danger btn-sm" onclick="removeRemark(this)">
                             <i class="bi bi-trash"></i> 删除
                         </button>
                     </div>
-                    <div class="mb-2">
-                        <label class="form-label">备注内容</label>
-                        <textarea class="form-control" name="remark_content_{{ loop.index0 }}" rows="2">{{ attachment.content or '' }}</textarea>
+                    <div class="row">
+                        <div class="col-md-5 mb-3">
+                            <label class="form-label">备注内容</label>
+                            <input type="text" class="form-control" name="remark_content_{{ loop.index0 }}" value="{{ remark.content or '' }}">
+                        </div>
+                        <div class="col-md-3 mb-3">
+                            <label class="form-label">是否必填</label>
+                            <select class="form-select" name="remark_required_{{ loop.index0 }}">
+                                <option value="1" {% if remark.is_required %}selected{% endif %}>必填</option>
+                                <option value="0" {% if not remark.is_required %}selected{% endif %}>选填</option>
+                            </select>
+                        </div>
+                        <div class="col-md-4 mb-3">
+                            <label class="form-label">附件</label>
+                            <input type="file" class="form-control" name="remark_file_{{ loop.index0 }}" accept="image/*,application/pdf">
+                        </div>
                     </div>
-                    <div class="mb-2">
-                        <label class="form-label">文件</label>
-                        <p class="text-muted small mb-2">{{ attachment.file_path.split('/')[-1] if attachment.file_path else '未上传' }}</p>
-                        <input type="file" class="form-control" name="remark_file_{{ loop.index0 }}" accept="image/*,application/pdf">
-                    </div>
-                    <div class="form-check">
-                        <input class="form-check-input" type="checkbox" name="remark_required_{{ loop.index0 }}" value="1" {% if attachment.is_required %}checked{% endif %}>
-                        <label class="form-check-label">必填</label>
-                    </div>
+                    {% if remark.file_path %}
+                    <a href="{{ remark.file_url }}" target="_blank" class="btn btn-outline-primary btn-sm text-truncate current-file">
+                        <i class="bi bi-file-earmark-arrow-down"></i> {{ remark.file_path.split('/')[-1] }}
+                    </a>
+                    {% endif %}
                 </div>
                 {% endfor %}
+            </div>
+            {% if not remark_attachments %}
+            <p class="text-muted mb-0" id="remarkEmptyText">暂无备注，可按需添加。</p>
             {% endif %}
         </div>
     </div>
 
     <div class="d-flex gap-3 flex-wrap">
         <button type="submit" class="btn btn-primary btn-lg">
-            <i class="bi bi-check-circle"></i> {% if is_edit %}保存更新{% else %}保存工件{% endif %}
+            <i class="bi bi-check-circle"></i> 保存工件
         </button>
         <a href="{{ url_for('qc.workpiece_list') }}" class="btn btn-outline-secondary btn-lg">
             <i class="bi bi-arrow-left"></i> 返回列表
@@ -161,88 +379,207 @@
 
 {% block extra_js %}
 <script>
-let guideIndex = {{ workpiece.guide_attachments | length if workpiece else 1 }};
-let remarkIndex = {{ workpiece.remark_attachments | length if workpiece else 0 }};
+const workpieceTypeSelect = document.getElementById('workpieceTypeSelect');
+let drawingIndex = {{ drawing_attachments|length if drawing_attachments else 1 }};
+let materialIndex = {{ material_attachments|length if material_attachments else 1 }};
+let guideIndex = {{ guide_attachments|length if guide_attachments else 1 }};
+let remarkIndex = {{ remark_attachments|length if remark_attachments else 0 }};
 
-function updateGuideNumbers() {
-    document.querySelectorAll('.guide-item').forEach((item, index) => {
-        const badge = item.querySelector('.guide-number');
-        if (badge) {
-            badge.textContent = '作业指导书' + (index + 1);
+function setSectionEnabled(section, enabled) {
+    section.querySelectorAll('input, textarea, select, button').forEach((element) => {
+        element.disabled = !enabled;
+    });
+}
+
+function renumberItems(selector, labelPrefix) {
+    document.querySelectorAll(selector).forEach((item, index) => {
+        const title = item.querySelector('h6');
+        if (title) {
+            title.textContent = `${labelPrefix} ${index + 1}`;
         }
     });
 }
 
-function addGuide() {
-    const container = document.getElementById('guides-container');
-    const idx = guideIndex;
+function syncWorkpieceType() {
+    const isOutsourced = workpieceTypeSelect.value === 'outsourced';
+    const drawingSection = document.getElementById('drawingSection');
+    const materialSection = document.getElementById('materialSection');
+
+    drawingSection.classList.toggle('d-none', isOutsourced);
+    materialSection.classList.toggle('d-none', !isOutsourced);
+    setSectionEnabled(drawingSection, !isOutsourced);
+    setSectionEnabled(materialSection, isOutsourced);
+
+    if (isOutsourced && document.querySelectorAll('.material-item').length === 0) {
+        addMaterial();
+    }
+}
+
+function addDrawing() {
+    const container = document.getElementById('drawingContainer');
+    const index = drawingIndex++;
     container.insertAdjacentHTML('beforeend', `
-        <div class="guide-item border rounded p-3 mb-3" data-index="${idx}">
-            <div class="d-flex justify-content-between align-items-center mb-2">
-                <span class="badge bg-secondary guide-number">作业指导书${idx + 1}</span>
-                <button type="button" class="btn btn-sm btn-outline-danger" onclick="removeGuide(this)">
+        <div class="attachment-item drawing-item" data-index="${index}">
+            <div class="attachment-toolbar mb-3">
+                <h6 class="fw-bold mb-0">图纸</h6>
+                <button type="button" class="btn btn-outline-danger btn-sm" onclick="removeDrawing(this)">
                     <i class="bi bi-trash"></i> 删除
                 </button>
             </div>
-            <div class="mb-2">
-                <label class="form-label">标题 <span class="text-danger">*</span></label>
-                <input type="text" class="form-control" name="guide_title_${idx}" value="作业指导书${idx + 1}">
+            <div class="row">
+                <div class="col-md-6 mb-3">
+                    <label class="form-label">图纸名称</label>
+                    <input type="text" class="form-control" name="drawing_title_${index}" value="图纸${container.querySelectorAll('.drawing-item').length + 1}" placeholder="例如：总装图、尺寸图">
+                </div>
+                <div class="col-md-6 mb-3">
+                    <label class="form-label">文件 <span class="text-danger">*</span></label>
+                    <input type="file" class="form-control" name="drawing_file_${index}" accept="image/*,application/pdf">
+                </div>
             </div>
-            <div class="mb-2">
+            <div class="mb-3">
                 <label class="form-label">说明</label>
-                <textarea class="form-control" name="guide_content_${idx}" rows="2"></textarea>
-            </div>
-            <div class="mb-2">
-                <label class="form-label">文件 <span class="text-danger">*</span></label>
-                <input type="file" class="form-control" name="guide_file_${idx}" accept="image/*,application/pdf">
+                <textarea class="form-control" name="drawing_content_${index}" rows="2" placeholder="可填写图纸版本、注意事项等"></textarea>
             </div>
         </div>
     `);
-    guideIndex += 1;
-    updateGuideNumbers();
+    renumberItems('.drawing-item', '图纸');
 }
 
-function removeGuide(btn) {
-    const items = document.querySelectorAll('.guide-item');
+function removeDrawing(button) {
+    const items = document.querySelectorAll('.drawing-item');
     if (items.length <= 1) {
-        alert('至少需要保留一项作业指导书');
+        alert('自产工件至少保留一项图纸。');
         return;
     }
-    btn.closest('.guide-item').remove();
-    updateGuideNumbers();
+    button.closest('.drawing-item').remove();
+    renumberItems('.drawing-item', '图纸');
+}
+
+function addMaterial() {
+    const container = document.getElementById('materialContainer');
+    const index = materialIndex++;
+    container.insertAdjacentHTML('beforeend', `
+        <div class="attachment-item material-item" data-index="${index}">
+            <div class="attachment-toolbar mb-3">
+                <h6 class="fw-bold mb-0">质检材料</h6>
+                <button type="button" class="btn btn-outline-danger btn-sm" onclick="removeMaterial(this)">
+                    <i class="bi bi-trash"></i> 删除
+                </button>
+            </div>
+            <div class="row">
+                <div class="col-md-6 mb-3">
+                    <label class="form-label">材料名称</label>
+                    <input type="text" class="form-control" name="material_title_${index}" value="质检材料${container.querySelectorAll('.material-item').length + 1}" placeholder="例如：供应商质检报告">
+                </div>
+                <div class="col-md-6 mb-3">
+                    <label class="form-label">文件 <span class="text-danger">*</span></label>
+                    <input type="file" class="form-control" name="material_file_${index}" accept="image/*,application/pdf">
+                </div>
+            </div>
+            <div class="mb-3">
+                <label class="form-label">说明</label>
+                <textarea class="form-control" name="material_content_${index}" rows="2" placeholder="可填写检验标准、供应商批次等"></textarea>
+            </div>
+        </div>
+    `);
+    renumberItems('.material-item', '质检材料');
+}
+
+function removeMaterial(button) {
+    const items = document.querySelectorAll('.material-item');
+    if (items.length <= 1) {
+        alert('外采工件至少保留一项质检材料。');
+        return;
+    }
+    button.closest('.material-item').remove();
+    renumberItems('.material-item', '质检材料');
+}
+
+function addGuide() {
+    const container = document.getElementById('guideContainer');
+    const index = guideIndex++;
+    container.insertAdjacentHTML('beforeend', `
+        <div class="attachment-item guide-item" data-index="${index}">
+            <div class="attachment-toolbar mb-3">
+                <h6 class="fw-bold mb-0">作业指导书</h6>
+                <button type="button" class="btn btn-outline-danger btn-sm" onclick="removeGuide(this)">
+                    <i class="bi bi-trash"></i> 删除
+                </button>
+            </div>
+            <div class="row">
+                <div class="col-md-4 mb-3">
+                    <label class="form-label">标题</label>
+                    <input type="text" class="form-control" name="guide_title_${index}" value="作业指导书${container.querySelectorAll('.guide-item').length + 1}">
+                </div>
+                <div class="col-md-4 mb-3">
+                    <label class="form-label">内容</label>
+                    <input type="text" class="form-control" name="guide_content_${index}">
+                </div>
+                <div class="col-md-4 mb-3">
+                    <label class="form-label">文件 <span class="text-danger">*</span></label>
+                    <input type="file" class="form-control" name="guide_file_${index}" accept="image/*,application/pdf">
+                </div>
+            </div>
+        </div>
+    `);
+    renumberItems('.guide-item', '作业指导书');
+}
+
+function removeGuide(button) {
+    const items = document.querySelectorAll('.guide-item');
+    if (items.length <= 1) {
+        alert('至少保留一项作业指导书。');
+        return;
+    }
+    button.closest('.guide-item').remove();
+    renumberItems('.guide-item', '作业指导书');
 }
 
 function addRemark() {
-    const container = document.getElementById('remarks-container');
-    const idx = remarkIndex;
+    const empty = document.getElementById('remarkEmptyText');
+    if (empty) {
+        empty.remove();
+    }
+    const container = document.getElementById('remarkContainer');
+    const index = remarkIndex++;
     container.insertAdjacentHTML('beforeend', `
-        <div class="remark-item border rounded p-3 mb-3" data-index="${idx}">
-            <div class="d-flex justify-content-between align-items-center mb-2">
-                <span class="badge bg-secondary">备注${idx + 1}</span>
-                <button type="button" class="btn btn-sm btn-outline-danger" onclick="removeRemark(this)">
+        <div class="attachment-item remark-item" data-index="${index}">
+            <div class="attachment-toolbar mb-3">
+                <h6 class="fw-bold mb-0">备注</h6>
+                <button type="button" class="btn btn-outline-danger btn-sm" onclick="removeRemark(this)">
                     <i class="bi bi-trash"></i> 删除
                 </button>
             </div>
-            <div class="mb-2">
-                <label class="form-label">备注内容</label>
-                <textarea class="form-control" name="remark_content_${idx}" rows="2"></textarea>
-            </div>
-            <div class="mb-2">
-                <label class="form-label">文件</label>
-                <input type="file" class="form-control" name="remark_file_${idx}" accept="image/*,application/pdf">
-            </div>
-            <div class="form-check">
-                <input class="form-check-input" type="checkbox" name="remark_required_${idx}" value="1">
-                <label class="form-check-label">必填</label>
+            <div class="row">
+                <div class="col-md-5 mb-3">
+                    <label class="form-label">备注内容</label>
+                    <input type="text" class="form-control" name="remark_content_${index}">
+                </div>
+                <div class="col-md-3 mb-3">
+                    <label class="form-label">是否必填</label>
+                    <select class="form-select" name="remark_required_${index}">
+                        <option value="1">必填</option>
+                        <option value="0" selected>选填</option>
+                    </select>
+                </div>
+                <div class="col-md-4 mb-3">
+                    <label class="form-label">附件</label>
+                    <input type="file" class="form-control" name="remark_file_${index}" accept="image/*,application/pdf">
+                </div>
             </div>
         </div>
     `);
-    remarkIndex += 1;
+    renumberItems('.remark-item', '备注');
 }
 
-function removeRemark(btn) {
-    btn.closest('.remark-item').remove();
+function removeRemark(button) {
+    button.closest('.remark-item').remove();
+    renumberItems('.remark-item', '备注');
+}
+
+if (workpieceTypeSelect) {
+    workpieceTypeSelect.addEventListener('change', syncWorkpieceType);
+    document.addEventListener('DOMContentLoaded', syncWorkpieceType);
 }
 </script>
 {% endblock %}
-

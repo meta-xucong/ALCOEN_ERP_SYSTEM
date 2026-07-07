@@ -1,0 +1,202 @@
+{% extends 'qc/base.html' %}
+
+{% block title %}研究/实验 - ALCOEN AI CATS{% endblock %}
+
+{% block extra_css %}
+<style>
+    .research-hero {
+        position: relative;
+        overflow: hidden;
+        border-radius: 28px;
+        padding: clamp(28px, 5vw, 44px);
+        background:
+            radial-gradient(circle at top right, rgba(245, 166, 35, 0.26), transparent 34%),
+            radial-gradient(circle at bottom left, rgba(25, 118, 210, 0.18), transparent 32%),
+            rgba(255, 255, 255, 0.82);
+        border: 1px solid rgba(255, 255, 255, 0.7);
+        box-shadow: 0 18px 42px rgba(31, 58, 95, 0.12);
+    }
+
+    .research-hero h1 {
+        font-size: clamp(2rem, 4vw, 3rem);
+        font-weight: 850;
+        color: var(--alco-primary);
+        letter-spacing: -0.04em;
+    }
+
+    .research-hero p {
+        max-width: 760px;
+        color: rgba(30, 58, 95, 0.72);
+        line-height: 1.8;
+        margin-bottom: 0;
+    }
+
+    .research-stat-card {
+        border: none;
+        border-radius: 22px;
+        background: rgba(255, 255, 255, 0.82);
+        box-shadow: 0 14px 30px rgba(31, 58, 95, 0.08);
+    }
+
+    .research-stat-value {
+        font-size: 2rem;
+        font-weight: 800;
+        color: var(--alco-primary);
+    }
+
+    .research-entry-card {
+        height: 100%;
+        border: none;
+        border-radius: 24px;
+        background: rgba(255, 255, 255, 0.84);
+        box-shadow: 0 14px 30px rgba(31, 58, 95, 0.08);
+    }
+
+    .research-entry-card .icon-shell {
+        width: 58px;
+        height: 58px;
+        border-radius: 18px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(245, 166, 35, 0.14);
+        color: #ca7d11;
+        font-size: 1.4rem;
+    }
+
+    .research-entry-card h5 {
+        font-weight: 800;
+        color: var(--alco-primary);
+    }
+
+    .research-entry-card p {
+        color: rgba(30, 58, 95, 0.66);
+        line-height: 1.7;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<section class="research-hero mb-4">
+    <div class="d-flex flex-column gap-3">
+        <span class="badge rounded-pill text-bg-warning align-self-start px-3 py-2">AI CATS Research & Experiment</span>
+        <h1 class="mb-0">研究/实验</h1>
+        <p>这里承接研究立项、实验资料沉淀、指导审批与共同验收。整体工作方式沿用 AI CATS 的成熟闭环节奏，但全部切换为研究场景语义，便于后续继续扩展数据分析与成果转化能力。</p>
+    </div>
+</section>
+
+<div class="row g-4 mb-4">
+    <div class="col-sm-6 col-xl-3">
+        <div class="card research-stat-card">
+            <div class="card-body">
+                <div class="text-muted small mb-2">研究准备中</div>
+                <div class="research-stat-value">{{ stats.research_pending }}</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-sm-6 col-xl-3">
+        <div class="card research-stat-card">
+            <div class="card-body">
+                <div class="text-muted small mb-2">待指导审批</div>
+                <div class="research-stat-value">{{ stats.review_pending }}</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-sm-6 col-xl-3">
+        <div class="card research-stat-card">
+            <div class="card-body">
+                <div class="text-muted small mb-2">待共同验收</div>
+                <div class="research-stat-value">{{ stats.acceptance_pending }}</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-sm-6 col-xl-3">
+        <div class="card research-stat-card">
+            <div class="card-body">
+                <div class="text-muted small mb-2">阶段研发完成</div>
+                <div class="research-stat-value">{{ stats.completed }}</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row g-4 mb-4">
+    <div class="col-md-6 col-xl-3">
+        <div class="card research-entry-card">
+            <div class="card-body d-flex flex-column">
+                <div class="icon-shell mb-3"><i class="bi bi-journal-text"></i></div>
+                <h5>研究项目库</h5>
+                <p class="mb-4">沉淀项目模板、立项资料、研究资料、实验方案和风险提示，作为后续研究批次的基础来源。</p>
+                <a href="{{ url_for('qc.research_project_list') }}" class="btn btn-outline-primary mt-auto">进入项目库</a>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-6 col-xl-3">
+        <div class="card research-entry-card">
+            <div class="card-body d-flex flex-column">
+                <div class="icon-shell mb-3"><i class="bi bi-flask"></i></div>
+                <h5>研究发起</h5>
+                <p class="mb-4">由研发人员发起研究批次、绑定指导/验收人员，并上传本批次新增的补充资料与阶段结果。</p>
+                <a href="{{ url_for('qc.research_batch_list') }}" class="btn btn-outline-primary mt-auto">进入研究发起</a>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-6 col-xl-3">
+        <div class="card research-entry-card">
+            <div class="card-body d-flex flex-column">
+                <div class="icon-shell mb-3"><i class="bi bi-chat-square-text"></i></div>
+                <h5>指导审批</h5>
+                <p class="mb-4">指导/验收人员逐项查看研究资料，给出通过、补充要求和指导建议，支持形成多轮迭代。</p>
+                <a href="{{ url_for('qc.research_review_list') }}" class="btn btn-outline-primary mt-auto">进入指导审批</a>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-6 col-xl-3">
+        <div class="card research-entry-card">
+            <div class="card-body d-flex flex-column">
+                <div class="icon-shell mb-3"><i class="bi bi-patch-check"></i></div>
+                <h5>共同验收</h5>
+                <p class="mb-4">研发人员与指导/验收人员分别确认阶段成果，双签后该阶段研发完成并进入归档状态。</p>
+                <a href="{{ url_for('qc.research_acceptance_list') }}" class="btn btn-outline-primary mt-auto">进入共同验收</a>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card research-entry-card">
+    <div class="card-header bg-transparent border-0 pt-4 px-4">
+        <h5 class="mb-0"><i class="bi bi-clock-history"></i> 最近研究批次</h5>
+    </div>
+    <div class="card-body px-4 pt-3 pb-4">
+        {% if recent_batches %}
+        <div class="table-responsive">
+            <table class="table align-middle mb-0">
+                <thead>
+                    <tr>
+                        <th>批次号</th>
+                        <th>项目名称</th>
+                        <th>研发人员</th>
+                        <th>指导/验收人员</th>
+                        <th>状态</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for batch in recent_batches %}
+                    {% set status_info = batch.get_status_display() %}
+                    <tr>
+                        <td class="fw-semibold">{{ batch.batch_no }}</td>
+                        <td>{{ batch.project_name_snapshot }}</td>
+                        <td>{{ batch.researcher.real_name or batch.researcher.username }}</td>
+                        <td>{{ batch.reviewer.real_name or batch.reviewer.username if batch.reviewer else '-' }}</td>
+                        <td><span class="badge {{ status_info.badge }}">{{ status_info.text }}</span></td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="text-muted">暂无研究批次记录。</div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

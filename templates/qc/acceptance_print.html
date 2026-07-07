@@ -85,6 +85,10 @@
             <div>{{ order.workpiece_name }}</div>
         </div>
         <div class="info-item">
+            <label>工件类型</label>
+            <div>{{ order.workpiece_type_display }}</div>
+        </div>
+        <div class="info-item">
             <label>生产数量</label>
             <div>{{ order.quantity }}</div>
         </div>
@@ -107,7 +111,7 @@
     <table class="table table-bordered mb-4">
         <thead class="table-light">
             <tr>
-                <th style="width: 33%;">图纸批注信息</th>
+                <th style="width: 33%;">{{ order.primary_material_label }}批注信息</th>
                 <th style="width: 34%;">作业指导书生产凭证</th>
                 <th style="width: 33%;">备注批注信息</th>
             </tr>
@@ -138,7 +142,7 @@
             {% set record = inspection_records_by_attachment.get(attachment.id) %}
             <tr>
                 <td>
-                    {% if attachment.attach_type == 'drawing' %}图纸
+                    {% if attachment.attach_type in ['drawing', 'qc_material'] %}{{ attachment.display_title }}
                     {% elif attachment.attach_type == 'remark' %}备注
                     {% else %}{{ attachment.display_title }}
                     {% endif %}

@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>出厂报告 - {{ order.batch_no }}</title>
+    <link href="{{ url_for('static', filename='vendor/bootstrap/css/bootstrap.min.css') }}" rel="stylesheet">
+    <link href="{{ url_for('static', filename='vendor/bootstrap-icons/font/bootstrap-icons.css') }}" rel="stylesheet">
+    <style>
+        body {
+            padding: 40px;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+        }
+        .print-header {
+            text-align: center;
+            margin-bottom: 30px;
+            border-bottom: 2px solid #1e3a5f;
+            padding-bottom: 20px;
+        }
+        .print-title {
+            font-size: 1.75rem;
+            font-weight: 700;
+            color: #1e3a5f;
+        }
+        .info-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px 40px;
+            margin-bottom: 20px;
+        }
+        .info-item label {
+            color: #666;
+            font-size: 0.875rem;
+        }
+        .info-item div {
+            font-weight: 500;
+        }
+        .section-title {
+            font-size: 1.1rem;
+            font-weight: 600;
+            color: #1e3a5f;
+            margin: 25px 0 15px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid #dee2e6;
+        }
+        .signature-area {
+            margin-top: 50px;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 40px;
+        }
+        .signature-box {
+            border-top: 1px solid #333;
+            padding-top: 10px;
+            min-height: 80px;
+        }
+        @media print {
+            body { padding: 20px; }
+            .no-print { display: none !important; }
+        }
+    </style>
+</head>
+<body>
+    <div class="text-end no-print mb-3">
+        <button class="btn btn-primary" onclick="window.print()">
+            <i class="bi bi-printer"></i> 打印
+        </button>
+        <button class="btn btn-secondary" onclick="window.close()">
+            <i class="bi bi-x-lg"></i> 关闭
+        </button>
+    </div>
+
+    <div class="print-header">
+        <div class="print-title">装配/出厂报告</div>
+        <div class="text-muted">ALCOEN AI CATS 生成</div>
+    </div>
+
+    <div class="info-grid">
+        <div class="info-item">
+            <label>批次编号</label>
+            <div>{{ order.batch_no }}</div>
+        </div>
+        <div class="info-item">
+            <label>产品名称</label>
+            <div>{{ order.product_name_snapshot }}</div>
+        </div>
+        <div class="info-item">
+            <label>装配数量</label>
+            <div>{{ '{:g}'.format(order.quantity or 0) }}</div>
+        </div>
+        <div class="info-item">
+            <label>出厂日期</label>
+            <div>{{ order.accepted_at.strftime('%Y年%m月%d日') if order.accepted_at else '-' }}</div>
+        </div>
+        <div class="info-item">
+            <label>装配负责人</label>
+            <div>{{ order.controller.real_name or order.controller.username }}</div>
+        </div>
+        <div class="info-item">
+            <label>指导 / 验收人员</label>
+            <div>{{ order.inspector.real_name or order.inspector.username if order.inspector else '-' }}</div>
+        </div>
+    </div>
+
+    <div class="section-title">装配结构</div>
+    <table class="table table-bordered">
+        <thead class="table-light">
+            <tr>
+                <th style="width: 24%;">工件编号</th>
+                <th style="width: 34%;">工件名称</th>
+                <th style="width: 18%;" class="text-center">单件用量</th>
+                <th style="width: 24%;" class="text-center">本批消耗数量</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for component in order.components %}
+            <tr>
+                <td>{{ component.workpiece_code_snapshot }}</td>
+                <td>{{ component.workpiece_name_snapshot }}</td>
+                <td class="text-center">{{ '{:g}'.format(component.quantity_per_unit or 0) }}</td>
+                <td class="text-center">{{ '{:g}'.format(component.total_required_quantity or 0) }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <div class="section-title">质检记录明细</div>
+    <table class="table table-bordered">
+        <thead class="table-light">
+            <tr>
+                <th style="width: 18%;">栏目</th>
+                <th style="width: 24%;">内容</th>
+                <th style="width: 24%;">合格报告</th>
+                <th style="width: 12%;" class="text-center">结果</th>
+                <th style="width: 22%;">备注</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for attachment in order.ordered_attachments %}
+            {% set record = inspection_records_by_attachment.get(attachment.id) %}
+            <tr>
+                <td>{{ attachment.display_title }}</td>
+                <td>{{ attachment.content or attachment.file_path.split('/')[-1] }}</td>
+                <td>{{ record.report_filename if record and record.report_file_path else '-' }}</td>
+                <td class="text-center">
+                    {% if record %}
+                        {% if record.result == 'pass' %}<span class="text-success">通过</span>
+                        {% elif record.result == 'fail' %}<span class="text-danger">不通过</span>
+                        {% else %}<span class="text-muted">草稿</span>
+                        {% endif %}
+                    {% else %}-{% endif %}
+                </td>
+                <td>{{ record.remark or '' if record else '' }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <div class="section-title">签字确认区</div>
+    <div class="signature-area">
+        <div>
+            <p><strong>装配负责人签字：</strong></p>
+            <div class="signature-box"></div>
+            <p class="text-muted small">日期：_________</p>
+        </div>
+        <div>
+            <p><strong>指导 / 验收人员签字：</strong></p>
+            <div class="signature-box"></div>
+            <p class="text-muted small">日期：_________</p>
+        </div>
+    </div>
+
+    <div class="text-center text-muted mt-5 small">
+        <p>本出厂报告由 ALCOEN AI CATS 自动生成</p>
+        <p>打印时间：{{ current_time }}</p>
+    </div>
+</body>
+</html>

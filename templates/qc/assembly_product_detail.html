@@ -1,0 +1,134 @@
+{% extends 'qc/base.html' %}
+
+{% block title %}产品详情 - ALCOEN AI CATS{% endblock %}
+
+{% block content %}
+{% macro render_attachment_file(attachment, image_alt='附件') %}
+    {% if attachment.file_path %}
+    <a href="{{ attachment.file_url }}" target="_blank" class="btn btn-outline-primary btn-sm text-truncate mb-2" title="{{ attachment.file_path.split('/')[-1] }}">
+        <i class="bi bi-file-earmark-arrow-down"></i> {{ attachment.file_path.split('/')[-1] }}
+    </a>
+    {% if attachment.is_image %}
+    <div>
+        <img src="{{ attachment.file_url }}" class="img-thumbnail" style="max-height: 260px;" alt="{{ image_alt }}">
+    </div>
+    {% endif %}
+    {% endif %}
+{% endmacro %}
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h1 class="d-flex align-items-center gap-3 mb-0">
+        <i class="bi bi-boxes text-gradient" style="font-size: 2rem; color: #198754;"></i>
+        <span class="text-gradient" style="font-weight: 700; font-size: 2rem;">产品详情</span>
+    </h1>
+    <div class="d-flex gap-2">
+        {% if can_edit_product %}
+        <a href="{{ url_for('qc.assembly_product_edit', product_id=product.id) }}" class="btn btn-info">
+            <i class="bi bi-pencil"></i> 编辑
+        </a>
+        {% endif %}
+        {% if can_delete_product %}
+        <form method="POST" action="{{ url_for('qc.assembly_product_delete', product_id=product.id) }}" onsubmit="return confirm('确定要删除这个产品吗？');">
+            <button type="submit" class="btn btn-outline-danger">
+                <i class="bi bi-trash"></i> 删除
+            </button>
+        </form>
+        {% endif %}
+        <a href="{{ url_for('qc.assembly_product_list') }}" class="btn btn-outline-secondary">
+            <i class="bi bi-arrow-left"></i> 返回列表
+        </a>
+    </div>
+</div>
+
+<div class="card mb-4">
+    <div class="card-header bg-primary text-white">
+        <h5 class="mb-0"><i class="bi bi-info-circle"></i> 基础信息</h5>
+    </div>
+    <div class="card-body">
+        <div class="row">
+            <div class="col-md-4 mb-3">
+                <label class="text-muted small">产品编号</label>
+                <div class="fw-medium fs-5">{{ product.product_code }}</div>
+            </div>
+            <div class="col-md-4 mb-3">
+                <label class="text-muted small">产品名称</label>
+                <div class="fw-medium fs-5">{{ product.product_name }}</div>
+            </div>
+            <div class="col-md-4 mb-3">
+                <label class="text-muted small">创建人</label>
+                <div class="fw-medium fs-5">{{ product.creator.real_name or product.creator.username }}</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card mb-4">
+    <div class="card-header bg-info text-white">
+        <h5 class="mb-0"><i class="bi bi-diagram-3"></i> 装配结构</h5>
+    </div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-hover mb-0 align-middle">
+                <thead class="table-light">
+                    <tr>
+                        <th>工件编号</th>
+                        <th>工件名称</th>
+                        <th class="text-center">单件用量</th>
+                        <th class="text-center">当前库存</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for component in product.components %}
+                    <tr>
+                        <td><strong>{{ component.workpiece_code_snapshot }}</strong></td>
+                        <td>{{ component.workpiece_name_snapshot }}</td>
+                        <td class="text-center">{{ '{:g}'.format(component.quantity_per_unit or 0) }}</td>
+                        <td class="text-center">{{ '{:g}'.format(component.workpiece.stock_quantity or 0) if component.workpiece else '-' }}</td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="4" class="text-center py-4 text-muted">暂无装配结构</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<div class="card mb-4">
+    <div class="card-header bg-warning text-dark">
+        <h5 class="mb-0"><i class="bi bi-list-check"></i> 装配单</h5>
+    </div>
+    <div class="card-body">
+        {% for attachment in product.assembly_sheet_attachments %}
+        <div class="border rounded p-3 mb-3">
+            <h6 class="fw-bold">{{ attachment.display_title }}</h6>
+            {% if attachment.content %}<p class="text-muted mb-2">{{ attachment.content }}</p>{% endif %}
+            {{ render_attachment_file(attachment, attachment.display_title) }}
+        </div>
+        {% else %}
+        <p class="text-muted mb-0">未配置装配单</p>
+        {% endfor %}
+    </div>
+</div>
+
+<div class="card mb-4">
+    <div class="card-header bg-secondary text-white">
+        <h5 class="mb-0"><i class="bi bi-sticky"></i> 备注</h5>
+    </div>
+    <div class="card-body">
+        {% for attachment in product.remark_attachments %}
+        <div class="border rounded p-3 mb-3">
+            <div class="d-flex gap-2 mb-2">
+                <span class="badge {{ 'bg-danger' if attachment.is_required else 'bg-light text-dark' }}">{{ '必填' if attachment.is_required else '选填' }}</span>
+            </div>
+            {% if attachment.content %}<p class="text-muted mb-2">{{ attachment.content }}</p>{% endif %}
+            {{ render_attachment_file(attachment, attachment.display_title) }}
+        </div>
+        {% else %}
+        <p class="text-muted mb-0">未配置备注</p>
+        {% endfor %}
+    </div>
+</div>
+{% endblock %}

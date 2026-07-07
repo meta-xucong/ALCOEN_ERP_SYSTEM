@@ -1,0 +1,306 @@
+{% extends 'qc/base.html' %}
+{% from 'qc/_research_file_macros.html' import file_preview %}
+
+{% block title %}{% if is_edit %}编辑{% else %}新增{% endif %}研究项目 - ALCOEN AI CATS{% endblock %}
+
+{% macro render_attachment_section(container_id, field_prefix, card_title, icon_class, items, help_text, title_label='标题', file_optional=False) %}
+<div class="card attachment-card h-100 attachment-section">
+    <div class="card-header bg-warning text-dark rounded-top-4">
+        <div class="attachment-toolbar">
+            <h5 class="mb-0"><i class="bi {{ icon_class }}"></i> {{ card_title }}{% if not file_optional %} <span class="text-danger">*</span>{% endif %}</h5>
+            <button type="button" class="btn btn-light btn-sm" onclick="addResearchSectionItem('{{ container_id }}')">
+                <i class="bi bi-plus-circle"></i> 增加{{ card_title }}
+            </button>
+        </div>
+    </div>
+    <div class="card-body">
+        <div
+            id="{{ container_id }}"
+            data-field-prefix="{{ field_prefix }}"
+            data-card-title="{{ card_title }}"
+            data-title-label="{{ title_label }}"
+            data-file-optional="{{ '1' if file_optional else '0' }}"
+            data-help-text="{{ help_text }}"
+        >
+            {% if items %}
+                {% for item in items %}
+                <div class="attachment-item" data-index="{{ loop.index0 }}">
+                    <div class="attachment-toolbar mb-3">
+                        <h6 class="fw-bold mb-0">{{ card_title }} {{ loop.index }}</h6>
+                        <button type="button" class="btn btn-outline-danger btn-sm" onclick="removeResearchSectionItem(this)">
+                            <i class="bi bi-trash"></i> 删除
+                        </button>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-5 mb-3">
+                            <label class="form-label">{{ title_label }}</label>
+                            <input type="text" class="form-control" name="{{ field_prefix }}_title_{{ loop.index0 }}" value="{{ item.title or item.display_title }}" placeholder="请输入{{ title_label }}">
+                        </div>
+                        <div class="col-md-7 mb-3">
+                            <label class="form-label">文件{% if not file_optional and not item.file_path %} <span class="text-danger">*</span>{% endif %}</label>
+                            <input type="file" class="form-control" name="{{ field_prefix }}_file_{{ loop.index0 }}" accept="image/*,application/pdf">
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">说明</label>
+                        <textarea class="form-control" name="{{ field_prefix }}_content_{{ loop.index0 }}" rows="2" placeholder="可填写说明、背景、重点关注事项等">{{ item.content or '' }}</textarea>
+                    </div>
+                    {% if item.file_url %}
+                    {{ file_preview(item.file_url, item.file_path.split('/')[-1], item.is_image, item.display_title, 'btn-outline-primary') }}
+                    {% endif %}
+                </div>
+                {% endfor %}
+            {% else %}
+            <div class="attachment-item" data-index="0">
+                <div class="attachment-toolbar mb-3">
+                    <h6 class="fw-bold mb-0">{{ card_title }} 1</h6>
+                    <button type="button" class="btn btn-outline-danger btn-sm" onclick="removeResearchSectionItem(this)">
+                        <i class="bi bi-trash"></i> 删除
+                    </button>
+                </div>
+                <div class="row">
+                    <div class="col-md-5 mb-3">
+                        <label class="form-label">{{ title_label }}</label>
+                        <input type="text" class="form-control" name="{{ field_prefix }}_title_0" value="{{ card_title }}1" placeholder="请输入{{ title_label }}">
+                    </div>
+                    <div class="col-md-7 mb-3">
+                        <label class="form-label">文件{% if not file_optional %} <span class="text-danger">*</span>{% endif %}</label>
+                        <input type="file" class="form-control" name="{{ field_prefix }}_file_0" accept="image/*,application/pdf">
+                    </div>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">说明</label>
+                    <textarea class="form-control" name="{{ field_prefix }}_content_0" rows="2" placeholder="可填写说明、背景、重点关注事项等"></textarea>
+                </div>
+            </div>
+            {% endif %}
+        </div>
+        <div class="help-copy mt-3">{{ help_text }}</div>
+    </div>
+</div>
+{% endmacro %}
+
+{% block extra_css %}
+<style>
+    .attachment-card {
+        border: 1px solid rgba(0, 0, 0, 0.08);
+        border-radius: 1rem;
+        background: rgba(255, 255, 255, 0.92);
+        box-shadow: 0 0.5rem 1.5rem rgba(15, 23, 42, 0.04);
+    }
+    .attachment-item {
+        border: 1px solid rgba(0, 0, 0, 0.08);
+        border-radius: 0.875rem;
+        padding: 1rem;
+        background: linear-gradient(180deg, #ffffff 0%, #fffdf7 100%);
+    }
+    .attachment-item + .attachment-item {
+        margin-top: 1rem;
+    }
+    .attachment-toolbar {
+        display: flex;
+        justify-content: space-between;
+        gap: 1rem;
+        align-items: center;
+        flex-wrap: wrap;
+    }
+    .help-copy {
+        color: #6c757d;
+        font-size: 0.875rem;
+        line-height: 1.7;
+    }
+    .research-thumb {
+        max-height: 180px;
+        max-width: 100%;
+    }
+    .project-page-title {
+        font-weight: 800;
+        font-size: 2rem;
+        color: var(--alco-primary);
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+{% set initiation_materials = project.initiation_materials if project else [] %}
+{% set research_materials = project.research_materials if project else [] %}
+{% set experiment_plans = project.experiment_plans if project else [] %}
+{% set validation_items = project.validation_items if project else [] %}
+{% set risk_notes = project.risk_notes if project else [] %}
+
+<div class="d-flex justify-content-between align-items-center flex-wrap gap-3 mb-4">
+    <h1 class="d-flex align-items-center gap-3 mb-0">
+        <i class="bi bi-journal-text text-warning" style="font-size: 2rem;"></i>
+        <span class="project-page-title">{% if is_edit %}编辑研究项目{% else %}新增研究项目{% endif %}</span>
+    </h1>
+    <a href="{{ url_for('qc.research_project_list') }}" class="btn btn-outline-secondary">
+        <i class="bi bi-arrow-left"></i> 返回研究项目库
+    </a>
+</div>
+
+<form method="POST" action="" enctype="multipart/form-data" id="researchProjectForm">
+    <div class="card mb-4">
+        <div class="card-header bg-primary text-white">
+            <h5 class="mb-0"><i class="bi bi-info-circle"></i> 基础信息</h5>
+        </div>
+        <div class="card-body">
+            <div class="row">
+                <div class="col-md-3 mb-3">
+                    <label class="form-label">项目编号 <span class="text-danger">*</span></label>
+                    <input type="text" class="form-control" name="project_code" value="{{ project.project_code if project else '' }}" required>
+                </div>
+                <div class="col-md-3 mb-3">
+                    <label class="form-label">项目名称 <span class="text-danger">*</span></label>
+                    <input type="text" class="form-control" name="project_name" value="{{ project.project_name if project else '' }}" required>
+                </div>
+                <div class="col-md-3 mb-3">
+                    <label class="form-label">项目分类</label>
+                    <select name="project_category" class="form-select">
+                        <option value="">-- 请选择 --</option>
+                        {% for option in category_options %}
+                        <option value="{{ option }}" {% if project and project.project_category == option %}selected{% endif %}>{{ option }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-3 mb-3">
+                    <label class="form-label">研究方向</label>
+                    <input type="text" class="form-control" name="research_direction" value="{{ project.research_direction if project else '' }}" placeholder="例如：色谱分离优化 / 故障机理分析">
+                </div>
+            </div>
+            {% if project %}
+            <div class="row">
+                <div class="col-md-3 mb-3">
+                    <label class="form-label">创建人</label>
+                    <input type="text" class="form-control" value="{{ project.creator.real_name or project.creator.username }}" readonly>
+                </div>
+                <div class="col-md-3 mb-3">
+                    <label class="form-label">最后更新</label>
+                    <input type="text" class="form-control" value="{{ project.updated_at.strftime('%Y-%m-%d %H:%M') }}" readonly>
+                </div>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="row g-4">
+        <div class="col-12 col-xl-6">
+            {{ render_attachment_section('initiationContainer', 'initiation', '立项资料', 'bi-folder2-open', initiation_materials, '建议上传需求背景、客户资料、样品照片、问题描述等基础材料。', '资料标题') }}
+        </div>
+        <div class="col-12 col-xl-6">
+            {{ render_attachment_section('researchContainer', 'research', '研究资料', 'bi-bezier2', research_materials, '用于补充谱图、参考数据、前期实验输入、外部参考材料。', '资料标题') }}
+        </div>
+        <div class="col-12 col-xl-6">
+            {{ render_attachment_section('planContainer', 'plan', '实验方案', 'bi-diagram-3', experiment_plans, '请沉淀实验设计、步骤、参数方案、变量控制方案等。', '方案标题') }}
+        </div>
+        <div class="col-12 col-xl-6">
+            {{ render_attachment_section('validationContainer', 'validation', '观察项 / 验证目标', 'bi-binoculars', validation_items, '这部分可以没有附件，只写清需要重点观察或验证的项目。', '观察项标题', True) }}
+        </div>
+        <div class="col-12">
+            {{ render_attachment_section('riskContainer', 'risk', '风险提示 / 补充说明', 'bi-exclamation-diamond', risk_notes, '记录研究限制、注意事项、开放问题，附件可选。', '说明标题', True) }}
+        </div>
+    </div>
+
+    <div class="d-flex gap-3 flex-wrap mt-4">
+        <button type="submit" class="btn btn-primary btn-lg">
+            <i class="bi bi-check-circle"></i> {% if is_edit %}保存研究项目{% else %}创建研究项目{% endif %}
+        </button>
+        <a href="{{ url_for('qc.research_project_list') }}" class="btn btn-outline-secondary btn-lg">
+            <i class="bi bi-arrow-left"></i> 返回列表
+        </a>
+    </div>
+</form>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function escapeHtml(value) {
+    return String(value || '')
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#39;');
+}
+
+function buildResearchSectionItem(container, index) {
+    const prefix = container.dataset.fieldPrefix;
+    const cardTitle = container.dataset.cardTitle;
+    const titleLabel = container.dataset.titleLabel || '标题';
+    const fileOptional = container.dataset.fileOptional === '1';
+
+    return `
+        <div class="attachment-item" data-index="${index}">
+            <div class="attachment-toolbar mb-3">
+                <h6 class="fw-bold mb-0">${escapeHtml(cardTitle)} ${index + 1}</h6>
+                <button type="button" class="btn btn-outline-danger btn-sm" onclick="removeResearchSectionItem(this)">
+                    <i class="bi bi-trash"></i> 删除
+                </button>
+            </div>
+            <div class="row">
+                <div class="col-md-5 mb-3">
+                    <label class="form-label">${escapeHtml(titleLabel)}</label>
+                    <input type="text" class="form-control" name="${prefix}_title_${index}" value="${escapeHtml(cardTitle)}${index + 1}" placeholder="请输入${escapeHtml(titleLabel)}">
+                </div>
+                <div class="col-md-7 mb-3">
+                    <label class="form-label">文件${fileOptional ? '' : ' <span class="text-danger">*</span>'}</label>
+                    <input type="file" class="form-control" name="${prefix}_file_${index}" accept="image/*,application/pdf">
+                </div>
+            </div>
+            <div class="mb-3">
+                <label class="form-label">说明</label>
+                <textarea class="form-control" name="${prefix}_content_${index}" rows="2" placeholder="可填写说明、背景、重点关注事项等"></textarea>
+            </div>
+        </div>
+    `;
+}
+
+function renumberResearchSection(container) {
+    const prefix = container.dataset.fieldPrefix;
+    const cardTitle = container.dataset.cardTitle;
+    const titleLabel = container.dataset.titleLabel || '标题';
+
+    Array.from(container.querySelectorAll('.attachment-item')).forEach((item, index) => {
+        item.dataset.index = String(index);
+        const heading = item.querySelector('h6');
+        if (heading) {
+            heading.textContent = `${cardTitle} ${index + 1}`;
+        }
+
+        const titleInput = item.querySelector(`input[name^="${prefix}_title_"]`);
+        if (titleInput) {
+            titleInput.name = `${prefix}_title_${index}`;
+            titleInput.placeholder = `请输入${titleLabel}`;
+        }
+
+        const fileInput = item.querySelector(`input[name^="${prefix}_file_"]`);
+        if (fileInput) {
+            fileInput.name = `${prefix}_file_${index}`;
+        }
+
+        const contentInput = item.querySelector(`textarea[name^="${prefix}_content_"]`);
+        if (contentInput) {
+            contentInput.name = `${prefix}_content_${index}`;
+        }
+    });
+}
+
+function addResearchSectionItem(containerId) {
+    const container = document.getElementById(containerId);
+    if (!container) {
+        return;
+    }
+    const nextIndex = container.querySelectorAll('.attachment-item').length;
+    container.insertAdjacentHTML('beforeend', buildResearchSectionItem(container, nextIndex));
+}
+
+function removeResearchSectionItem(button) {
+    const item = button.closest('.attachment-item');
+    const container = item ? item.parentElement : null;
+    if (!item || !container) {
+        return;
+    }
+    item.remove();
+    renumberResearchSection(container);
+}
+</script>
+{% endblock %}

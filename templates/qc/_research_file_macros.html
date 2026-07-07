@@ -1,0 +1,15 @@
+{% macro file_preview(file_url, filename, is_image, alt='', button_class='btn-outline-primary', image_class='img-thumbnail research-thumb') -%}
+    {% if file_url %}
+    <div class="research-file-preview">
+        <a href="{{ file_url }}" target="_blank" class="btn {{ button_class }} btn-sm mb-2 research-file-link" title="{{ filename }}">
+            <i class="bi bi-file-earmark-arrow-down flex-shrink-0"></i>
+            <span class="research-file-link-text">{{ filename or '查看文件' }}</span>
+        </a>
+        {% if is_image %}
+        <div>
+            <img src="{{ file_url }}" class="{{ image_class }}" alt="{{ alt or filename }}">
+        </div>
+        {% endif %}
+    </div>
+    {% endif %}
+{%- endmacro %}

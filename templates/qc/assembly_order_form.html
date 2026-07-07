@@ -1,0 +1,356 @@
+{% extends 'qc/base.html' %}
+
+{% block title %}{% if is_edit %}编辑{% else %}新增{% endif %}装配单 - ALCOEN AI CATS{% endblock %}
+
+{% block extra_css %}
+<style>
+    .preview-card {
+        min-height: 180px;
+    }
+    .preview-thumb {
+        max-height: 150px;
+        max-width: 100%;
+        border-radius: 12px;
+        border: 1px solid rgba(0, 0, 0, 0.08);
+    }
+    .preview-empty {
+        color: #6c757d;
+        padding: 2rem 1rem;
+        text-align: center;
+    }
+    .preview-item + .preview-item {
+        margin-top: 1rem;
+    }
+    .section-upload-block {
+        border-top: 1px solid rgba(0, 0, 0, 0.08);
+        margin-top: 1rem;
+        padding-top: 1rem;
+    }
+    .upload-filename {
+        max-width: 100%;
+        display: inline-block;
+    }
+    .component-chip {
+        border: 1px solid rgba(25, 135, 84, 0.12);
+        border-radius: 0.875rem;
+        padding: 0.8rem 0.9rem;
+        background: rgba(255, 255, 255, 0.78);
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+{% macro preview_file(file_url, filename, is_image, image_alt='', button_class='btn-outline-primary') %}
+    {% if file_url %}
+    <div class="file-preview">
+        <a href="{{ file_url }}" target="_blank" class="btn {{ button_class }} btn-sm text-truncate upload-filename mb-2" title="{{ filename }}">
+            <i class="bi bi-file-earmark-arrow-down"></i> {{ filename }}
+        </a>
+        {% if is_image %}
+        <div>
+            <img src="{{ file_url }}" class="preview-thumb" alt="{{ image_alt or filename }}">
+        </div>
+        {% endif %}
+    </div>
+    {% endif %}
+{% endmacro %}
+
+<div class="row mb-4">
+    <div class="col-12">
+        <h1 class="d-flex align-items-center gap-3 mb-0">
+            <i class="bi bi-tools text-gradient" style="font-size: 2rem; color: #198754;"></i>
+            <span class="text-gradient" style="font-weight: 700; font-size: 2rem;">
+                {% if is_edit %}编辑装配单{% else %}新增装配单{% endif %}
+            </span>
+        </h1>
+    </div>
+</div>
+
+<form method="POST" action="" id="assemblyOrderForm" enctype="multipart/form-data">
+    <div class="card mb-4">
+        <div class="card-header bg-primary text-white">
+            <h5 class="mb-0"><i class="bi bi-info-circle"></i> 基础信息</h5>
+        </div>
+        <div class="card-body">
+            <div class="row">
+                <div class="col-md-3 mb-3">
+                    <label class="form-label">批次编号 <span class="text-danger">*</span></label>
+                    <input type="text" class="form-control" name="batch_no" value="{{ order.batch_no if order else '' }}">
+                </div>
+                <div class="col-md-3 mb-3">
+                    <label class="form-label">产品名称 <span class="text-danger">*</span></label>
+                    <select class="form-select" name="product_id" id="productSelect">
+                        <option value="">-- 请选择产品 --</option>
+                        {% for product in products %}
+                        <option value="{{ product.id }}" {% if order and order.product_id == product.id %}selected{% endif %}>
+                            {{ product.product_code }} / {{ product.product_name }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                    <input type="hidden" name="product_name_snapshot" id="productNameSnapshotInput" value="{{ order.product_name_snapshot if order else '' }}">
+                </div>
+                <div class="col-md-3 mb-3">
+                    <label class="form-label">装配数量 <span class="text-danger">*</span></label>
+                    <input type="number" step="0.01" min="0.01" class="form-control" name="quantity" id="quantityInput" value="{{ order.quantity if order else '' }}">
+                </div>
+                <div class="col-md-3 mb-3">
+                    <label class="form-label">创建人</label>
+                    <input type="text" class="form-control" value="{{ current_user.real_name or current_user.username }}" readonly>
+                </div>
+            </div>
+            <div class="row">
+                <div class="col-md-4 mb-3">
+                    <label class="form-label">指导 / 验收人员{% if not is_edit %} <span class="text-danger">*</span>{% endif %}</label>
+                    <select name="inspector_id" class="form-select">
+                        <option value="">-- 请选择 --</option>
+                        {% for reviewer in reviewers %}
+                        <option value="{{ reviewer.id }}" {% if order and order.inspector_id == reviewer.id %}selected{% endif %}>
+                            {{ reviewer.real_name or reviewer.username }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+            {% if not products %}
+            <div class="alert alert-warning mb-0">
+                <i class="bi bi-exclamation-triangle"></i> 当前还没有可用产品，请先建立产品模板。
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="card mb-4">
+        <div class="card-header bg-info text-white">
+            <h5 class="mb-0"><i class="bi bi-diagram-3"></i> 装配结构快照</h5>
+        </div>
+        <div class="card-body">
+            <div id="componentPreview" class="row g-3">
+                {% if order and order.components %}
+                    {% for component in order.components %}
+                    <div class="col-md-6">
+                        <div class="component-chip">
+                            <div class="fw-semibold">{{ component.workpiece_code_snapshot }} / {{ component.workpiece_name_snapshot }}</div>
+                            <div class="small text-muted mt-1">单件用量：{{ '{:g}'.format(component.quantity_per_unit or 0) }}，本单需消耗：{{ '{:g}'.format(component.total_required_quantity or 0) }}</div>
+                        </div>
+                    </div>
+                    {% endfor %}
+                {% else %}
+                <div class="col-12">
+                    <div class="preview-empty">选择产品后自动带出装配结构</div>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <div class="row g-4">
+        <div class="col-lg-6">
+            <div class="card preview-card h-100">
+                <div class="card-header bg-warning text-dark">
+                    <h5 class="mb-0"><i class="bi bi-list-check"></i> 生产登记单</h5>
+                </div>
+                <div class="card-body">
+                    <div id="assemblyRecordPreview">
+                        {% if order and order.assembly_record_attachments %}
+                            {% for attachment in order.assembly_record_attachments %}
+                            <div class="preview-item">
+                                <h6 class="fw-bold">{{ attachment.display_title }}</h6>
+                                {% if attachment.content %}<p class="text-muted small mb-2">{{ attachment.content }}</p>{% endif %}
+                                {{ preview_file(attachment.file_url, attachment.file_path.split('/')[-1], attachment.is_image, attachment.display_title) }}
+                            </div>
+                            {% endfor %}
+                        {% else %}
+                        <div class="preview-empty">选择产品后自动带出生产登记单</div>
+                        {% endif %}
+                    </div>
+                    <div class="section-upload-block">
+                        <label class="form-label">补充文件上传</label>
+                        {% if order and order.registration_note_file_path %}
+                        <div class="mb-2">
+                            {{ preview_file(order.registration_note_file_url, order.registration_note_filename, order.registration_note_file_type in ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'], order.registration_note_filename, 'btn-outline-secondary') }}
+                        </div>
+                        {% endif %}
+                        <input type="file" class="form-control" name="registration_note_file" accept="image/*,application/pdf">
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-6">
+            <div class="card preview-card h-100">
+                <div class="card-header bg-primary text-white">
+                    <h5 class="mb-0"><i class="bi bi-patch-check"></i> 生产合格证</h5>
+                </div>
+                <div class="card-body">
+                    <div class="preview-empty">本批次可上传额外的生产合格证或证明文件。</div>
+                    <div class="section-upload-block">
+                        <label class="form-label">文件上传</label>
+                        {% if order and order.certificate_note_file_path %}
+                        <div class="mb-2">
+                            {{ preview_file(order.certificate_note_file_url, order.certificate_note_filename, order.certificate_note_file_type in ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'], order.certificate_note_filename, 'btn-outline-secondary') }}
+                        </div>
+                        {% endif %}
+                        <input type="file" class="form-control" name="certificate_note_file" accept="image/*,application/pdf">
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card mt-4 mb-4">
+        <div class="card-header bg-secondary text-white">
+            <h5 class="mb-0"><i class="bi bi-sticky"></i> 备注</h5>
+        </div>
+        <div class="card-body">
+            <div id="remarkPreview">
+                {% if order and order.remark_attachments %}
+                    {% for attachment in order.remark_attachments %}
+                    <div class="preview-item">
+                        <div class="mb-2">
+                            <span class="badge {{ 'bg-danger' if attachment.is_required else 'bg-light text-dark' }}">{{ '必填' if attachment.is_required else '选填' }}</span>
+                        </div>
+                        {% if attachment.content %}<p class="text-muted small mb-2">{{ attachment.content }}</p>{% endif %}
+                        {{ preview_file(attachment.file_url, attachment.file_path.split('/')[-1], attachment.is_image, '备注附件') }}
+                    </div>
+                    {% endfor %}
+                {% else %}
+                <div class="preview-empty">选择产品后自动带出备注</div>
+                {% endif %}
+            </div>
+            <div class="section-upload-block">
+                <label class="form-label">备注补充文件</label>
+                {% if order and order.remark_note_file_path %}
+                <div class="mb-2">
+                    {{ preview_file(order.remark_note_file_url, order.remark_note_filename, order.remark_note_file_type in ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'], order.remark_note_filename, 'btn-outline-secondary') }}
+                </div>
+                {% endif %}
+                <input type="file" class="form-control" name="remark_note_file" accept="image/*,application/pdf">
+            </div>
+        </div>
+    </div>
+
+    <input type="hidden" name="submit_action" id="submitAction" value="">
+    <div class="d-flex gap-3 flex-wrap mt-4">
+        {% if is_edit %}
+        <button type="submit" class="btn btn-primary btn-lg">
+            <i class="bi bi-check-circle"></i> 保存
+        </button>
+        {% else %}
+        <button type="button" class="btn btn-outline-primary btn-lg" onclick="submitAssemblyOrder('draft')">
+            <i class="bi bi-save2"></i> 保存草稿
+        </button>
+        <button type="button" class="btn btn-success btn-lg" onclick="submitAssemblyOrder('submit')">
+            <i class="bi bi-check2-circle"></i> 完成并进入质量检测
+        </button>
+        {% endif %}
+        <a href="{{ url_for('qc.assembly_launch_list') }}" class="btn btn-outline-secondary btn-lg">
+            <i class="bi bi-arrow-left"></i> 返回列表
+        </a>
+    </div>
+</form>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const productSelect = document.getElementById('productSelect');
+const quantityInput = document.getElementById('quantityInput');
+const productNameSnapshotInput = document.getElementById('productNameSnapshotInput');
+let currentProductSnapshot = null;
+
+function escapeHtml(value) {
+    return String(value || '')
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#39;');
+}
+
+function renderProductAttachmentList(items, emptyText) {
+    if (!items || !items.length) {
+        return `<div class="preview-empty">${escapeHtml(emptyText)}</div>`;
+    }
+    return items.map((item) => `
+        <div class="preview-item">
+            <h6 class="fw-bold">${escapeHtml(item.title || '附件')}</h6>
+            ${item.content ? `<p class="text-muted small mb-2">${escapeHtml(item.content)}</p>` : ''}
+            ${item.url ? `
+                <a href="${item.url}" target="_blank" class="btn btn-outline-primary btn-sm text-truncate upload-filename mb-2" title="${escapeHtml(item.filename || '')}">
+                    <i class="bi bi-file-earmark-arrow-down"></i> ${escapeHtml(item.filename || '查看文件')}
+                </a>
+                ${item.is_image ? `<div><img src="${item.url}" class="preview-thumb" alt="${escapeHtml(item.title || '附件')}"></div>` : ''}
+            ` : ''}
+        </div>
+    `).join('');
+}
+
+function renderComponentPreview(components, quantity) {
+    const container = document.getElementById('componentPreview');
+    if (!components || !components.length) {
+        container.innerHTML = '<div class="col-12"><div class="preview-empty">选择产品后自动带出装配结构</div></div>';
+        return;
+    }
+    const multiplier = Number(quantity || 0);
+    container.innerHTML = components.map((component) => {
+        const totalRequired = multiplier > 0 ? (Number(component.quantity_per_unit || 0) * multiplier) : Number(component.quantity_per_unit || 0);
+        return `
+            <div class="col-md-6">
+                <div class="component-chip">
+                    <div class="fw-semibold">${escapeHtml(component.workpiece_code)} / ${escapeHtml(component.workpiece_name)}</div>
+                    <div class="small text-muted mt-1">单件用量：${component.quantity_per_unit}，本单需消耗：${totalRequired}</div>
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+function renderProductPreview(product) {
+    currentProductSnapshot = product;
+    productNameSnapshotInput.value = product ? (product.product_name || '') : '';
+    document.getElementById('assemblyRecordPreview').innerHTML = renderProductAttachmentList(product ? product.assembly_sheets : [], '选择产品后自动带出生产登记单');
+    document.getElementById('remarkPreview').innerHTML = renderProductAttachmentList(product ? product.remarks : [], '选择产品后自动带出备注');
+    renderComponentPreview(product ? product.components : [], quantityInput ? quantityInput.value : 0);
+}
+
+async function loadProductSnapshot() {
+    const productId = productSelect.value;
+    if (!productId) {
+        renderProductPreview(null);
+        return;
+    }
+    const response = await fetch(`/qc/assembly/products/${productId}/snapshot`);
+    const payload = await response.json();
+    if (!payload.success) {
+        renderProductPreview(null);
+        return;
+    }
+    renderProductPreview(payload.product);
+}
+
+function submitAssemblyOrder(action) {
+    document.getElementById('submitAction').value = action;
+    document.getElementById('assemblyOrderForm').submit();
+}
+
+if (productSelect) {
+    productSelect.addEventListener('change', () => loadProductSnapshot().catch(() => renderProductPreview(null)));
+}
+if (quantityInput) {
+    quantityInput.addEventListener('input', () => renderComponentPreview(currentProductSnapshot ? currentProductSnapshot.components : [], quantityInput.value));
+}
+
+{% if order and order.product_id %}
+currentProductSnapshot = {
+    components: [
+        {% for component in order.components %}
+        {
+            workpiece_code: {{ component.workpiece_code_snapshot|tojson }},
+            workpiece_name: {{ component.workpiece_name_snapshot|tojson }},
+            quantity_per_unit: {{ (component.quantity_per_unit or 0)|tojson }}
+        }{% if not loop.last %},{% endif %}
+        {% endfor %}
+    ]
+};
+{% endif %}
+</script>
+{% endblock %}

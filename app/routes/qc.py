@@ -14,6 +14,7 @@ from app.models import (
     QC_MANAGER_ROLE_CODES,
     QC_ROLE_CODES,
     QC_ROLE_EDITABLE_PERMISSIONS,
+    QC_WORKPIECE_TYPE_DISPLAY,
     QCAcceptanceSignature,
     QCUserBinding,
     QCWorkOrder,
@@ -23,11 +24,22 @@ from app.models import (
     User,
 )
 from app.services.auth_service import AuthService
+from app.services.assembly_service import AssemblyService
 from app.services.qc_service import QCService
+from app.services.research_service import ResearchService
 from app.services.user_service import UserService
 from app.utils.decorators import login_required
 
 qc_bp = Blueprint('qc', __name__, url_prefix='/qc')
+
+RESEARCH_PROJECT_CATEGORY_OPTIONS = [
+    '方法开发',
+    '样品验证',
+    '问题排查',
+    '其他研究',
+]
+RESEARCH_ENDPOINT_PREFIX = 'qc.research_'
+ASSEMBLY_ENDPOINT_PREFIX = 'qc.assembly_'
 
 
 def _extract_dynamic_indexes(form_data, prefix: str) -> list[int]:
@@ -43,7 +55,105 @@ def _extract_dynamic_indexes(form_data, prefix: str) -> list[int]:
 
 def _active_suppliers() -> list[User]:
     """Return active supplier users."""
-    return User.query.join(Role).filter(Role.code == 'qc_inspector', User.is_active.is_(True)).all()
+    return User.query.join(Role).filter(
+        User.is_active.is_(True),
+        Role.code == 'qc_inspector',
+    ).order_by(User.real_name.asc(), User.username.asc()).all()
+
+
+def _active_research_reviewers() -> list[User]:
+    """Return active reviewer users for the research module."""
+    return User.query.join(Role).filter(
+        User.is_active.is_(True),
+        or_(
+            Role.code == ResearchService.RESEARCH_REVIEWER_ROLE_CODE,
+            Role.code.in_(QC_MANAGER_ROLE_CODES),
+        ),
+    ).all()
+
+
+def _active_assembly_reviewers() -> list[User]:
+    """Return active inspector/reviewer candidates for the assembly module."""
+    return _active_suppliers()
+
+
+def _can_sign_research_acceptance_as(user: User, batch, signer_role: str) -> bool:
+    """Return whether the current user should see one research acceptance button."""
+    if signer_role not in ['researcher', 'reviewer']:
+        return False
+    if batch.signatures_by_role.get(signer_role):
+        return False
+    return ResearchService.can_accept_batch(user, batch, signer_role=signer_role)
+
+
+def _current_qc_module() -> str:
+    """Return the current AI CATS module key for template rendering."""
+    endpoint = request.endpoint or ''
+    if endpoint.startswith(ASSEMBLY_ENDPOINT_PREFIX):
+        return 'assembly'
+    if endpoint.startswith(RESEARCH_ENDPOINT_PREFIX):
+        return 'research'
+    return 'production'
+
+
+def _build_qc_nav_context(user) -> dict:
+    """Build independent navigation permissions for production, assembly, and research modules."""
+    if not user:
+        return {
+            'production': {
+                'workpieces': False,
+                'quality_control': False,
+                'inspection': False,
+                'acceptance': False,
+            },
+            'assembly': {
+                'products': False,
+                'workpieces': False,
+                'launch': False,
+                'inspection': False,
+                'acceptance': False,
+            },
+            'research': {
+                'projects': False,
+                'batch_launch': False,
+                'review': False,
+                'acceptance': False,
+            },
+            'admin': False,
+        }
+
+    return {
+        'production': {
+            'workpieces': QCService.can_access_workpiece_library(user),
+            'quality_control': QCService.can_access_quality_control(user),
+            'inspection': QCService.can_access_inspection(user),
+            'acceptance': QCService.can_access_acceptance(user),
+        },
+        'assembly': {
+            'products': AssemblyService.can_access_product_library(user),
+            'workpieces': QCService.can_access_workpiece_library(user),
+            'launch': AssemblyService.can_access_assembly_launch(user),
+            'inspection': AssemblyService.can_access_inspection(user),
+            'acceptance': AssemblyService.can_access_acceptance(user),
+        },
+        'research': {
+            'projects': ResearchService.can_access_project_library(user),
+            'batch_launch': ResearchService.can_access_batch_launch(user),
+            'review': ResearchService.can_access_review(user),
+            'acceptance': ResearchService.can_access_acceptance(user),
+        },
+        'admin': _is_qc_admin(user),
+    }
+
+
+@qc_bp.app_context_processor
+def inject_qc_shell_context() -> dict:
+    """Inject independent module-shell context into all AI CATS templates."""
+    user = getattr(g, 'current_user', None)
+    return {
+        'qc_module': _current_qc_module(),
+        'qc_nav': _build_qc_nav_context(user),
+    }
 
 
 def _build_guide_items(form_data, files, title_prefix: str = 'guide_title_', content_prefix: str = 'guide_content_', file_prefix: str = 'guide_file_') -> list[dict]:
@@ -54,6 +164,34 @@ def _build_guide_items(form_data, files, title_prefix: str = 'guide_title_', con
             'title': form_data.get(f'{title_prefix}{idx}', '').strip(),
             'content': form_data.get(f'{content_prefix}{idx}', '').strip(),
             'file': files.get(f'{file_prefix}{idx}'),
+        }
+        if item['title'] or item['content'] or (item['file'] and item['file'].filename):
+            items.append(item)
+    return items
+
+
+def _build_material_items(form_data, files) -> list[dict]:
+    """Build outsourced quality-material items from dynamic form inputs."""
+    items = []
+    for idx in _extract_dynamic_indexes(form_data, 'material_title_'):
+        item = {
+            'title': form_data.get(f'material_title_{idx}', '').strip(),
+            'content': form_data.get(f'material_content_{idx}', '').strip(),
+            'file': files.get(f'material_file_{idx}'),
+        }
+        if item['title'] or item['content'] or (item['file'] and item['file'].filename):
+            items.append(item)
+    return items
+
+
+def _build_drawing_items(form_data, files) -> list[dict]:
+    """Build self-produced drawing items from dynamic form inputs."""
+    items = []
+    for idx in _extract_dynamic_indexes(form_data, 'drawing_title_'):
+        item = {
+            'title': form_data.get(f'drawing_title_{idx}', '').strip(),
+            'content': form_data.get(f'drawing_content_{idx}', '').strip(),
+            'file': files.get(f'drawing_file_{idx}'),
         }
         if item['title'] or item['content'] or (item['file'] and item['file'].filename):
             items.append(item)
@@ -88,6 +226,101 @@ def _build_remark_items(form_data, files) -> list[dict]:
     return items
 
 
+def _build_research_attachment_items(
+    form_data,
+    files,
+    title_prefix: str,
+    content_prefix: str,
+    file_prefix: str,
+) -> list[dict]:
+    """Build one research attachment section from dynamic form inputs."""
+    items = []
+    for idx in _extract_dynamic_indexes(form_data, title_prefix):
+        item = {
+            'title': form_data.get(f'{title_prefix}{idx}', '').strip(),
+            'content': form_data.get(f'{content_prefix}{idx}', '').strip(),
+            'file': files.get(f'{file_prefix}{idx}'),
+        }
+        if item['title'] or item['content'] or (item['file'] and item['file'].filename):
+            items.append(item)
+    return items
+
+
+def _build_research_attachment_map(form_data, files) -> dict[str, list[dict]]:
+    """Build all research project attachment sections from the request payload."""
+    return {
+        'initiation_material': _build_research_attachment_items(
+            form_data, files, 'initiation_title_', 'initiation_content_', 'initiation_file_'
+        ),
+        'research_material': _build_research_attachment_items(
+            form_data, files, 'research_title_', 'research_content_', 'research_file_'
+        ),
+        'experiment_plan': _build_research_attachment_items(
+            form_data, files, 'plan_title_', 'plan_content_', 'plan_file_'
+        ),
+        'validation_item': _build_research_attachment_items(
+            form_data, files, 'validation_title_', 'validation_content_', 'validation_file_'
+        ),
+        'risk_note': _build_research_attachment_items(
+            form_data, files, 'risk_title_', 'risk_content_', 'risk_file_'
+        ),
+    }
+
+
+def _build_assembly_component_items(form_data) -> list[dict]:
+    """Build BOM component rows for the assembly product form."""
+    items = []
+    for idx in _extract_dynamic_indexes(form_data, 'component_workpiece_id_'):
+        workpiece_id = form_data.get(f'component_workpiece_id_{idx}', '').strip()
+        workpiece_code = form_data.get(f'component_workpiece_code_{idx}', '').strip()
+        workpiece_name = form_data.get(f'component_workpiece_name_{idx}', '').strip()
+        quantity_per_unit = form_data.get(f'component_quantity_{idx}', '').strip()
+        if workpiece_id or workpiece_code or workpiece_name or quantity_per_unit:
+            items.append(
+                {
+                    'workpiece_id': workpiece_id,
+                    'workpiece_code': workpiece_code,
+                    'workpiece_name': workpiece_name,
+                    'quantity_per_unit': quantity_per_unit,
+                }
+            )
+    return items
+
+
+def _build_assembly_sheet_items(form_data, files) -> list[dict]:
+    """Build assembly-sheet rows from dynamic form inputs."""
+    items = []
+    for idx in _extract_dynamic_indexes(form_data, 'assembly_sheet_title_'):
+        item = {
+            'title': form_data.get(f'assembly_sheet_title_{idx}', '').strip(),
+            'content': form_data.get(f'assembly_sheet_content_{idx}', '').strip(),
+            'file': files.get(f'assembly_sheet_file_{idx}'),
+        }
+        if item['title'] or item['content'] or (item['file'] and item['file'].filename):
+            items.append(item)
+    return items
+
+
+def _build_research_review_results(batch, form_data, files) -> list[dict]:
+    """Build review payload rows for research attachments."""
+    results = []
+    for attachment in batch.attachments:
+        result = form_data.get(f'result_{attachment.id}', '').strip()
+        suggestion = form_data.get(f'suggestion_{attachment.id}', '').strip()
+        feedback_file = files.get(f'feedback_file_{attachment.id}')
+        has_payload = bool(result or suggestion or (feedback_file and feedback_file.filename))
+        if has_payload:
+            results.append(
+                {
+                    'attachment_id': attachment.id,
+                    'result': result or 'draft',
+                    'suggestion': suggestion or None,
+                    'feedback_file': feedback_file,
+                }
+            )
+    return results
+
+
 def _build_inspection_record_map(work_order: QCWorkOrder) -> dict[int, object]:
     """Build an attachment-to-record mapping for templates."""
     return {record.attachment_id: record for record in work_order.inspection_records}
@@ -95,14 +328,27 @@ def _build_inspection_record_map(work_order: QCWorkOrder) -> dict[int, object]:
 
 def _is_qc_admin(user) -> bool:
     """Return whether the user can access QC admin pages."""
-    return bool(user and (user.is_superadmin or user.role.code == 'general_manager'))
+    return bool(user and (user.is_superadmin or user.ai_cats_effective_role_code == 'general_manager'))
+
+
+def _require_qc_access(user):
+    """Enforce access to the AI CATS subsystem."""
+    if user.is_superadmin or user.ai_cats_is_manager or user.has_ai_cats_test_access:
+        return None
+
+    binding = QCUserBinding.query.filter_by(user_id=user.id, is_active=True).first()
+    if binding:
+        return None
+
+    flash('当前账号尚未绑定 AI CATS 权限，请先登录或申请权限', 'warning')
+    return redirect(url_for('auth.qc_login'))
 
 
 def _require_qc_admin():
     """Enforce QC admin access and redirect when missing."""
     if _is_qc_admin(g.current_user):
         return None
-    flash('需要 QC 系统管理权限', 'error')
+    flash('需要 AI CATS 管理员权限', 'error')
     return redirect(url_for('qc.index'))
 
 
@@ -126,7 +372,7 @@ def _block_quality_control_for_inspector(user):
     if QCService.can_access_quality_control(user):
         return None
 
-    flash('您没有权限访问质量控制模块', 'warning')
+    flash('当前无权限或条件未满足', 'warning')
     if QCService.can_access_workpiece_library(user):
         return redirect(url_for('qc.workpiece_list'))
     if QCService.can_access_inspection(user):
@@ -141,7 +387,7 @@ def _require_qc_inspection_access(user):
     if QCService.can_access_inspection(user):
         return None
 
-    flash('您没有权限访问质量检测模块', 'warning')
+    flash('当前无权限或条件未满足', 'warning')
     if QCService.can_access_quality_control(user):
         return redirect(url_for('qc.quality_control_list'))
     if QCService.can_access_acceptance(user):
@@ -154,7 +400,7 @@ def _require_qc_acceptance_access(user):
     if QCService.can_access_acceptance(user):
         return None
 
-    flash('您没有权限访问验收模块', 'warning')
+    flash('当前无权限或条件未满足', 'warning')
     if QCService.can_access_inspection(user):
         return redirect(url_for('qc.quality_inspection_list'))
     if QCService.can_access_quality_control(user):
@@ -162,17 +408,185 @@ def _require_qc_acceptance_access(user):
     return redirect(url_for('qc.index'))
 
 
+def _block_research_project_access(user):
+    """Redirect users without research project-library access."""
+    if ResearchService.can_access_project_library(user):
+        return None
+
+    flash('您没有权限访问研究项目库', 'warning')
+    if ResearchService.can_access_batch_launch(user):
+        return redirect(url_for('qc.research_batch_list'))
+    if ResearchService.can_access_review(user):
+        return redirect(url_for('qc.research_review_list'))
+    if ResearchService.can_access_acceptance(user):
+        return redirect(url_for('qc.research_acceptance_list'))
+    return redirect(url_for('qc.research_home'))
+
+
+def _block_research_batch_access(user):
+    """Redirect users without research launch access."""
+    if ResearchService.can_access_batch_launch(user):
+        return None
+
+    flash('当前无权限或条件未满足', 'warning')
+    if ResearchService.can_access_project_library(user):
+        return redirect(url_for('qc.research_project_list'))
+    if ResearchService.can_access_review(user):
+        return redirect(url_for('qc.research_review_list'))
+    if ResearchService.can_access_acceptance(user):
+        return redirect(url_for('qc.research_acceptance_list'))
+    return redirect(url_for('qc.research_home'))
+
+
+def _block_research_review_access(user):
+    """Redirect users without research review access."""
+    if ResearchService.can_access_review(user):
+        return None
+
+    flash('当前无权限或条件未满足', 'warning')
+    if ResearchService.can_access_batch_launch(user):
+        return redirect(url_for('qc.research_batch_list'))
+    if ResearchService.can_access_acceptance(user):
+        return redirect(url_for('qc.research_acceptance_list'))
+    return redirect(url_for('qc.research_home'))
+
+
+def _block_research_acceptance_access(user):
+    """Redirect users without research acceptance access."""
+    if ResearchService.can_access_acceptance(user):
+        return None
+
+    flash('当前无权限或条件未满足', 'warning')
+    if ResearchService.can_access_review(user):
+        return redirect(url_for('qc.research_review_list'))
+    if ResearchService.can_access_batch_launch(user):
+        return redirect(url_for('qc.research_batch_list'))
+    return redirect(url_for('qc.research_home'))
+
+
+def _block_assembly_product_access(user):
+    """Redirect users without assembly product-library access."""
+    if AssemblyService.can_access_product_library(user):
+        return None
+
+    flash('您没有权限访问产品库', 'warning')
+    if AssemblyService.can_access_assembly_launch(user):
+        return redirect(url_for('qc.assembly_launch_list'))
+    if AssemblyService.can_access_inspection(user):
+        return redirect(url_for('qc.assembly_inspection_list'))
+    if AssemblyService.can_access_acceptance(user):
+        return redirect(url_for('qc.assembly_acceptance_list'))
+    if QCService.can_access_workpiece_library(user):
+        return redirect(url_for('qc.workpiece_list'))
+    return redirect(url_for('qc.assembly_home'))
+
+
+def _block_assembly_launch_access(user):
+    """Redirect users without assembly launch access."""
+    if AssemblyService.can_access_assembly_launch(user):
+        return None
+
+    flash('当前无权限或条件未满足', 'warning')
+    if AssemblyService.can_access_product_library(user):
+        return redirect(url_for('qc.assembly_product_list'))
+    if AssemblyService.can_access_inspection(user):
+        return redirect(url_for('qc.assembly_inspection_list'))
+    if AssemblyService.can_access_acceptance(user):
+        return redirect(url_for('qc.assembly_acceptance_list'))
+    if QCService.can_access_workpiece_library(user):
+        return redirect(url_for('qc.workpiece_list'))
+    return redirect(url_for('qc.assembly_home'))
+
+
+def _block_assembly_inspection_access(user):
+    """Redirect users without assembly inspection access."""
+    if AssemblyService.can_access_inspection(user):
+        return None
+
+    flash('当前无权限或条件未满足', 'warning')
+    if AssemblyService.can_access_assembly_launch(user):
+        return redirect(url_for('qc.assembly_launch_list'))
+    if AssemblyService.can_access_acceptance(user):
+        return redirect(url_for('qc.assembly_acceptance_list'))
+    if AssemblyService.can_access_product_library(user):
+        return redirect(url_for('qc.assembly_product_list'))
+    return redirect(url_for('qc.assembly_home'))
+
+
+def _block_assembly_acceptance_access(user):
+    """Redirect users without assembly acceptance access."""
+    if AssemblyService.can_access_acceptance(user):
+        return None
+
+    flash('您没有权限访问验收/出厂模块', 'warning')
+    if AssemblyService.can_access_inspection(user):
+        return redirect(url_for('qc.assembly_inspection_list'))
+    if AssemblyService.can_access_assembly_launch(user):
+        return redirect(url_for('qc.assembly_launch_list'))
+    if AssemblyService.can_access_product_library(user):
+        return redirect(url_for('qc.assembly_product_list'))
+    return redirect(url_for('qc.assembly_home'))
+
+
 @qc_bp.route('/')
 @login_required
 def index():
-    """QC dashboard."""
+    """AI CATS module selector."""
     user = g.current_user
+    blocked = _require_qc_access(user)
+    if blocked:
+        return blocked
 
-    if not user.is_superadmin and user.role.code not in QC_MANAGER_ROLE_CODES:
-        binding = QCUserBinding.query.filter_by(user_id=user.id, is_active=True).first()
-        if not binding:
-            flash('您尚未获得 QC 系统访问权限', 'warning')
-            return redirect(url_for('auth.qc_login'))
+    modules = [
+        {
+            'title': '配件生产',
+            'subtitle': '工件库、质量控制、质量检测、验收模块',
+            'description': '承接当前 AI CATS 生产质量追溯流程，管理配件从工件建档到验收闭环。',
+            'icon': 'bi-box-seam',
+            'tone': 'production',
+            'href': url_for('qc.production_home'),
+            'disabled': False,
+        },
+        {
+            'title': '装配/出厂',
+            'subtitle': 'Assembly & Release',
+            'description': '管理产品库、装配发起、质量检测和最终出厂验收。',
+            'icon': 'bi-tools',
+            'tone': 'assembly',
+            'href': url_for('qc.assembly_home'),
+            'disabled': False,
+        },
+        {
+            'title': '研究/实验',
+            'subtitle': 'Research & Experiment',
+            'description': '管理研究项目立项、指导审批、实验验证和共同验收。',
+            'icon': 'bi-lightbulb',
+            'tone': 'research',
+            'href': url_for('qc.research_home'),
+            'disabled': False,
+        },
+        {
+            'title': 'coming soon',
+            'subtitle': 'More modules',
+            'description': '为未来 AI CATS 扩展模块预留位置。',
+            'icon': 'bi-hourglass-split',
+            'tone': 'soon',
+            'href': None,
+            'disabled': True,
+        },
+    ]
+
+    return render_template('qc/module_select.html', modules=modules, qc_shell='landing')
+
+
+@qc_bp.route('/production/')
+@login_required
+def production_home():
+    """Production-accessories dashboard."""
+    user = g.current_user
+    blocked = _require_qc_access(user)
+    if blocked:
+        return blocked
 
     stats = QCService.get_dashboard_stats(user)
     recent_orders = QCService.get_recent_work_orders(user, limit=5)
@@ -186,7 +600,1339 @@ def index():
     )
 
 
-# ==================== QC 系统管理 ====================
+@qc_bp.route('/assembly/')
+@login_required
+def assembly_home():
+    """Assembly and release dashboard."""
+    user = g.current_user
+    blocked = _require_qc_access(user)
+    if blocked:
+        return blocked
+
+    stats = AssemblyService.get_dashboard_stats(user)
+    recent_orders = AssemblyService.get_recent_orders(user, limit=5)
+
+    return render_template(
+        'qc/assembly_dashboard.html',
+        stats=stats,
+        recent_orders=recent_orders,
+    )
+
+
+@qc_bp.route('/research/')
+@login_required
+def research_home():
+    """Research and experiment dashboard."""
+    user = g.current_user
+    blocked = _require_qc_access(user)
+    if blocked:
+        return blocked
+
+    return render_template(
+        'qc/research_dashboard.html',
+        stats=ResearchService.get_dashboard_stats(user),
+        recent_batches=ResearchService.get_recent_batches(user, limit=5),
+    )
+
+
+@qc_bp.route('/assembly/products/')
+@login_required
+def assembly_product_list():
+    """Assembly product-library list."""
+    user = g.current_user
+    blocked = _block_assembly_product_access(user)
+    if blocked:
+        return blocked
+
+    page = request.args.get('page', 1, type=int)
+    keyword = request.args.get('keyword', '').strip()
+    pagination = AssemblyService.get_product_list(user=user, keyword=keyword or None, page=page)
+    return render_template(
+        'qc/assembly_product_list.html',
+        products=pagination.items,
+        pagination=pagination,
+        keyword=keyword,
+        can_create_product=AssemblyService.can_create_product(user),
+    )
+
+
+@qc_bp.route('/assembly/launch/')
+@login_required
+def assembly_launch_list():
+    """Assembly launch list."""
+    user = g.current_user
+    blocked = _block_assembly_launch_access(user)
+    if blocked:
+        return blocked
+
+    page = request.args.get('page', 1, type=int)
+    keyword = request.args.get('keyword', '').strip()
+    status = request.args.get('status', '').strip()
+    pagination = AssemblyService.get_order_list(
+        user=user,
+        keyword=keyword or None,
+        status=status or None,
+        page=page,
+    )
+    return render_template(
+        'qc/assembly_order_list.html',
+        orders=pagination.items,
+        pagination=pagination,
+        keyword=keyword,
+        status=status,
+        page_title='发起装配',
+        page_icon='bi-tools',
+        detail_endpoint='qc.assembly_launch_detail',
+        new_endpoint='qc.assembly_launch_new',
+        back_endpoint='qc.assembly_home',
+        empty_text='暂无装配单，点击新增发起装配。',
+        can_create_new=AssemblyService.can_create_order(user),
+    )
+
+
+@qc_bp.route('/assembly/inspection/')
+@login_required
+def assembly_inspection_list():
+    """Assembly inspection queue."""
+    user = g.current_user
+    blocked = _block_assembly_inspection_access(user)
+    if blocked:
+        return blocked
+
+    page = request.args.get('page', 1, type=int)
+    keyword = request.args.get('keyword', '').strip()
+    pagination = AssemblyService.get_inspection_list(user=user, keyword=keyword or None, page=page)
+    return render_template(
+        'qc/assembly_order_list.html',
+        orders=pagination.items,
+        pagination=pagination,
+        keyword=keyword,
+        status='',
+        page_title='质量检测',
+        page_icon='bi-search',
+        detail_endpoint='qc.assembly_inspection_detail',
+        new_endpoint=None,
+        back_endpoint='qc.assembly_home',
+        empty_text='暂无待质量检测的装配单。',
+        can_create_new=False,
+    )
+
+
+@qc_bp.route('/assembly/acceptance/')
+@login_required
+def assembly_acceptance_list():
+    """Assembly acceptance queue."""
+    user = g.current_user
+    blocked = _block_assembly_acceptance_access(user)
+    if blocked:
+        return blocked
+
+    page = request.args.get('page', 1, type=int)
+    keyword = request.args.get('keyword', '').strip()
+    pagination = AssemblyService.get_acceptance_list(user=user, keyword=keyword or None, page=page)
+    return render_template(
+        'qc/assembly_order_list.html',
+        orders=pagination.items,
+        pagination=pagination,
+        keyword=keyword,
+        status='',
+        page_title='验收/出厂',
+        page_icon='bi-patch-check',
+        detail_endpoint='qc.assembly_acceptance_detail',
+        new_endpoint=None,
+        back_endpoint='qc.assembly_home',
+        empty_text='暂无待验收/出厂的装配单。',
+        can_create_new=False,
+    )
+
+
+@qc_bp.route('/assembly/workpieces/search')
+@login_required
+def assembly_workpiece_search():
+    """Fuzzy-search workpieces for assembly BOM editing."""
+    user = g.current_user
+    blocked = _block_assembly_product_access(user)
+    if blocked:
+        return jsonify({'success': False, 'message': '没有权限访问当前内容'}), 403
+
+    keyword = request.args.get('keyword', '').strip()
+    results = AssemblyService.search_workpieces(user, keyword)
+    return jsonify(
+        {
+            'success': True,
+            'items': [
+                {
+                    'id': workpiece.id,
+                    'workpiece_code': workpiece.workpiece_code,
+                    'workpiece_name': workpiece.workpiece_name,
+                    'workpiece_type': workpiece.normalized_type,
+                    'workpiece_type_display': workpiece.workpiece_type_display,
+                    'stock_quantity': float(workpiece.stock_quantity or 0),
+                }
+                for workpiece in results
+            ],
+        }
+    )
+
+
+@qc_bp.route('/assembly/products/new', methods=['GET', 'POST'])
+@login_required
+def assembly_product_new():
+    """Create a new assembly product template."""
+    user = g.current_user
+    blocked = _block_assembly_product_access(user)
+    if blocked:
+        return blocked
+
+    workpiece_choices = AssemblyService.get_workpiece_choices(user)
+    if not AssemblyService.can_create_product(user):
+        flash('没有权限新增产品', 'error')
+        return redirect(url_for('qc.assembly_product_list'))
+
+    if request.method == 'POST':
+        component_items = _build_assembly_component_items(request.form)
+        assembly_sheet_items = _build_assembly_sheet_items(request.form, request.files)
+        remark_items = _build_remark_items(request.form, request.files)
+        try:
+            product = AssemblyService.create_product(
+                data={
+                    'product_code': request.form.get('product_code', '').strip(),
+                    'product_name': request.form.get('product_name', '').strip(),
+                },
+                creator_id=user.id,
+                auto_commit=False,
+            )
+            AssemblyService.sync_product_components(product.id, component_items, user, auto_commit=False)
+            AssemblyService.sync_product_attachments(product.id, assembly_sheet_items, remark_items, user, auto_commit=False)
+            db.session.commit()
+            flash('操作成功', 'success')
+            return redirect(url_for('qc.assembly_product_detail', product_id=product.id))
+        except ValueError as exc:
+            db.session.rollback()
+            flash(str(exc), 'error')
+
+    return render_template('qc/assembly_product_form.html', workpiece_choices=workpiece_choices)
+
+
+@qc_bp.route('/assembly/products/<int:product_id>')
+@login_required
+def assembly_product_detail(product_id: int):
+    """Assembly product detail."""
+    user = g.current_user
+    blocked = _block_assembly_product_access(user)
+    if blocked:
+        return blocked
+
+    product = AssemblyService.get_product(product_id, user)
+    if not product:
+        flash('产品不存在或没有权限查看', 'error')
+        return redirect(url_for('qc.assembly_product_list'))
+
+    return render_template(
+        'qc/assembly_product_detail.html',
+        product=product,
+        can_edit_product=AssemblyService.can_edit_product(user, product),
+        can_delete_product=AssemblyService.can_delete_product(user, product),
+    )
+
+
+@qc_bp.route('/assembly/products/<int:product_id>/edit', methods=['GET', 'POST'])
+@login_required
+def assembly_product_edit(product_id: int):
+    """Edit an assembly product template."""
+    user = g.current_user
+    blocked = _block_assembly_product_access(user)
+    if blocked:
+        return blocked
+
+    product = AssemblyService.get_product(product_id, user)
+    workpiece_choices = AssemblyService.get_workpiece_choices(user)
+    if not product:
+        flash('产品不存在或没有权限查看', 'error')
+        return redirect(url_for('qc.assembly_product_list'))
+    if not AssemblyService.can_edit_product(user, product):
+        flash('操作失败，请检查后重试', 'error')
+        return redirect(url_for('qc.assembly_product_detail', product_id=product_id))
+
+    if request.method == 'POST':
+        component_items = _build_assembly_component_items(request.form)
+        assembly_sheet_items = _build_assembly_sheet_items(request.form, request.files)
+        remark_items = _build_remark_items(request.form, request.files)
+        try:
+            AssemblyService.update_product(
+                product_id=product_id,
+                data={
+                    'product_code': request.form.get('product_code', '').strip(),
+                    'product_name': request.form.get('product_name', '').strip(),
+                },
+                user=user,
+                auto_commit=False,
+            )
+            AssemblyService.sync_product_components(product_id, component_items, user, auto_commit=False)
+            AssemblyService.sync_product_attachments(product_id, assembly_sheet_items, remark_items, user, auto_commit=False)
+            db.session.commit()
+            flash('产品更新成功', 'success')
+            return redirect(url_for('qc.assembly_product_detail', product_id=product_id))
+        except ValueError as exc:
+            db.session.rollback()
+            flash(str(exc), 'error')
+
+    return render_template(
+        'qc/assembly_product_form.html',
+        product=product,
+        is_edit=True,
+        workpiece_choices=workpiece_choices,
+    )
+
+
+@qc_bp.route('/assembly/products/<int:product_id>/delete', methods=['POST'])
+@login_required
+def assembly_product_delete(product_id: int):
+    """Delete an assembly product template."""
+    user = g.current_user
+    blocked = _block_assembly_product_access(user)
+    if blocked:
+        return blocked
+
+    try:
+        AssemblyService.delete_product(product_id, user)
+        flash('操作成功', 'success')
+    except ValueError as exc:
+        flash(str(exc), 'error')
+    return redirect(url_for('qc.assembly_product_list'))
+
+
+@qc_bp.route('/assembly/products/<int:product_id>/snapshot')
+@login_required
+def assembly_product_snapshot(product_id: int):
+    """Return assembly product preview data for the order form."""
+    user = g.current_user
+    product = AssemblyService.get_product(product_id, user)
+    if not product:
+        return jsonify({'success': False, 'message': '产品不存在或没有权限查看'}), 404
+    return jsonify({'success': True, 'product': AssemblyService.serialize_product_preview(product)})
+
+
+@qc_bp.route('/assembly/launch/new', methods=['GET', 'POST'])
+@login_required
+def assembly_launch_new():
+    """Create a new assembly order."""
+    user = g.current_user
+    blocked = _block_assembly_launch_access(user)
+    if blocked:
+        return blocked
+
+    if not AssemblyService.can_create_order(user):
+        flash('操作失败，请检查后重试', 'error')
+        return redirect(url_for('qc.assembly_launch_list'))
+
+    products = AssemblyService.get_product_choices(user)
+    reviewers = _active_assembly_reviewers()
+
+    if request.method == 'POST':
+        action = request.form.get('submit_action', 'draft').strip()
+        if action not in ['draft', 'submit']:
+            flash('操作失败，请检查后重试', 'error')
+            return render_template(
+                'qc/assembly_order_form.html',
+                products=products,
+                reviewers=reviewers,
+            )
+
+        strict_submit = action == 'submit'
+        product_id = request.form.get('product_id', type=int)
+        reviewer_id = request.form.get('inspector_id', type=int) if strict_submit else None
+        product = AssemblyService.get_product(product_id, user) if product_id else None
+
+        try:
+            if not product:
+                raise ValueError('请选择有效产品')
+            if strict_submit and not reviewer_id:
+                raise ValueError('请选择质量检测人员')
+
+            order = AssemblyService.create_order(
+                data={
+                    'batch_no': request.form.get('batch_no', '').strip(),
+                    'product_id': product.id,
+                    'product_name_snapshot': product.product_name,
+                    'quantity': request.form.get('quantity', '').strip(),
+                },
+                controller_id=user.id,
+                status='draft' if action == 'draft' else 'assembly_pending',
+                allow_partial=(action == 'draft'),
+                auto_commit=False,
+            )
+            AssemblyService.apply_product_to_order(order.id, product.id, user, auto_commit=False)
+            AssemblyService.sync_order_section_files(
+                order.id,
+                request.files.get('registration_note_file'),
+                request.files.get('certificate_note_file'),
+                request.files.get('remark_note_file'),
+                user,
+                auto_commit=False,
+            )
+            if strict_submit:
+                AssemblyService.submit_assembly(order.id, reviewer_id, user, auto_commit=False)
+                db.session.commit()
+                flash('操作成功', 'success')
+                return redirect(url_for('qc.assembly_inspection_detail', order_id=order.id))
+
+            db.session.commit()
+            flash('装配单已保存为草稿，完成后可进入质量检测', 'success')
+            return redirect(url_for('qc.assembly_launch_detail', order_id=order.id))
+        except ValueError as exc:
+            db.session.rollback()
+            flash(str(exc), 'error')
+
+    return render_template(
+        'qc/assembly_order_form.html',
+        products=products,
+        reviewers=reviewers,
+    )
+
+
+@qc_bp.route('/assembly/launch/<int:order_id>')
+@login_required
+def assembly_launch_detail(order_id: int):
+    """Assembly launch detail."""
+    user = g.current_user
+    blocked = _block_assembly_launch_access(user)
+    if blocked:
+        return blocked
+
+    order = AssemblyService.get_order(order_id, user)
+    if not order:
+        flash('操作失败，请检查后重试', 'error')
+        return redirect(url_for('qc.assembly_launch_list'))
+
+    reviewers = _active_assembly_reviewers()
+    return render_template(
+        'qc/assembly_order_detail_qc.html',
+        order=order,
+        reviewers=reviewers,
+        inspection_records_by_attachment=AssemblyService.inspection_record_map(order),
+    )
+
+
+@qc_bp.route('/assembly/launch/<int:order_id>/edit', methods=['GET', 'POST'])
+@login_required
+def assembly_launch_edit(order_id: int):
+    """Edit an assembly order."""
+    user = g.current_user
+    blocked = _block_assembly_launch_access(user)
+    if blocked:
+        return blocked
+
+    order = AssemblyService.get_order(order_id, user)
+    if not order:
+        flash('操作失败，请检查后重试', 'error')
+        return redirect(url_for('qc.assembly_launch_list'))
+    if not AssemblyService.can_edit_order(user, order):
+        flash('当前装配单状态不允许编辑', 'error')
+        return redirect(url_for('qc.assembly_launch_detail', order_id=order_id))
+
+    products = AssemblyService.get_product_choices(user)
+    reviewers = _active_assembly_reviewers()
+
+    if request.method == 'POST':
+        try:
+            product_id = request.form.get('product_id', type=int)
+            previous_product_id = order.product_id
+            AssemblyService.update_order(
+                order_id=order_id,
+                data={
+                    'batch_no': request.form.get('batch_no', '').strip(),
+                    'product_id': product_id,
+                    'product_name_snapshot': request.form.get('product_name_snapshot', '').strip(),
+                    'quantity': request.form.get('quantity', '').strip(),
+                },
+                user=user,
+                allow_partial=(order.status == 'draft'),
+                auto_commit=False,
+            )
+            if product_id and previous_product_id != product_id:
+                AssemblyService.apply_product_to_order(order_id, product_id, user, auto_commit=False)
+            else:
+                refreshed_order = AssemblyOrder.query.get(order_id)
+                for component in refreshed_order.components:
+                    component.total_required_quantity = float(component.quantity_per_unit or 0) * float(refreshed_order.quantity or 0)
+                db.session.flush()
+
+            AssemblyService.sync_order_section_files(
+                order_id,
+                request.files.get('registration_note_file'),
+                request.files.get('certificate_note_file'),
+                request.files.get('remark_note_file'),
+                user,
+                auto_commit=False,
+            )
+            db.session.commit()
+            flash('操作成功', 'success')
+            return redirect(url_for('qc.assembly_launch_detail', order_id=order_id))
+        except ValueError as exc:
+            db.session.rollback()
+            flash(str(exc), 'error')
+
+    return render_template(
+        'qc/assembly_order_form.html',
+        order=order,
+        products=products,
+        reviewers=reviewers,
+        is_edit=True,
+    )
+
+
+@qc_bp.route('/assembly/launch/<int:order_id>/delete', methods=['POST'])
+@login_required
+def assembly_launch_delete(order_id: int):
+    """Delete an assembly order."""
+    user = g.current_user
+    blocked = _block_assembly_launch_access(user)
+    if blocked:
+        return blocked
+
+    try:
+        AssemblyService.delete_order(order_id, user)
+        flash('装配单已删除', 'success')
+    except ValueError as exc:
+        flash(str(exc), 'error')
+    return redirect(url_for('qc.assembly_launch_list'))
+
+
+@qc_bp.route('/assembly/launch/<int:order_id>/complete', methods=['POST'])
+@login_required
+def assembly_launch_complete(order_id: int):
+    """Complete assembly launch and assign the inspector/reviewer."""
+    user = g.current_user
+    blocked = _block_assembly_launch_access(user)
+    if blocked:
+        return blocked
+
+    inspector_id = request.form.get('inspector_id', type=int)
+    try:
+        AssemblyService.submit_assembly(order_id, inspector_id, user)
+        flash('操作成功', 'success')
+    except ValueError as exc:
+        flash(str(exc), 'error')
+    return redirect(url_for('qc.assembly_launch_detail', order_id=order_id))
+
+
+@qc_bp.route('/assembly/inspection/<int:order_id>', methods=['GET', 'POST'])
+@login_required
+def assembly_inspection_detail(order_id: int):
+    """Assembly inspection detail."""
+    user = g.current_user
+    blocked = _block_assembly_inspection_access(user)
+    if blocked:
+        return blocked
+
+    order = AssemblyService.get_order(order_id, user)
+    if not order:
+        flash('操作失败，请检查后重试', 'error')
+        return redirect(url_for('qc.assembly_inspection_list'))
+
+    if request.method == 'POST':
+        if not AssemblyService.can_inspect_order(user, order):
+            flash('没有权限提交质检结果', 'error')
+            return redirect(url_for('qc.assembly_inspection_detail', order_id=order_id))
+
+        action = request.form.get('submit_action', 'submit').strip()
+        final_submit = action != 'draft'
+        try:
+            results = []
+            for attachment in order.attachments:
+                result = request.form.get(f'result_{attachment.id}', '').strip()
+                remark = request.form.get(f'remark_{attachment.id}', '').strip()
+                report_file = request.files.get(f'report_file_{attachment.id}')
+                has_payload = bool(result or remark or (report_file and report_file.filename))
+                if final_submit or has_payload:
+                    results.append(
+                        {
+                            'attachment_id': attachment.id,
+                            'result': result,
+                            'remark': remark or None,
+                            'report_file': report_file,
+                        }
+                    )
+
+            updated_order = AssemblyService.submit_inspection(
+                order_id=order_id,
+                results=results,
+                user=user,
+                final_submit=final_submit,
+            )
+
+            if not final_submit:
+                flash('操作成功', 'success')
+                return redirect(url_for('qc.assembly_inspection_detail', order_id=order_id))
+
+            if updated_order.status == 'inspection_completed':
+                flash('质检合格，已进入验收/出厂模块', 'success')
+                return redirect(url_for('qc.assembly_acceptance_detail', order_id=order_id))
+
+            flash('当前无权限或条件未满足', 'warning')
+            return redirect(url_for('qc.assembly_launch_detail', order_id=order_id))
+        except ValueError as exc:
+            db.session.rollback()
+            flash(str(exc), 'error')
+
+    return render_template(
+        'qc/assembly_order_detail_inspector.html',
+        order=order,
+        inspection_records_by_attachment=AssemblyService.inspection_record_map(order),
+    )
+
+
+@qc_bp.route('/assembly/acceptance/<int:order_id>')
+@login_required
+def assembly_acceptance_detail(order_id: int):
+    """Assembly acceptance detail."""
+    user = g.current_user
+    blocked = _block_assembly_acceptance_access(user)
+    if blocked:
+        return blocked
+
+    order = AssemblyService.get_order(order_id, user)
+    if not order:
+        flash('操作失败，请检查后重试', 'error')
+        return redirect(url_for('qc.assembly_acceptance_list'))
+
+    signatures = {signature.signer_role: signature for signature in order.signatures}
+    can_cancel_signatures = {
+        role: AssemblyService.can_cancel_acceptance_signature(user, order, role)
+        for role in ['qc_controller', 'qc_inspector']
+    }
+    eligible_signer_roles = AssemblyService.eligible_acceptance_signer_roles(user, order)
+    return render_template(
+        'qc/assembly_acceptance_detail.html',
+        order=order,
+        signatures=signatures,
+        can_cancel_signatures=can_cancel_signatures,
+        eligible_signer_roles=eligible_signer_roles,
+        inspection_records_by_attachment=AssemblyService.inspection_record_map(order),
+    )
+
+
+@qc_bp.route('/assembly/acceptance/<int:order_id>/sign', methods=['POST'])
+@login_required
+def assembly_acceptance_sign(order_id: int):
+    """Assembly acceptance sign action."""
+    user = g.current_user
+    blocked = _block_assembly_acceptance_access(user)
+    if blocked:
+        return blocked
+
+    try:
+        result = AssemblyService.sign_acceptance(
+            order_id,
+            user,
+            signer_role=request.form.get('signer_role'),
+        )
+        flash(result['message'], 'success' if result['completed'] else 'info')
+    except ValueError as exc:
+        flash(str(exc), 'error')
+    return redirect(url_for('qc.assembly_acceptance_detail', order_id=order_id))
+
+
+@qc_bp.route('/assembly/acceptance/<int:order_id>/signature/<signer_role>/cancel', methods=['POST'])
+@login_required
+def assembly_acceptance_cancel_signature(order_id: int, signer_role: str):
+    """Cancel one assembly acceptance signature."""
+    user = g.current_user
+    blocked = _block_assembly_acceptance_access(user)
+    if blocked:
+        return blocked
+
+    try:
+        AssemblyService.cancel_acceptance_signature(order_id, signer_role, user)
+        flash('操作成功', 'success')
+    except ValueError as exc:
+        flash(str(exc), 'error')
+    return redirect(url_for('qc.assembly_acceptance_detail', order_id=order_id))
+
+
+@qc_bp.route('/assembly/acceptance/<int:order_id>/rollback', methods=['POST'])
+@login_required
+def assembly_acceptance_rollback(order_id: int):
+    """Rollback assembly acceptance and return the workflow."""
+    user = g.current_user
+    blocked = _block_assembly_acceptance_access(user)
+    if blocked:
+        return blocked
+
+    target = request.form.get('target', '').strip()
+    reason = request.form.get('reason', '').strip()
+    try:
+        AssemblyService.rollback_acceptance(order_id, target, reason, user)
+        flash('已退回上一流程', 'success')
+    except ValueError as exc:
+        flash(str(exc), 'error')
+    return redirect(url_for('qc.assembly_acceptance_detail', order_id=order_id))
+
+
+@qc_bp.route('/assembly/acceptance/<int:order_id>/print')
+@login_required
+def assembly_acceptance_print(order_id: int):
+    """Printable assembly shipping report."""
+    user = g.current_user
+    blocked = _block_assembly_acceptance_access(user)
+    if blocked:
+        return blocked
+
+    order = AssemblyService.get_order(order_id, user)
+    if not order:
+        flash('装配单不存在或没有权限查看', 'error')
+        return redirect(url_for('qc.assembly_acceptance_list'))
+
+    signatures = {signature.signer_role: signature for signature in order.signatures}
+    return render_template(
+        'qc/assembly_acceptance_print.html',
+        order=order,
+        signatures=signatures,
+        inspection_records_by_attachment=AssemblyService.inspection_record_map(order),
+        current_time=datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+    )
+
+
+@qc_bp.route('/assembly/acceptance/<int:order_id>/coa')
+@login_required
+def assembly_acceptance_coa_print(order_id: int):
+    """Reserved printable COA report page for assembly shipping."""
+    user = g.current_user
+    blocked = _block_assembly_acceptance_access(user)
+    if blocked:
+        return blocked
+
+    order = AssemblyService.get_order(order_id, user)
+    if not order:
+        flash('装配单不存在或没有权限查看', 'error')
+        return redirect(url_for('qc.assembly_acceptance_list'))
+
+    return render_template(
+        'qc/assembly_coa_placeholder.html',
+        order=order,
+        current_time=datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+    )
+
+
+@qc_bp.route('/research/projects/')
+@login_required
+def research_project_list():
+    """Research project library list."""
+    user = g.current_user
+    blocked = _block_research_project_access(user)
+    if blocked:
+        return blocked
+
+    page = request.args.get('page', 1, type=int)
+    keyword = request.args.get('keyword', '').strip()
+    pagination = ResearchService.get_project_list(user=user, keyword=keyword or None, page=page)
+    return render_template(
+        'qc/research_project_list.html',
+        projects=pagination.items,
+        pagination=pagination,
+        keyword=keyword,
+        can_create_project=ResearchService.can_create_project(user),
+    )
+
+
+@qc_bp.route('/research/batches/')
+@login_required
+def research_batch_list():
+    """Research initiation list."""
+    user = g.current_user
+    blocked = _block_research_batch_access(user)
+    if blocked:
+        return blocked
+
+    page = request.args.get('page', 1, type=int)
+    keyword = request.args.get('keyword', '').strip()
+    pagination = ResearchService.get_batch_list(
+        user=user,
+        keyword=keyword or None,
+        page=page,
+        statuses=['draft', 'research_pending', 'research_submitted', 'returned'],
+    )
+    return render_template(
+        'qc/research_batch_list.html',
+        batches=pagination.items,
+        pagination=pagination,
+        keyword=keyword,
+        page_title='研究批次',
+        page_icon='bi-flask',
+        empty_text='暂无研究批次，可从新建批次开始。',
+        detail_endpoint='qc.research_batch_detail',
+        new_endpoint='qc.research_batch_new',
+        can_create_new=ResearchService.can_create_batch(user),
+    )
+
+
+@qc_bp.route('/research/reviews/')
+@login_required
+def research_review_list():
+    """Research review queue."""
+    user = g.current_user
+    blocked = _block_research_review_access(user)
+    if blocked:
+        return blocked
+
+    page = request.args.get('page', 1, type=int)
+    keyword = request.args.get('keyword', '').strip()
+    pagination = ResearchService.get_batch_list(
+        user=user,
+        keyword=keyword or None,
+        page=page,
+        statuses=['research_submitted', 'review_completed'],
+    )
+    return render_template(
+        'qc/research_batch_list.html',
+        batches=pagination.items,
+        pagination=pagination,
+        keyword=keyword,
+        page_title='指导审批',
+        page_icon='bi-chat-square-text',
+        empty_text='暂无待指导审批的研究批次。',
+        detail_endpoint='qc.research_review_detail',
+        new_endpoint=None,
+        can_create_new=False,
+    )
+
+
+@qc_bp.route('/research/acceptance/')
+@login_required
+def research_acceptance_list():
+    """Research acceptance list."""
+    user = g.current_user
+    blocked = _block_research_acceptance_access(user)
+    if blocked:
+        return blocked
+
+    page = request.args.get('page', 1, type=int)
+    keyword = request.args.get('keyword', '').strip()
+    pagination = ResearchService.get_batch_list(
+        user=user,
+        keyword=keyword or None,
+        page=page,
+        statuses=['review_completed', 'accepted'],
+    )
+    return render_template(
+        'qc/research_batch_list.html',
+        batches=pagination.items,
+        pagination=pagination,
+        keyword=keyword,
+        page_title='共同验收',
+        page_icon='bi-patch-check',
+        empty_text='暂无待共同验收的研究批次。',
+        detail_endpoint='qc.research_acceptance_detail',
+        new_endpoint=None,
+        can_create_new=False,
+    )
+
+
+@qc_bp.route('/research/projects/new', methods=['GET', 'POST'])
+@login_required
+def research_project_new():
+    """Create a research project template."""
+    user = g.current_user
+    blocked = _block_research_project_access(user)
+    if blocked:
+        return blocked
+
+    if not ResearchService.can_create_project(user):
+        flash('没有权限创建研究项目', 'error')
+        return redirect(url_for('qc.research_project_list'))
+
+    if request.method == 'POST':
+        attachment_map = _build_research_attachment_map(request.form, request.files)
+        try:
+            project = ResearchService.create_project(
+                data={
+                    'project_code': request.form.get('project_code', '').strip(),
+                    'project_name': request.form.get('project_name', '').strip(),
+                    'project_category': request.form.get('project_category', '').strip(),
+                    'research_direction': request.form.get('research_direction', '').strip(),
+                },
+                creator_id=user.id,
+                auto_commit=False,
+            )
+            ResearchService.sync_project_attachments(project.id, attachment_map, user)
+            flash('操作成功', 'success')
+            return redirect(url_for('qc.research_project_detail', project_id=project.id))
+        except ValueError as exc:
+            db.session.rollback()
+            flash(str(exc), 'error')
+
+    return render_template(
+        'qc/research_project_form.html',
+        category_options=RESEARCH_PROJECT_CATEGORY_OPTIONS,
+    )
+
+
+@qc_bp.route('/research/projects/<int:project_id>')
+@login_required
+def research_project_detail(project_id: int):
+    """Research project detail."""
+    user = g.current_user
+    blocked = _block_research_project_access(user)
+    if blocked:
+        return blocked
+
+    project = ResearchService.get_project(project_id, user)
+    if not project:
+        flash('研究项目不存在或没有权限查看', 'error')
+        return redirect(url_for('qc.research_project_list'))
+
+    return render_template(
+        'qc/research_project_detail.html',
+        project=project,
+        can_edit_project=ResearchService.can_edit_project(user, project),
+        can_delete_project=ResearchService.can_delete_project(user, project),
+    )
+
+
+@qc_bp.route('/research/projects/<int:project_id>/edit', methods=['GET', 'POST'])
+@login_required
+def research_project_edit(project_id: int):
+    """Edit a research project template."""
+    user = g.current_user
+    blocked = _block_research_project_access(user)
+    if blocked:
+        return blocked
+
+    project = ResearchService.get_project(project_id, user)
+    if not project:
+        flash('研究项目不存在或没有权限查看', 'error')
+        return redirect(url_for('qc.research_project_list'))
+    if not ResearchService.can_edit_project(user, project):
+        flash('操作失败，请检查后重试', 'error')
+        return redirect(url_for('qc.research_project_detail', project_id=project_id))
+
+    if request.method == 'POST':
+        attachment_map = _build_research_attachment_map(request.form, request.files)
+        try:
+            ResearchService.update_project(
+                project_id=project_id,
+                data={
+                    'project_code': request.form.get('project_code', '').strip(),
+                    'project_name': request.form.get('project_name', '').strip(),
+                    'project_category': request.form.get('project_category', '').strip(),
+                    'research_direction': request.form.get('research_direction', '').strip(),
+                },
+                user=user,
+            )
+            ResearchService.sync_project_attachments(project_id, attachment_map, user)
+            flash('研究项目更新成功', 'success')
+            return redirect(url_for('qc.research_project_detail', project_id=project_id))
+        except ValueError as exc:
+            db.session.rollback()
+            flash(str(exc), 'error')
+
+    return render_template(
+        'qc/research_project_form.html',
+        project=project,
+        is_edit=True,
+        category_options=RESEARCH_PROJECT_CATEGORY_OPTIONS,
+    )
+
+
+@qc_bp.route('/research/projects/<int:project_id>/delete', methods=['POST'])
+@login_required
+def research_project_delete(project_id: int):
+    """Delete a research project template."""
+    user = g.current_user
+    blocked = _block_research_project_access(user)
+    if blocked:
+        return blocked
+
+    try:
+        ResearchService.delete_project(project_id, user)
+        flash('操作成功', 'success')
+    except ValueError as exc:
+        flash(str(exc), 'error')
+    return redirect(url_for('qc.research_project_list'))
+
+
+@qc_bp.route('/research/projects/<int:project_id>/snapshot')
+@login_required
+def research_project_snapshot(project_id: int):
+    """Return research project preview data for the batch form."""
+    user = g.current_user
+    project = ResearchService.get_project(project_id, user)
+    if not project:
+        return jsonify({'success': False, 'message': '研究项目不存在或没有权限查看'}), 404
+    return jsonify({'success': True, 'project': ResearchService.serialize_project_preview(project)})
+
+
+@qc_bp.route('/research/batches/new', methods=['GET', 'POST'])
+@login_required
+def research_batch_new():
+    """Create a new research batch."""
+    user = g.current_user
+    blocked = _block_research_batch_access(user)
+    if blocked:
+        return blocked
+
+    if not ResearchService.can_create_batch(user):
+        flash('没有权限发起研究批次', 'error')
+        return redirect(url_for('qc.research_batch_list'))
+
+    projects = ResearchService.get_project_choices(user)
+    reviewers = _active_research_reviewers()
+
+    if request.method == 'POST':
+        action = request.form.get('submit_action', 'draft').strip()
+        if action not in ['draft', 'submit']:
+            flash('操作失败，请检查后重试', 'error')
+            return render_template(
+                'qc/research_batch_form.html',
+                projects=projects,
+                reviewers=reviewers,
+                category_options=RESEARCH_PROJECT_CATEGORY_OPTIONS,
+            )
+
+        strict_submit = action == 'submit'
+        project_id = request.form.get('project_id', type=int)
+        reviewer_id = request.form.get('reviewer_id', type=int)
+        project = ResearchService.get_project(project_id, user) if project_id else None
+
+        try:
+            if not project:
+                raise ValueError('提交数据无效，请检查后重试')
+            if strict_submit and not reviewer_id:
+                raise ValueError('请选择指导/验收人员')
+
+            batch = ResearchService.create_batch(
+                data={
+                    'batch_no': request.form.get('batch_no', '').strip(),
+                    'project_id': project.id,
+                    'project_name_snapshot': project.project_name,
+                    'sample_quantity': request.form.get('sample_quantity', '').strip(),
+                    'reviewer_id': reviewer_id,
+                },
+                researcher_id=user.id,
+                status='draft',
+                allow_partial=not strict_submit,
+                auto_commit=False,
+            )
+            ResearchService.apply_project_to_batch(batch.id, project.id, user)
+            ResearchService.sync_batch_section_files(
+                batch.id,
+                request.files.get('initiation_note_file'),
+                request.files.get('phase_result_file'),
+                request.files.get('supplementary_note_file'),
+                user,
+            )
+            ResearchService.add_batch_history(
+                batch,
+                '保存研究批次',
+                '保存研究批次草稿' if not strict_submit else '提交研究批次至指导审批',
+                user,
+            )
+            db.session.commit()
+
+            if strict_submit:
+                ResearchService.submit_batch_for_review(batch.id, reviewer_id, user)
+                flash('操作成功', 'success')
+            else:
+                flash('操作成功', 'success')
+            return redirect(url_for('qc.research_batch_detail', batch_id=batch.id))
+        except ValueError as exc:
+            db.session.rollback()
+            flash(str(exc), 'error')
+
+    return render_template(
+        'qc/research_batch_form.html',
+        projects=projects,
+        reviewers=reviewers,
+        category_options=RESEARCH_PROJECT_CATEGORY_OPTIONS,
+    )
+
+
+@qc_bp.route('/research/batches/<int:batch_id>')
+@login_required
+def research_batch_detail(batch_id: int):
+    """Research batch detail."""
+    user = g.current_user
+    blocked = _block_research_batch_access(user)
+    if blocked:
+        return blocked
+
+    batch = ResearchService.get_batch(batch_id, user)
+    if not batch:
+        flash('研究批次不存在或没有权限查看', 'error')
+        return redirect(url_for('qc.research_batch_list'))
+
+    return render_template(
+        'qc/research_batch_detail.html',
+        batch=batch,
+        review_records_by_attachment=ResearchService.review_record_map(batch),
+        can_edit_batch=ResearchService.can_edit_batch(user, batch),
+    )
+
+
+@qc_bp.route('/research/batches/<int:batch_id>/edit', methods=['GET', 'POST'])
+@login_required
+def research_batch_edit(batch_id: int):
+    """Edit a research batch."""
+    user = g.current_user
+    blocked = _block_research_batch_access(user)
+    if blocked:
+        return blocked
+
+    batch = ResearchService.get_batch(batch_id, user)
+    if not batch:
+        flash('研究批次不存在或没有权限查看', 'error')
+        return redirect(url_for('qc.research_batch_list'))
+    if not ResearchService.can_edit_batch(user, batch):
+        flash('当前研究批次状态不允许编辑', 'error')
+        return redirect(url_for('qc.research_batch_detail', batch_id=batch_id))
+
+    projects = ResearchService.get_project_choices(user)
+    reviewers = _active_research_reviewers()
+
+    if request.method == 'POST':
+        action = request.form.get('submit_action', 'draft').strip()
+        if action not in ['draft', 'submit']:
+            flash('操作失败，请检查后重试', 'error')
+            return render_template(
+                'qc/research_batch_form.html',
+                batch=batch,
+                is_edit=True,
+                projects=projects,
+                reviewers=reviewers,
+                category_options=RESEARCH_PROJECT_CATEGORY_OPTIONS,
+            )
+
+        strict_submit = action == 'submit'
+        project_id = request.form.get('project_id', type=int)
+        reviewer_id = request.form.get('reviewer_id', type=int)
+        previous_project_id = batch.project_id
+        had_attachments = bool(batch.attachments)
+        project = ResearchService.get_project(project_id, user) if project_id else None
+
+        try:
+            if not project:
+                raise ValueError('提交数据无效，请检查后重试')
+            if strict_submit and not reviewer_id:
+                raise ValueError('请选择指导/验收人员')
+
+            ResearchService.update_batch(
+                batch_id=batch_id,
+                data={
+                    'batch_no': request.form.get('batch_no', '').strip(),
+                    'project_id': project.id,
+                    'project_name_snapshot': project.project_name,
+                    'sample_quantity': request.form.get('sample_quantity', '').strip(),
+                    'reviewer_id': reviewer_id,
+                },
+                user=user,
+                allow_partial=not strict_submit,
+            )
+
+            if previous_project_id != project.id or not had_attachments:
+                ResearchService.apply_project_to_batch(batch_id, project.id, user)
+
+            ResearchService.sync_batch_section_files(
+                batch_id,
+                request.files.get('initiation_note_file'),
+                request.files.get('phase_result_file'),
+                request.files.get('supplementary_note_file'),
+                user,
+            )
+
+            batch = ResearchService.get_batch(batch_id, user)
+            if strict_submit:
+                ResearchService.submit_batch_for_review(batch_id, reviewer_id, user)
+                flash('操作成功', 'success')
+            else:
+                ResearchService.add_batch_history(batch, '编辑研究批次', '已更新研究批次基础信息和材料', user)
+                db.session.flush()
+                flash('操作成功', 'success')
+
+            return redirect(url_for('qc.research_batch_detail', batch_id=batch_id))
+        except ValueError as exc:
+            db.session.rollback()
+            flash(str(exc), 'error')
+
+    return render_template(
+        'qc/research_batch_form.html',
+        batch=batch,
+        is_edit=True,
+        projects=projects,
+        reviewers=reviewers,
+        category_options=RESEARCH_PROJECT_CATEGORY_OPTIONS,
+    )
+
+
+@qc_bp.route('/research/batches/<int:batch_id>/delete', methods=['POST'])
+@login_required
+def research_batch_delete(batch_id: int):
+    """Delete a research batch."""
+    user = g.current_user
+    blocked = _block_research_batch_access(user)
+    if blocked:
+        return blocked
+
+    try:
+        ResearchService.delete_batch(batch_id, user)
+        flash('操作成功', 'success')
+    except ValueError as exc:
+        flash(str(exc), 'error')
+    return redirect(url_for('qc.research_batch_list'))
+
+
+@qc_bp.route('/research/reviews/<int:batch_id>', methods=['GET', 'POST'])
+@login_required
+def research_review_detail(batch_id: int):
+    """Research review detail."""
+    user = g.current_user
+    blocked = _block_research_review_access(user)
+    if blocked:
+        return blocked
+
+    batch = ResearchService.get_batch(batch_id, user)
+    if not batch:
+        flash('研究批次不存在或没有权限查看', 'error')
+        return redirect(url_for('qc.research_review_list'))
+
+    if request.method == 'POST':
+        if not ResearchService.can_review_batch(user, batch):
+            flash('没有权限提交指导审批结果', 'error')
+            return redirect(url_for('qc.research_review_detail', batch_id=batch_id))
+
+        action = request.form.get('submit_action', 'submit').strip()
+        final_submit = action != 'draft'
+        try:
+            updated_batch = ResearchService.submit_review(
+                batch_id=batch_id,
+                results=_build_research_review_results(batch, request.form, request.files),
+                user=user,
+                final_submit=final_submit,
+            )
+            if not final_submit:
+                flash('操作成功', 'success')
+                return redirect(url_for('qc.research_review_detail', batch_id=batch_id))
+
+            if updated_batch.status == 'review_completed':
+                flash('操作成功', 'success')
+                return redirect(url_for('qc.research_acceptance_detail', batch_id=batch_id))
+
+            flash('当前无权限或条件未满足', 'warning')
+            if ResearchService.can_access_batch_launch(user):
+                return redirect(url_for('qc.research_batch_detail', batch_id=batch_id))
+            return redirect(url_for('qc.research_review_list'))
+        except ValueError as exc:
+            db.session.rollback()
+            flash(str(exc), 'error')
+
+    return render_template(
+        'qc/research_review_detail.html',
+        batch=batch,
+        review_records_by_attachment=ResearchService.review_record_map(batch),
+        can_review_batch=ResearchService.can_review_batch(user, batch),
+    )
+
+
+@qc_bp.route('/research/acceptance/<int:batch_id>')
+@login_required
+def research_acceptance_detail(batch_id: int):
+    """Research acceptance detail."""
+    user = g.current_user
+    blocked = _block_research_acceptance_access(user)
+    if blocked:
+        return blocked
+
+    batch = ResearchService.get_batch(batch_id, user)
+    if not batch:
+        flash('研究批次不存在或没有权限查看', 'error')
+        return redirect(url_for('qc.research_acceptance_list'))
+
+    signatures = batch.signatures_by_role
+    can_accept_batch = ResearchService.can_accept_batch(user, batch)
+    can_rollback_batch = ResearchService.can_rollback_batch(user, batch)
+    can_sign_as_researcher = _can_sign_research_acceptance_as(user, batch, 'researcher')
+    can_sign_as_reviewer = _can_sign_research_acceptance_as(user, batch, 'reviewer')
+    can_cancel_signatures = {
+        signer_role: bool(signatures.get(signer_role)) and ResearchService.can_cancel_acceptance_signature(
+            user,
+            batch,
+            signer_role,
+        )
+        for signer_role in ['researcher', 'reviewer']
+    }
+
+    return render_template(
+        'qc/research_acceptance_detail.html',
+        batch=batch,
+        signatures=signatures,
+        can_cancel_signatures=can_cancel_signatures,
+        review_records_by_attachment=ResearchService.review_record_map(batch),
+        can_accept_batch=can_accept_batch,
+        can_rollback_batch=can_rollback_batch,
+        can_sign_as_researcher=can_sign_as_researcher,
+        can_sign_as_reviewer=can_sign_as_reviewer,
+    )
+
+
+@qc_bp.route('/research/acceptance/<int:batch_id>/sign', methods=['POST'])
+@login_required
+def research_acceptance_sign(batch_id: int):
+    """Submit a research acceptance signature."""
+    user = g.current_user
+    blocked = _block_research_acceptance_access(user)
+    if blocked:
+        return blocked
+
+    signer_role = request.form.get('signer_role', '').strip() or None
+    try:
+        result = ResearchService.sign_acceptance(batch_id, user, signer_role=signer_role)
+        flash(result['message'], 'success')
+    except ValueError as exc:
+        flash(str(exc), 'error')
+    return redirect(url_for('qc.research_acceptance_detail', batch_id=batch_id))
+
+
+@qc_bp.route('/research/acceptance/<int:batch_id>/cancel-signature/<signer_role>', methods=['POST'])
+@login_required
+def research_acceptance_cancel_signature(batch_id: int, signer_role: str):
+    """Cancel one research acceptance signature."""
+    user = g.current_user
+    blocked = _block_research_acceptance_access(user)
+    if blocked:
+        return blocked
+
+    try:
+        ResearchService.cancel_acceptance_signature(batch_id, signer_role, user)
+        flash('操作成功', 'success')
+    except ValueError as exc:
+        flash(str(exc), 'error')
+    return redirect(url_for('qc.research_acceptance_detail', batch_id=batch_id))
+
+
+@qc_bp.route('/research/acceptance/<int:batch_id>/rollback', methods=['POST'])
+@login_required
+def research_acceptance_rollback(batch_id: int):
+    """Roll a research batch back from acceptance."""
+    user = g.current_user
+    blocked = _block_research_acceptance_access(user)
+    if blocked:
+        return blocked
+
+    target = request.form.get('target', '').strip()
+    reason = request.form.get('reason', '').strip()
+
+    try:
+        ResearchService.rollback_batch(batch_id, target, reason, user)
+        flash('研究批次已退回', 'success')
+        if target == 'research':
+            return redirect(url_for('qc.research_batch_detail', batch_id=batch_id))
+        return redirect(url_for('qc.research_review_detail', batch_id=batch_id))
+    except ValueError as exc:
+        flash(str(exc), 'error')
+    return redirect(url_for('qc.research_acceptance_detail', batch_id=batch_id))
+
+
+# ==================== QC 绯荤粺绠＄悊 ====================
 
 QC_ADMIN_MANAGED_ROLE_CODES = ('superadmin',) + QC_ADMIN_ROLE_CODES
 
@@ -251,14 +1997,14 @@ def qc_admin_toggle_user(user_id: int):
 
     user = UserService.get_user_by_id(user_id, include_qc=True)
     if not user:
-        flash('用户不存在', 'error')
+        flash('操作失败，请检查后重试', 'error')
         return redirect(url_for('qc.qc_admin_users'))
     if user.is_superadmin:
-        flash('不能禁用超级管理员账号', 'error')
+        flash('操作失败，请检查后重试', 'error')
         return redirect(url_for('qc.qc_admin_users'))
 
     AuthService.toggle_user_status(user)
-    flash(f'用户 {user.username} 状态已更新', 'success')
+    flash(f'用户 {user.username} 鐘舵€佸凡鏇存柊', 'success')
     return redirect(url_for('qc.qc_admin_users'))
 
 
@@ -272,11 +2018,11 @@ def qc_admin_reset_password(user_id: int):
 
     user = UserService.get_user_by_id(user_id, include_qc=True)
     if not user:
-        flash('用户不存在', 'error')
+        flash('操作失败，请检查后重试', 'error')
         return redirect(url_for('qc.qc_admin_users'))
 
     AuthService.reset_password(user)
-    flash(f'用户 {user.username} 密码已重置为默认值', 'success')
+    flash(f'已重置 {user.username} 的密码', 'success')
     return redirect(url_for('qc.qc_admin_users'))
 
 
@@ -315,7 +2061,7 @@ def qc_admin_approve_user(user_id: int):
 
     user = UserService.get_user_by_id(user_id, include_qc=True)
     if not user:
-        flash('用户不存在', 'error')
+        flash('操作失败，请检查后重试', 'error')
         return redirect(url_for('qc.qc_admin_pending'))
 
     AuthService.approve_user(user, g.current_user)
@@ -333,7 +2079,7 @@ def qc_admin_reject_user(user_id: int):
 
     user = UserService.get_user_by_id(user_id, include_qc=True)
     if not user:
-        flash('用户不存在', 'error')
+        flash('操作失败，请检查后重试', 'error')
         return redirect(url_for('qc.qc_admin_pending'))
 
     AuthService.reject_user(user)
@@ -361,7 +2107,7 @@ def qc_admin_approve_binding(binding_id: int):
         binding.user.approved_at = now
 
     db.session.commit()
-    flash(f'已通过 {binding.user.username} 的 QC 角色申请', 'success')
+    flash(f'已通过 {binding.user.username} 的 AI CATS 绑定申请', 'success')
     return redirect(url_for('qc.qc_admin_pending'))
 
 
@@ -380,7 +2126,7 @@ def qc_admin_reject_binding(binding_id: int):
     if not user.is_active and user.role.code in QC_ROLE_CODES:
         db.session.delete(user)
     db.session.commit()
-    flash(f'已拒绝 {username} 的 QC 角色申请', 'success')
+    flash(f'已拒绝 {username} 的 AI CATS 绑定申请', 'success')
     return redirect(url_for('qc.qc_admin_pending'))
 
 
@@ -420,7 +2166,7 @@ def qc_admin_edit_role(role_id: int):
         flash('该角色不属于 QC 系统管理范围', 'error')
         return redirect(url_for('qc.qc_admin_roles'))
     if role.code == 'superadmin':
-        flash('超级管理员权限不可编辑', 'error')
+        flash('操作失败，请检查后重试', 'error')
         return redirect(url_for('qc.qc_admin_roles'))
 
     if request.method == 'POST':
@@ -481,6 +2227,8 @@ def workpiece_new():
 
     if request.method == 'POST':
         guide_items = _build_guide_items(request.form, request.files)
+        drawing_items = _build_drawing_items(request.form, request.files)
+        material_items = _build_material_items(request.form, request.files)
         remark_items = _build_remark_items(request.form, request.files)
         drawing_file = request.files.get('drawing')
 
@@ -489,6 +2237,7 @@ def workpiece_new():
                 data={
                     'workpiece_code': request.form.get('workpiece_code', '').strip(),
                     'workpiece_name': request.form.get('workpiece_name', '').strip(),
+                    'workpiece_type': request.form.get('workpiece_type', '').strip(),
                 },
                 creator_id=user.id,
                 auto_commit=False,
@@ -499,14 +2248,16 @@ def workpiece_new():
                 remark_items=remark_items,
                 drawing_file=drawing_file,
                 user=user,
+                material_items=material_items,
+                drawing_items=drawing_items,
             )
-            flash('工件已创建', 'success')
+            flash('操作成功', 'success')
             return redirect(url_for('qc.workpiece_detail', workpiece_id=workpiece.id))
         except ValueError as exc:
             db.session.rollback()
             flash(str(exc), 'error')
 
-    return render_template('qc/workpiece_form.html')
+    return render_template('qc/workpiece_form.html', workpiece_types=QC_WORKPIECE_TYPE_DISPLAY)
 
 
 @qc_bp.route('/workpieces/<int:workpiece_id>')
@@ -540,11 +2291,13 @@ def workpiece_edit(workpiece_id: int):
         flash('工件不存在或没有权限查看', 'error')
         return redirect(url_for('qc.workpiece_list'))
     if not QCService.can_edit_workpiece(user, workpiece):
-        flash('没有权限编辑该工件', 'error')
+        flash('操作失败，请检查后重试', 'error')
         return redirect(url_for('qc.workpiece_detail', workpiece_id=workpiece_id))
 
     if request.method == 'POST':
         guide_items = _build_guide_items(request.form, request.files)
+        drawing_items = _build_drawing_items(request.form, request.files)
+        material_items = _build_material_items(request.form, request.files)
         remark_items = _build_remark_items(request.form, request.files)
         drawing_file = request.files.get('drawing')
         try:
@@ -553,6 +2306,7 @@ def workpiece_edit(workpiece_id: int):
                 data={
                     'workpiece_code': request.form.get('workpiece_code', '').strip(),
                     'workpiece_name': request.form.get('workpiece_name', '').strip(),
+                    'workpiece_type': request.form.get('workpiece_type', '').strip(),
                 },
                 user=user,
             )
@@ -562,6 +2316,8 @@ def workpiece_edit(workpiece_id: int):
                 remark_items=remark_items,
                 drawing_file=drawing_file,
                 user=user,
+                material_items=material_items,
+                drawing_items=drawing_items,
             )
             flash('工件更新成功', 'success')
             return redirect(url_for('qc.workpiece_detail', workpiece_id=workpiece_id))
@@ -569,7 +2325,12 @@ def workpiece_edit(workpiece_id: int):
             db.session.rollback()
             flash(str(exc), 'error')
 
-    return render_template('qc/workpiece_form.html', workpiece=workpiece, is_edit=True)
+    return render_template(
+        'qc/workpiece_form.html',
+        workpiece=workpiece,
+        is_edit=True,
+        workpiece_types=QC_WORKPIECE_TYPE_DISPLAY,
+    )
 
 
 @qc_bp.route('/workpieces/<int:workpiece_id>/delete', methods=['POST'])
@@ -583,7 +2344,7 @@ def workpiece_delete(workpiece_id: int):
 
     try:
         QCService.delete_workpiece(workpiece_id, user)
-        flash('工件已删除', 'success')
+        flash('操作成功', 'success')
     except ValueError as exc:
         flash(str(exc), 'error')
     return redirect(url_for('qc.workpiece_list'))
@@ -600,7 +2361,7 @@ def workpiece_snapshot(workpiece_id: int):
     return jsonify({'success': True, 'workpiece': QCService.serialize_workpiece_preview(workpiece)})
 
 
-# ==================== 质量控制模块 ====================
+# ==================== 璐ㄩ噺鎺у埗妯″潡 ====================
 
 @qc_bp.route('/quality-control/')
 @login_required
@@ -650,8 +2411,13 @@ def quality_control_new():
     if request.method == 'POST':
         action = request.form.get('submit_action', '').strip()
         if action not in ['draft', 'complete']:
-            flash('无效的提交流程，请重新操作', 'error')
-            return render_template('qc/work_order_form.html', workpieces=workpieces, suppliers=suppliers)
+            flash('操作失败，请检查后重试', 'error')
+            return render_template(
+                'qc/work_order_form.html',
+                workpieces=workpieces,
+                suppliers=suppliers,
+                workpiece_types=QC_WORKPIECE_TYPE_DISPLAY,
+            )
 
         strict_complete = action == 'complete'
         inspector_id = request.form.get('inspector_id', type=int) if strict_complete else None
@@ -659,13 +2425,14 @@ def quality_control_new():
 
         try:
             if strict_complete and not inspector_id:
-                raise ValueError('请选择目标供应商')
+                raise ValueError('提交数据无效，请检查后重试')
 
             work_order = QCService.create_work_order(
                 data={
                     'batch_no': request.form.get('batch_no', '').strip(),
                     'workpiece_id': workpiece_id,
                     'workpiece_name': request.form.get('workpiece_name', '').strip(),
+                    'workpiece_type': request.form.get('workpiece_type', '').strip(),
                     'quantity': request.form.get('quantity', '').strip(),
                 },
                 controller_id=user.id,
@@ -699,9 +2466,9 @@ def quality_control_new():
                         allow_partial=(action == 'draft'),
                     )
                 elif strict_complete:
-                    raise ValueError('请选择工件后再完成质控')
+                    raise ValueError('请选择有效工件或上传质检材料')
                 else:
-                    db.session.commit()
+                    db.session.flush()
 
             QCService.sync_order_section_files(
                 order_id=work_order.id,
@@ -713,16 +2480,21 @@ def quality_control_new():
 
             if action == 'complete':
                 QCService.complete_quality_control(work_order.id, inspector_id, user)
-                flash('工件订单已完成并推送至质量检测模块', 'success')
+                flash('操作成功', 'success')
                 return redirect(url_for('qc.quality_inspection_detail', order_id=work_order.id))
 
-            flash('草稿已保存，仅您和系统管理员可见', 'success')
+            flash('工件订单已保存为草稿，完成后可进入质量检测', 'success')
             return redirect(url_for('qc.quality_control_detail', order_id=work_order.id))
         except ValueError as exc:
             db.session.rollback()
             flash(str(exc), 'error')
 
-    return render_template('qc/work_order_form.html', workpieces=workpieces, suppliers=suppliers)
+    return render_template(
+        'qc/work_order_form.html',
+        workpieces=workpieces,
+        suppliers=suppliers,
+        workpiece_types=QC_WORKPIECE_TYPE_DISPLAY,
+    )
 
 
 @qc_bp.route('/quality-control/<int:order_id>')
@@ -763,7 +2535,7 @@ def quality_control_edit(order_id: int):
         return redirect(url_for('qc.quality_control_list'))
 
     if not QCService.can_edit_work_order(user, work_order):
-        flash('当前订单状态不允许编辑', 'error')
+        flash('当前工件订单状态不允许编辑', 'error')
         return redirect(url_for('qc.quality_control_detail', order_id=order_id))
 
     suppliers = _active_suppliers()
@@ -782,6 +2554,7 @@ def quality_control_edit(order_id: int):
                     'batch_no': request.form.get('batch_no', '').strip(),
                     'workpiece_id': workpiece_id,
                     'workpiece_name': request.form.get('workpiece_name', '').strip(),
+                    'workpiece_type': request.form.get('workpiece_type', '').strip(),
                     'quantity': request.form.get('quantity', '').strip(),
                 },
                 user=user,
@@ -821,6 +2594,7 @@ def quality_control_edit(order_id: int):
         order=work_order,
         suppliers=suppliers,
         workpieces=workpieces,
+        workpiece_types=QC_WORKPIECE_TYPE_DISPLAY,
         is_edit=True,
     )
 
@@ -836,7 +2610,7 @@ def quality_control_delete(order_id: int):
 
     try:
         QCService.delete_work_order(order_id, user)
-        flash('工件订单已删除', 'success')
+        flash('操作成功', 'success')
     except ValueError as exc:
         flash(str(exc), 'error')
     return redirect(url_for('qc.quality_control_list'))
@@ -855,7 +2629,7 @@ def quality_control_complete(order_id: int):
 
     try:
         QCService.complete_quality_control(order_id, inspector_id, user)
-        flash('质控完成，已推送至质量检测模块', 'success')
+        flash('操作成功', 'success')
     except ValueError as exc:
         flash(str(exc), 'error')
 
@@ -873,7 +2647,7 @@ def quality_control_delete_attachment(attachment_id: int):
 
     try:
         QCService.delete_attachment(attachment_id, user)
-        flash('附件已删除', 'success')
+        flash('操作成功', 'success')
     except ValueError as exc:
         flash(str(exc), 'error')
     return redirect(request.referrer or url_for('qc.index'))
@@ -953,14 +2727,14 @@ def quality_inspection_detail(order_id: int):
             )
 
             if not final_submit:
-                flash('质检草稿已保存', 'success')
+                flash('操作成功', 'success')
                 return redirect(url_for('qc.quality_inspection_detail', order_id=order_id))
 
             if updated_order.status == 'inspection_completed':
                 flash('质检合格，已进入验收模块', 'success')
                 return redirect(url_for('qc.acceptance_detail', order_id=order_id))
 
-            flash('质检不合格，已退回质量控制流程', 'warning')
+            flash('当前无权限或条件未满足', 'warning')
             if QCService.can_access_quality_control(user):
                 return redirect(url_for('qc.quality_control_detail', order_id=order_id))
             return redirect(url_for('qc.quality_inspection_list'))
@@ -975,7 +2749,7 @@ def quality_inspection_detail(order_id: int):
     )
 
 
-# ==================== 验收模块 ====================
+# ==================== 楠屾敹妯″潡 ====================
 
 @qc_bp.route('/acceptance/')
 @login_required
@@ -1018,10 +2792,17 @@ def acceptance_detail(order_id: int):
         return redirect(url_for('qc.acceptance_list'))
 
     signatures = {signature.signer_role: signature for signature in work_order.signatures}
+    can_cancel_signatures = {
+        role: QCService.can_cancel_acceptance_signature(user, work_order, role)
+        for role in ['qc_controller', 'qc_inspector']
+    }
+    eligible_signer_roles = QCService.eligible_acceptance_signer_roles(user, work_order)
     return render_template(
         'qc/acceptance_detail.html',
         order=work_order,
         signatures=signatures,
+        can_cancel_signatures=can_cancel_signatures,
+        eligible_signer_roles=eligible_signer_roles,
         inspection_records_by_attachment=_build_inspection_record_map(work_order),
     )
 
@@ -1036,8 +2817,29 @@ def acceptance_sign(order_id: int):
         return blocked
 
     try:
-        result = QCService.sign_acceptance(order_id, user)
+        result = QCService.sign_acceptance(
+            order_id,
+            user,
+            signer_role=request.form.get('signer_role'),
+        )
         flash(result['message'], 'success' if result['completed'] else 'info')
+    except ValueError as exc:
+        flash(str(exc), 'error')
+    return redirect(url_for('qc.acceptance_detail', order_id=order_id))
+
+
+@qc_bp.route('/acceptance/<int:order_id>/signature/<signer_role>/cancel', methods=['POST'])
+@login_required
+def acceptance_cancel_signature(order_id: int, signer_role: str):
+    """Cancel one acceptance signature."""
+    user = g.current_user
+    blocked = _require_qc_acceptance_access(user)
+    if blocked:
+        return blocked
+
+    try:
+        QCService.cancel_acceptance_signature(order_id, signer_role, user)
+        flash('操作成功', 'success')
     except ValueError as exc:
         flash(str(exc), 'error')
     return redirect(url_for('qc.acceptance_detail', order_id=order_id))
@@ -1057,7 +2859,7 @@ def acceptance_rollback(order_id: int):
 
     try:
         QCService.rollback_acceptance(order_id, target, reason, user)
-        flash('流程已回退', 'success')
+        flash('已退回上一流程', 'success')
     except ValueError as exc:
         flash(str(exc), 'error')
 

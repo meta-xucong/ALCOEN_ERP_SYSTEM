@@ -1,0 +1,224 @@
+{% extends 'qc/base.html' %}
+{% from 'qc/_research_file_macros.html' import file_preview %}
+
+{% macro render_batch_section(title, icon_class, attachments, review_records_by_attachment, empty_text) %}
+<div class="card h-100 border-0 shadow-sm">
+    <div class="card-header bg-light">
+        <h5 class="mb-0"><i class="bi {{ icon_class }}"></i> {{ title }}</h5>
+    </div>
+    <div class="card-body">
+        {% if attachments %}
+            {% for attachment in attachments %}
+            {% set record = review_records_by_attachment.get(attachment.id) %}
+            <div class="border rounded p-3 mb-3 {% if record and record.result == 'revise' %}border-danger bg-danger-subtle{% endif %}">
+                <div class="d-flex justify-content-between align-items-start gap-3 mb-2">
+                    <div>
+                        <h6 class="fw-bold mb-1">{{ attachment.display_title }}</h6>
+                        {% if attachment.content %}
+                        <p class="text-muted small mb-2">{{ attachment.content }}</p>
+                        {% endif %}
+                    </div>
+                    {% if record %}
+                        {% if record.result == 'approved' %}
+                        <span class="badge bg-success">指导通过</span>
+                        {% elif record.result == 'revise' %}
+                        <span class="badge bg-danger">需补充</span>
+                        {% else %}
+                        <span class="badge bg-secondary">草稿</span>
+                        {% endif %}
+                    {% endif %}
+                </div>
+                {{ file_preview(attachment.file_url, attachment.file_path.split('/')[-1], attachment.is_image, attachment.display_title) }}
+                {% if record and record.suggestion %}
+                <div class="alert alert-warning py-2 mt-3 mb-0">
+                    指导建议：{{ record.suggestion }}
+                </div>
+                {% endif %}
+            </div>
+            {% endfor %}
+        {% else %}
+        <p class="text-muted mb-0">{{ empty_text }}</p>
+        {% endif %}
+    </div>
+</div>
+{% endmacro %}
+
+{% block title %}研究批次详情 - ALCOEN AI CATS{% endblock %}
+
+{% block extra_css %}
+<style>
+    .research-thumb {
+        max-height: 220px;
+        max-width: 100%;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+{% set status_info = batch.get_acceptance_status_display() if batch.status in ['review_completed', 'accepted'] else batch.get_status_display() %}
+
+<div class="d-flex justify-content-between align-items-center flex-wrap gap-3 mb-4">
+    <h1 class="d-flex align-items-center gap-3 mb-0">
+        <i class="bi bi-flask text-warning" style="font-size: 2rem;"></i>
+        <span class="text-gradient" style="font-weight: 800; font-size: 2rem;">研究批次详情</span>
+        <span class="badge {{ status_info.badge }} fs-6">{{ status_info.text }}</span>
+    </h1>
+    <div class="d-flex gap-2 flex-wrap">
+        {% if can_edit_batch %}
+        <a href="{{ url_for('qc.research_batch_edit', batch_id=batch.id) }}" class="btn btn-info">
+            <i class="bi bi-pencil"></i> 编辑
+        </a>
+        <form method="POST" action="{{ url_for('qc.research_batch_delete', batch_id=batch.id) }}" onsubmit="return confirm('确定要删除这个研究批次吗？');">
+            <button type="submit" class="btn btn-outline-danger">
+                <i class="bi bi-trash"></i> 删除
+            </button>
+        </form>
+        {% endif %}
+        {% if batch.status in ['research_submitted', 'review_completed'] %}
+        <a href="{{ url_for('qc.research_review_detail', batch_id=batch.id) }}" class="btn btn-outline-primary">
+            <i class="bi bi-chat-square-text"></i> 查看指导审批
+        </a>
+        {% endif %}
+        {% if batch.status in ['review_completed', 'accepted'] %}
+        <a href="{{ url_for('qc.research_acceptance_detail', batch_id=batch.id) }}" class="btn btn-outline-success">
+            <i class="bi bi-patch-check"></i> 查看共同验收
+        </a>
+        {% endif %}
+        <a href="{{ url_for('qc.research_batch_list') }}" class="btn btn-outline-secondary">
+            <i class="bi bi-arrow-left"></i> 返回列表
+        </a>
+    </div>
+</div>
+
+{% if batch.return_reason and batch.status == 'returned' %}
+<div class="alert alert-danger mb-4">
+    <i class="bi bi-exclamation-octagon"></i> 当前批次已退回补充。
+    <div class="mt-2 small">退回原因：{{ batch.return_reason }}</div>
+</div>
+{% endif %}
+
+<div class="card mb-4">
+    <div class="card-header bg-primary text-white">
+        <h5 class="mb-0"><i class="bi bi-info-circle"></i> 基础信息</h5>
+    </div>
+    <div class="card-body">
+        <div class="row">
+            <div class="col-md-3 mb-3">
+                <label class="text-muted small">批次号</label>
+                <div class="fw-medium fs-5">{{ batch.batch_no }}</div>
+            </div>
+            <div class="col-md-3 mb-3">
+                <label class="text-muted small">研究项目</label>
+                <div class="fw-medium fs-5">{{ batch.project_display_name }}</div>
+            </div>
+            <div class="col-md-3 mb-3">
+                <label class="text-muted small">样品数量 / 实验数量</label>
+                <div class="fw-medium fs-5">{{ '{:g}'.format(batch.sample_quantity or 0) }}</div>
+            </div>
+            <div class="col-md-3 mb-3">
+                <label class="text-muted small">当前状态</label>
+                <div class="fw-medium fs-5">{{ status_info.text }}</div>
+            </div>
+            <div class="col-md-3 mb-3">
+                <label class="text-muted small">研发人员</label>
+                <div class="fw-medium fs-5">{{ batch.researcher.real_name or batch.researcher.username }}</div>
+            </div>
+            <div class="col-md-3 mb-3">
+                <label class="text-muted small">指导 / 验收人员</label>
+                <div class="fw-medium fs-5">{{ batch.reviewer.real_name or batch.reviewer.username if batch.reviewer else '-' }}</div>
+            </div>
+            <div class="col-md-3 mb-3">
+                <label class="text-muted small">创建时间</label>
+                <div class="fw-medium fs-5">{{ batch.created_at.strftime('%Y-%m-%d %H:%M') }}</div>
+            </div>
+            <div class="col-md-3 mb-3">
+                <label class="text-muted small">最后更新</label>
+                <div class="fw-medium fs-5">{{ batch.updated_at.strftime('%Y-%m-%d %H:%M') }}</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% if batch.initiation_note_file_path or batch.phase_result_file_path or batch.supplementary_note_file_path %}
+<div class="card mb-4">
+    <div class="card-header bg-light">
+        <h5 class="mb-0"><i class="bi bi-paperclip"></i> 本批次补充文件</h5>
+    </div>
+    <div class="card-body">
+        <div class="row g-3">
+            <div class="col-md-4">
+                <label class="text-muted small d-block mb-2">立项补充资料</label>
+                {% if batch.initiation_note_file_path %}
+                {{ file_preview(batch.initiation_note_file_url, batch.initiation_note_filename, batch.initiation_note_file_type in ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'], batch.initiation_note_filename, 'btn-outline-secondary') }}
+                {% else %}
+                <span class="text-muted">-</span>
+                {% endif %}
+            </div>
+            <div class="col-md-4">
+                <label class="text-muted small d-block mb-2">过程记录 / 阶段结果</label>
+                {% if batch.phase_result_file_path %}
+                {{ file_preview(batch.phase_result_file_url, batch.phase_result_filename, batch.phase_result_file_type in ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'], batch.phase_result_filename, 'btn-outline-secondary') }}
+                {% else %}
+                <span class="text-muted">-</span>
+                {% endif %}
+            </div>
+            <div class="col-md-4">
+                <label class="text-muted small d-block mb-2">补充说明附件</label>
+                {% if batch.supplementary_note_file_path %}
+                {{ file_preview(batch.supplementary_note_file_url, batch.supplementary_note_filename, batch.supplementary_note_file_type in ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'], batch.supplementary_note_filename, 'btn-outline-secondary') }}
+                {% else %}
+                <span class="text-muted">-</span>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<div class="row g-4">
+    <div class="col-12 col-xl-6">
+        {{ render_batch_section('立项资料', 'bi-folder2-open', batch.initiation_materials, review_records_by_attachment, '暂无立项资料') }}
+    </div>
+    <div class="col-12 col-xl-6">
+        {{ render_batch_section('研究资料', 'bi-bezier2', batch.research_materials, review_records_by_attachment, '暂无研究资料') }}
+    </div>
+    <div class="col-12 col-xl-6">
+        {{ render_batch_section('实验方案', 'bi-diagram-3', batch.experiment_plans, review_records_by_attachment, '暂无实验方案') }}
+    </div>
+    <div class="col-12 col-xl-6">
+        {{ render_batch_section('观察项 / 验证目标', 'bi-binoculars', batch.validation_items, review_records_by_attachment, '暂无观察项 / 验证目标') }}
+    </div>
+    <div class="col-12">
+        {{ render_batch_section('风险提示 / 补充说明', 'bi-exclamation-diamond', batch.risk_notes, review_records_by_attachment, '暂无风险提示 / 补充说明') }}
+    </div>
+</div>
+
+{% if batch.histories %}
+<div class="card mt-4">
+    <div class="card-header bg-light">
+        <h5 class="mb-0"><i class="bi bi-clock-history"></i> 历史记录</h5>
+    </div>
+    <div class="card-body">
+        <div class="timeline-list">
+            {% for history in batch.histories %}
+            <div class="timeline-item">
+                <div class="timeline-dot"></div>
+                <div class="timeline-content">
+                    <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap">
+                        <div>
+                            <div class="fw-bold">{{ history.action }}</div>
+                            <div class="text-muted small">{{ history.operator_name }}</div>
+                            {% if history.detail %}
+                            <div class="mt-2">{{ history.detail }}</div>
+                            {% endif %}
+                        </div>
+                        <small class="text-muted">{{ history.created_at.strftime('%Y-%m-%d %H:%M:%S') }}</small>
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+{% endif %}
+{% endblock %}

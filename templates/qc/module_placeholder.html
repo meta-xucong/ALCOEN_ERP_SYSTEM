@@ -1,0 +1,248 @@
+{% extends 'qc/base.html' %}
+
+{% block title %}{{ module_title }} - AI CATS{% endblock %}
+
+{% block extra_css %}
+<style>
+    .qc-landing-main {
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 48px 20px;
+        position: relative;
+        z-index: 1;
+    }
+
+    .module-shell {
+        width: 100%;
+        max-width: 980px;
+    }
+
+    .module-panel {
+        position: relative;
+        overflow: hidden;
+        border-radius: 30px;
+        padding: clamp(34px, 6vw, 60px);
+        background: rgba(255, 255, 255, 0.58);
+        border: 1px solid rgba(255, 255, 255, 0.74);
+        box-shadow: 0 18px 58px rgba(30, 58, 95, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.68);
+        backdrop-filter: blur(26px) saturate(190%) brightness(1.05);
+        -webkit-backdrop-filter: blur(26px) saturate(190%) brightness(1.05);
+    }
+
+    .module-panel::before {
+        content: '';
+        position: absolute;
+        right: -90px;
+        top: -90px;
+        width: 260px;
+        height: 260px;
+        border-radius: 50%;
+        background: var(--module-glow);
+        opacity: 0.34;
+        filter: blur(10px);
+    }
+
+    .module-panel.assembly {
+        --module-accent: #1f6feb;
+        --module-glow: radial-gradient(circle, rgba(31, 111, 235, 0.64) 0%, rgba(31, 111, 235, 0) 68%);
+    }
+
+    .module-panel.research {
+        --module-accent: #c98218;
+        --module-glow: radial-gradient(circle, rgba(243, 156, 18, 0.64) 0%, rgba(243, 156, 18, 0) 68%);
+    }
+
+    .module-topline {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 14px;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.64);
+        border: 1px solid rgba(255, 255, 255, 0.76);
+        color: rgba(30, 58, 95, 0.68);
+        font-size: 13px;
+        font-weight: 800;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        margin-bottom: 24px;
+        position: relative;
+        z-index: 1;
+    }
+
+    .module-title-row {
+        display: flex;
+        gap: 22px;
+        align-items: center;
+        margin-bottom: 22px;
+        position: relative;
+        z-index: 1;
+    }
+
+    .module-icon-large {
+        width: 92px;
+        height: 92px;
+        flex: 0 0 92px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: var(--module-accent);
+        background: color-mix(in srgb, var(--module-accent) 13%, transparent);
+        box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--module-accent) 20%, transparent);
+        font-size: 42px;
+    }
+
+    .module-title-row h1 {
+        margin: 0 0 6px;
+        color: var(--alco-primary);
+        font-size: clamp(34px, 6vw, 56px);
+        font-weight: 850;
+        letter-spacing: -0.05em;
+    }
+
+    .module-title-row p {
+        margin: 0;
+        color: var(--module-accent);
+        font-size: 15px;
+        font-weight: 800;
+    }
+
+    .module-description {
+        max-width: 720px;
+        color: rgba(30, 58, 95, 0.66);
+        font-size: 17px;
+        line-height: 1.8;
+        margin-bottom: 34px;
+        position: relative;
+        z-index: 1;
+    }
+
+    .empty-frame {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 16px;
+        margin-bottom: 34px;
+        position: relative;
+        z-index: 1;
+    }
+
+    .empty-frame-item {
+        min-height: 118px;
+        border-radius: 20px;
+        border: 1px dashed rgba(30, 58, 95, 0.18);
+        background: rgba(255, 255, 255, 0.42);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: rgba(30, 58, 95, 0.42);
+        font-weight: 700;
+    }
+
+    .module-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        position: relative;
+        z-index: 1;
+    }
+
+    .btn-module-primary {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        border: none;
+        border-radius: 14px;
+        color: #fff;
+        background: linear-gradient(135deg, color-mix(in srgb, var(--module-accent) 88%, #10233a) 0%, var(--module-accent) 100%);
+        padding: 12px 22px;
+        font-weight: 800;
+        text-decoration: none;
+        box-shadow: 0 8px 18px color-mix(in srgb, var(--module-accent) 22%, transparent);
+    }
+
+    .btn-module-primary:hover {
+        color: #fff;
+        transform: translateY(-1px);
+    }
+
+    .btn-module-ghost {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        border-radius: 14px;
+        color: var(--alco-primary);
+        background: rgba(255, 255, 255, 0.56);
+        border: 1px solid rgba(255, 255, 255, 0.76);
+        padding: 12px 22px;
+        font-weight: 800;
+        text-decoration: none;
+    }
+
+    .btn-module-ghost:hover {
+        color: var(--alco-primary);
+        background: rgba(255, 255, 255, 0.78);
+    }
+
+    @media (max-width: 768px) {
+        .module-title-row {
+            align-items: flex-start;
+            flex-direction: column;
+        }
+
+        .empty-frame {
+            grid-template-columns: 1fr;
+        }
+    }
+
+    @supports not (color: color-mix(in srgb, #000 50%, #fff)) {
+        .module-icon-large {
+            background: rgba(31, 111, 235, 0.12);
+        }
+
+        .btn-module-primary {
+            background: var(--module-accent);
+        }
+    }
+</style>
+{% endblock %}
+
+{% block landing_content %}
+<div class="module-shell animate-fade-in">
+    <section class="module-panel {{ module_tone }}">
+        <div class="module-topline">
+            <i class="bi bi-grid-1x2"></i>
+            AI CATS 平级模块
+        </div>
+
+        <div class="module-title-row">
+            <div class="module-icon-large">
+                <i class="bi {{ module_icon }}"></i>
+            </div>
+            <div>
+                <h1>{{ module_title }}</h1>
+                <p>{{ module_subtitle }}</p>
+            </div>
+        </div>
+
+        <p class="module-description">{{ module_description }}</p>
+
+        <div class="empty-frame" aria-label="模块内容占位">
+            <div class="empty-frame-item">流程区</div>
+            <div class="empty-frame-item">记录区</div>
+            <div class="empty-frame-item">分析区</div>
+        </div>
+
+        <div class="module-actions">
+            <a href="{{ url_for('qc.index') }}" class="btn-module-primary">
+                <i class="bi bi-arrow-left"></i> 返回模块选择
+            </a>
+            <a href="{{ url_for('portal.portal') }}" class="btn-module-ghost">
+                <i class="bi bi-house"></i> 返回系统首页
+            </a>
+        </div>
+    </section>
+</div>
+{% endblock %}

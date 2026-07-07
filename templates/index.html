@@ -2,6 +2,60 @@
 
 {% block title %}首页 - ALCOEN ERP{% endblock %}
 
+{% block extra_css %}
+<style>
+    .dashboard-table {
+        table-layout: fixed;
+    }
+
+    .dashboard-table th,
+    .dashboard-table td {
+        min-width: 0;
+    }
+
+    .dashboard-table .cell-wrap {
+        display: block;
+        max-width: 100%;
+        overflow-wrap: anywhere;
+        word-break: break-word;
+        white-space: normal;
+        line-height: 1.35;
+    }
+
+    .dashboard-table tbody td {
+        vertical-align: top;
+    }
+
+    .recent-contracts-table .contract-no-col {
+        width: 36%;
+    }
+
+    .recent-contracts-table .company-col {
+        width: 30%;
+    }
+
+    .recent-contracts-table .status-col {
+        width: 16%;
+    }
+
+    .recent-contracts-table .amount-col {
+        width: 18%;
+    }
+
+    .recent-statements-table .statement-no-col {
+        width: 28%;
+    }
+
+    .recent-statements-table .company-col {
+        width: 44%;
+    }
+
+    .recent-statements-table .amount-col {
+        width: 28%;
+    }
+</style>
+{% endblock %}
+
 {% block content %}
 <!-- 欢迎标题 -->
 <div class="row mb-4 animate-fade-in">
@@ -100,24 +154,28 @@
             <div class="card-body p-0">
                 {% if recent_contracts %}
                 <div class="table-responsive">
-                    <table class="table table-hover mb-0">
+                    <table class="table table-hover mb-0 dashboard-table recent-contracts-table">
                         <thead>
                             <tr>
-                                <th>合同编号</th>
-                                <th>公司</th>
-                                <th class="text-center">状态</th>
-                                <th class="text-end">金额</th>
+                                <th class="contract-no-col">合同编号</th>
+                                <th class="company-col">公司</th>
+                                <th class="status-col text-center">状态</th>
+                                <th class="amount-col text-end">金额</th>
                             </tr>
                         </thead>
                         <tbody>
                             {% for contract in recent_contracts %}
                             <tr>
                                 <td>
-                                    <a href="{{ url_for('contract.view_contract', id=contract.id) }}" class="fw-medium">
+                                    <a href="{{ url_for('contract.view_contract', id=contract.id) }}" class="fw-medium cell-wrap" title="{{ contract.contract_no }}">
                                         {{ contract.contract_no }}
                                     </a>
                                 </td>
-                                <td>{{ contract.company_name[:15] }}{% if contract.company_name|length > 15 %}...{% endif %}</td>
+                                <td>
+                                    <span class="cell-wrap" title="{{ contract.company_name }}">
+                                        {{ contract.company_name }}
+                                    </span>
+                                </td>
                                 <td class="text-center">
                                     {% set status = contract.get_delivery_status_display() %}
                                     <span class="badge" style="background: 
@@ -163,23 +221,27 @@
             <div class="card-body p-0">
                 {% if recent_statements %}
                 <div class="table-responsive">
-                    <table class="table table-hover mb-0">
+                    <table class="table table-hover mb-0 dashboard-table recent-statements-table">
                         <thead>
                             <tr>
-                                <th>编号</th>
-                                <th>公司</th>
-                                <th class="text-end">总金额</th>
+                                <th class="statement-no-col">编号</th>
+                                <th class="company-col">公司</th>
+                                <th class="amount-col text-end">总金额</th>
                             </tr>
                         </thead>
                         <tbody>
                             {% for stmt in recent_statements %}
                             <tr>
                                 <td>
-                                    <a href="{{ url_for('statement.view_statement', statement_no=stmt.statement_no) }}" class="fw-medium">
+                                    <a href="{{ url_for('statement.view_statement', statement_no=stmt.statement_no) }}" class="fw-medium cell-wrap" title="{{ stmt.statement_no }}">
                                         {{ stmt.statement_no }}
                                     </a>
                                 </td>
-                                <td>{{ stmt.company_name }}</td>
+                                <td>
+                                    <span class="cell-wrap" title="{{ stmt.company_name }}">
+                                        {{ stmt.company_name }}
+                                    </span>
+                                </td>
                                 <td class="text-end fw-medium">
                                     {% if current_user.can_view_financial() %}
                                         {{ stmt.statement_total|format_money }}

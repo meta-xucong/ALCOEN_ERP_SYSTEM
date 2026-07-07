@@ -1,0 +1,118 @@
+{% extends 'qc/base.html' %}
+
+{% block title %}装配/出厂 - ALCOEN AI CATS{% endblock %}
+
+{% block content %}
+<div class="row mb-4 animate-fade-in">
+    <div class="col-12">
+        <div class="d-flex align-items-center gap-3 mb-2">
+            <i class="bi bi-tools text-gradient" style="font-size: 2rem; color: #198754;"></i>
+            <h1 class="mb-0 text-gradient" style="font-weight: 700; font-size: 2rem;">装配/出厂</h1>
+        </div>
+        <p class="text-secondary" style="color: rgba(30, 58, 95, 0.6) !important;">围绕产品模板、装配发起、质量检测、验收/出厂形成完整闭环。</p>
+    </div>
+</div>
+
+<div class="row mb-4 animate-slide-up">
+    <div class="col-md-2 col-sm-4 col-6">
+        <div class="card stat-card h-100">
+            <div class="card-body text-center">
+                <h6 class="card-title text-muted">装配未完成</h6>
+                <h3 class="display-6">{{ stats.assembly_pending }}</h3>
+                <span class="badge bg-secondary">待处理</span>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-2 col-sm-4 col-6">
+        <div class="card stat-card h-100">
+            <div class="card-body text-center">
+                <h6 class="card-title text-muted">待检测批次</h6>
+                <h3 class="display-6">{{ stats.assembly_completed }}</h3>
+                <span class="badge bg-info">待质检</span>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-2 col-sm-4 col-6">
+        <div class="card stat-card h-100">
+            <div class="card-body text-center">
+                <h6 class="card-title text-muted">质检未完成</h6>
+                <h3 class="display-6">{{ stats.inspection_pending }}</h3>
+                <span class="badge bg-warning text-dark">检测中</span>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-2 col-sm-4 col-6">
+        <div class="card stat-card h-100">
+            <div class="card-body text-center">
+                <h6 class="card-title text-muted">待验收</h6>
+                <h3 class="display-6">{{ stats.inspection_completed }}</h3>
+                <span class="badge bg-primary">待确认</span>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-2 col-sm-4 col-6">
+        <div class="card stat-card h-100">
+            <div class="card-body text-center">
+                <h6 class="card-title text-muted">已出厂</h6>
+                <h3 class="display-6">{{ stats.accepted }}</h3>
+                <span class="badge bg-success">已完成</span>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-2 col-sm-4 col-6">
+        <div class="card stat-card h-100">
+            <div class="card-body text-center">
+                <h6 class="card-title text-muted">已退回</h6>
+                <h3 class="display-6">{{ stats.rejected }}</h3>
+                <span class="badge bg-danger">返工中</span>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row animate-slide-up">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span><i class="bi bi-clock"></i> 最近装配单</span>
+                <a href="{{ url_for('qc.assembly_launch_list') }}" class="btn btn-sm btn-outline-primary">查看全部</a>
+            </div>
+            <div class="card-body p-0">
+                {% if recent_orders %}
+                <div class="table-responsive">
+                    <table class="table table-hover mb-0">
+                        <thead>
+                            <tr>
+                                <th>批次编号</th>
+                                <th>产品名称</th>
+                                <th class="text-center">数量</th>
+                                <th class="text-center">状态</th>
+                                <th class="text-end">创建时间</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for order in recent_orders %}
+                            {% set status_info = order.get_status_display() %}
+                            <tr>
+                                <td><a href="{{ url_for('qc.assembly_launch_detail', order_id=order.id) }}" class="fw-medium">{{ order.batch_no }}</a></td>
+                                <td>{{ order.product_name_snapshot }}</td>
+                                <td class="text-center">{{ '{:g}'.format(order.quantity or 0) }}</td>
+                                <td class="text-center"><span class="badge {{ status_info.badge }}">{{ status_info.text }}</span></td>
+                                <td class="text-end">{{ order.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <div class="empty-state text-center py-5">
+                    <i class="bi bi-inbox" style="font-size: 2rem; color: rgba(30, 58, 95, 0.3);"></i>
+                    <p class="mt-2 text-muted">暂无装配单</p>
+                    <a href="{{ url_for('qc.assembly_launch_new') }}" class="btn btn-primary btn-sm">发起第一张装配单</a>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

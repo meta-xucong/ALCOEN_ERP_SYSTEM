@@ -58,6 +58,12 @@ def _run_lightweight_schema_upgrades():
         alter_statements = []
         if 'workpiece_id' not in order_columns:
             alter_statements.append('ALTER TABLE qc_work_orders ADD COLUMN workpiece_id INTEGER')
+        if 'workpiece_type' not in order_columns:
+            alter_statements.append(
+                "ALTER TABLE qc_work_orders ADD COLUMN workpiece_type VARCHAR(20) NOT NULL DEFAULT 'self_produced'"
+            )
+        if 'inventory_posted_at' not in order_columns:
+            alter_statements.append('ALTER TABLE qc_work_orders ADD COLUMN inventory_posted_at DATETIME')
         if 'drawing_note_file_path' not in order_columns:
             alter_statements.append('ALTER TABLE qc_work_orders ADD COLUMN drawing_note_file_path VARCHAR(500)')
         if 'drawing_note_file_type' not in order_columns:
@@ -81,6 +87,47 @@ def _run_lightweight_schema_upgrades():
                 for statement in alter_statements:
                     connection.exec_driver_sql(statement)
 
+    if inspector.has_table('qc_workpieces'):
+        workpiece_columns = {column['name'] for column in inspector.get_columns('qc_workpieces')}
+        alter_statements = []
+        if 'workpiece_type' not in workpiece_columns:
+            alter_statements.append(
+                "ALTER TABLE qc_workpieces ADD COLUMN workpiece_type VARCHAR(20) NOT NULL DEFAULT 'self_produced'"
+            )
+        if 'stock_quantity' not in workpiece_columns:
+            alter_statements.append('ALTER TABLE qc_workpieces ADD COLUMN stock_quantity FLOAT NOT NULL DEFAULT 0')
+        if alter_statements:
+            with db.engine.begin() as connection:
+                for statement in alter_statements:
+                    connection.exec_driver_sql(statement)
+
+    if not inspector.has_table('qc_work_order_histories'):
+        with db.engine.begin() as connection:
+            connection.exec_driver_sql(
+                '''
+                CREATE TABLE qc_work_order_histories (
+                    id INTEGER NOT NULL,
+                    work_order_id INTEGER NOT NULL,
+                    operator_id INTEGER,
+                    action VARCHAR(100) NOT NULL,
+                    detail TEXT,
+                    created_at DATETIME,
+                    PRIMARY KEY (id),
+                    FOREIGN KEY(work_order_id) REFERENCES qc_work_orders (id) ON DELETE CASCADE,
+                    FOREIGN KEY(operator_id) REFERENCES users (id)
+                )
+                '''
+            )
+            connection.exec_driver_sql(
+                'CREATE INDEX IF NOT EXISTS ix_qc_work_order_histories_work_order_id ON qc_work_order_histories (work_order_id)'
+            )
+            connection.exec_driver_sql(
+                'CREATE INDEX IF NOT EXISTS ix_qc_work_order_histories_operator_id ON qc_work_order_histories (operator_id)'
+            )
+            connection.exec_driver_sql(
+                'CREATE INDEX IF NOT EXISTS ix_qc_work_order_histories_created_at ON qc_work_order_histories (created_at)'
+            )
+
     if inspector.has_table('qc_inspection_records'):
         inspection_columns = {column['name'] for column in inspector.get_columns('qc_inspection_records')}
         alter_statements = []
@@ -100,6 +147,497 @@ def _run_lightweight_schema_upgrades():
             with db.engine.begin() as connection:
                 for statement in alter_statements:
                     connection.exec_driver_sql(statement)
+
+    if not inspector.has_table('research_projects'):
+        with db.engine.begin() as connection:
+            connection.exec_driver_sql(
+                '''
+                CREATE TABLE research_projects (
+                    id INTEGER NOT NULL,
+                    project_code VARCHAR(100) NOT NULL,
+                    project_name VARCHAR(200) NOT NULL,
+                    project_category VARCHAR(50),
+                    research_direction VARCHAR(200),
+                    creator_id INTEGER NOT NULL,
+                    created_at DATETIME,
+                    updated_at DATETIME,
+                    PRIMARY KEY (id),
+                    UNIQUE (project_code),
+                    FOREIGN KEY(creator_id) REFERENCES users (id)
+                )
+                '''
+            )
+            connection.exec_driver_sql(
+                'CREATE INDEX IF NOT EXISTS ix_research_projects_project_code ON research_projects (project_code)'
+            )
+            connection.exec_driver_sql(
+                'CREATE INDEX IF NOT EXISTS ix_research_projects_project_name ON research_projects (project_name)'
+            )
+            connection.exec_driver_sql(
+                'CREATE INDEX IF NOT EXISTS ix_research_projects_project_category ON research_projects (project_category)'
+            )
+            connection.exec_driver_sql(
+                'CREATE INDEX IF NOT EXISTS ix_research_projects_creator_id ON research_projects (creator_id)'
+            )
+
+    if not inspector.has_table('research_project_attachments'):
+        with db.engine.begin() as connection:
+            connection.exec_driver_sql(
+                '''
+                CREATE TABLE research_project_attachments (
+                    id INTEGER NOT NULL,
+                    project_id INTEGER NOT NULL,
+                    attach_type VARCHAR(50) NOT NULL,
+                    title VARCHAR(255),
+                    content TEXT,
+                    file_path VARCHAR(500) NOT NULL,
+                    file_type VARCHAR(50),
+                    is_required BOOLEAN,
+                    sort_order INTEGER,
+                    created_at DATETIME,
+                    PRIMARY KEY (id),
+                    FOREIGN KEY(project_id) REFERENCES research_projects (id) ON DELETE CASCADE
+                )
+                '''
+            )
+            connection.exec_driver_sql(
+                'CREATE INDEX IF NOT EXISTS ix_research_project_attachments_project_id ON research_project_attachments (project_id)'
+            )
+            connection.exec_driver_sql(
+                'CREATE INDEX IF NOT EXISTS ix_research_project_attachments_attach_type ON research_project_attachments (attach_type)'
+            )
+
+    if not inspector.has_table('research_batches'):
+        with db.engine.begin() as connection:
+            connection.exec_driver_sql(
+                '''
+                CREATE TABLE research_batches (
+                    id INTEGER NOT NULL,
+                    batch_no VARCHAR(100) NOT NULL,
+                    project_id INTEGER,
+                    project_name_snapshot VARCHAR(200) NOT NULL,
+                    sample_quantity FLOAT NOT NULL DEFAULT 0,
+                    researcher_id INTEGER NOT NULL,
+                    reviewer_id INTEGER,
+                    status VARCHAR(50) NOT NULL DEFAULT 'draft',
+                    research_submitted_at DATETIME,
+                    review_completed_at DATETIME,
+                    accepted_at DATETIME,
+                    returned_at DATETIME,
+                    return_reason TEXT,
+                    initiation_note_file_path VARCHAR(500),
+                    initiation_note_file_type VARCHAR(50),
+                    initiation_note_original_name VARCHAR(255),
+                    phase_result_file_path VARCHAR(500),
+                    phase_result_file_type VARCHAR(50),
+                    phase_result_original_name VARCHAR(255),
+                    supplementary_note_file_path VARCHAR(500),
+                    supplementary_note_file_type VARCHAR(50),
+                    supplementary_note_original_name VARCHAR(255),
+                    created_at DATETIME,
+                    updated_at DATETIME,
+                    PRIMARY KEY (id),
+                    UNIQUE (batch_no),
+                    FOREIGN KEY(project_id) REFERENCES research_projects (id) ON DELETE SET NULL,
+                    FOREIGN KEY(researcher_id) REFERENCES users (id),
+                    FOREIGN KEY(reviewer_id) REFERENCES users (id)
+                )
+                '''
+            )
+            connection.exec_driver_sql(
+                'CREATE INDEX IF NOT EXISTS ix_research_batches_batch_no ON research_batches (batch_no)'
+            )
+            connection.exec_driver_sql(
+                'CREATE INDEX IF NOT EXISTS ix_research_batches_project_id ON research_batches (project_id)'
+            )
+            connection.exec_driver_sql(
+                'CREATE INDEX IF NOT EXISTS ix_research_batches_status ON research_batches (status)'
+            )
+            connection.exec_driver_sql(
+                'CREATE INDEX IF NOT EXISTS ix_research_batches_researcher_id ON research_batches (researcher_id)'
+            )
+            connection.exec_driver_sql(
+                'CREATE INDEX IF NOT EXISTS ix_research_batches_reviewer_id ON research_batches (reviewer_id)'
+            )
+
+    if not inspector.has_table('research_batch_attachments'):
+        with db.engine.begin() as connection:
+            connection.exec_driver_sql(
+                '''
+                CREATE TABLE research_batch_attachments (
+                    id INTEGER NOT NULL,
+                    batch_id INTEGER NOT NULL,
+                    attach_type VARCHAR(50) NOT NULL,
+                    source_type VARCHAR(30) NOT NULL DEFAULT 'project_snapshot',
+                    title VARCHAR(255),
+                    content TEXT,
+                    file_path VARCHAR(500) NOT NULL,
+                    file_type VARCHAR(50),
+                    is_required BOOLEAN,
+                    sort_order INTEGER,
+                    created_at DATETIME,
+                    PRIMARY KEY (id),
+                    FOREIGN KEY(batch_id) REFERENCES research_batches (id) ON DELETE CASCADE
+                )
+                '''
+            )
+            connection.exec_driver_sql(
+                'CREATE INDEX IF NOT EXISTS ix_research_batch_attachments_batch_id ON research_batch_attachments (batch_id)'
+            )
+            connection.exec_driver_sql(
+                'CREATE INDEX IF NOT EXISTS ix_research_batch_attachments_attach_type ON research_batch_attachments (attach_type)'
+            )
+
+    if not inspector.has_table('research_review_records'):
+        with db.engine.begin() as connection:
+            connection.exec_driver_sql(
+                '''
+                CREATE TABLE research_review_records (
+                    id INTEGER NOT NULL,
+                    batch_id INTEGER NOT NULL,
+                    reviewer_id INTEGER NOT NULL,
+                    attachment_id INTEGER NOT NULL,
+                    result VARCHAR(20) NOT NULL DEFAULT 'draft',
+                    suggestion TEXT,
+                    feedback_file_path VARCHAR(500),
+                    feedback_file_type VARCHAR(50),
+                    feedback_original_name VARCHAR(255),
+                    created_at DATETIME,
+                    updated_at DATETIME,
+                    PRIMARY KEY (id),
+                    FOREIGN KEY(batch_id) REFERENCES research_batches (id) ON DELETE CASCADE,
+                    FOREIGN KEY(reviewer_id) REFERENCES users (id),
+                    FOREIGN KEY(attachment_id) REFERENCES research_batch_attachments (id) ON DELETE CASCADE
+                )
+                '''
+            )
+            connection.exec_driver_sql(
+                'CREATE INDEX IF NOT EXISTS ix_research_review_records_batch_id ON research_review_records (batch_id)'
+            )
+            connection.exec_driver_sql(
+                'CREATE INDEX IF NOT EXISTS ix_research_review_records_attachment_id ON research_review_records (attachment_id)'
+            )
+            connection.exec_driver_sql(
+                'CREATE INDEX IF NOT EXISTS ix_research_review_records_reviewer_id ON research_review_records (reviewer_id)'
+            )
+
+    if not inspector.has_table('research_acceptance_signatures'):
+        with db.engine.begin() as connection:
+            connection.exec_driver_sql(
+                '''
+                CREATE TABLE research_acceptance_signatures (
+                    id INTEGER NOT NULL,
+                    batch_id INTEGER NOT NULL,
+                    signer_id INTEGER NOT NULL,
+                    signer_role VARCHAR(50) NOT NULL,
+                    signed_at DATETIME,
+                    PRIMARY KEY (id),
+                    FOREIGN KEY(batch_id) REFERENCES research_batches (id) ON DELETE CASCADE,
+                    FOREIGN KEY(signer_id) REFERENCES users (id),
+                    UNIQUE (batch_id, signer_role)
+                )
+                '''
+            )
+            connection.exec_driver_sql(
+                'CREATE INDEX IF NOT EXISTS ix_research_acceptance_signatures_batch_id ON research_acceptance_signatures (batch_id)'
+            )
+
+    if not inspector.has_table('research_batch_histories'):
+        with db.engine.begin() as connection:
+            connection.exec_driver_sql(
+                '''
+                CREATE TABLE research_batch_histories (
+                    id INTEGER NOT NULL,
+                    batch_id INTEGER NOT NULL,
+                    operator_id INTEGER,
+                    action VARCHAR(100) NOT NULL,
+                    detail TEXT,
+                    created_at DATETIME,
+                    PRIMARY KEY (id),
+                    FOREIGN KEY(batch_id) REFERENCES research_batches (id) ON DELETE CASCADE,
+                    FOREIGN KEY(operator_id) REFERENCES users (id)
+                )
+                '''
+            )
+            connection.exec_driver_sql(
+                'CREATE INDEX IF NOT EXISTS ix_research_batch_histories_batch_id ON research_batch_histories (batch_id)'
+            )
+            connection.exec_driver_sql(
+                'CREATE INDEX IF NOT EXISTS ix_research_batch_histories_operator_id ON research_batch_histories (operator_id)'
+            )
+            connection.exec_driver_sql(
+                'CREATE INDEX IF NOT EXISTS ix_research_batch_histories_created_at ON research_batch_histories (created_at)'
+            )
+
+    if not inspector.has_table('assembly_products'):
+        with db.engine.begin() as connection:
+            connection.exec_driver_sql(
+                '''
+                CREATE TABLE assembly_products (
+                    id INTEGER NOT NULL,
+                    product_code VARCHAR(100) NOT NULL,
+                    product_name VARCHAR(200) NOT NULL,
+                    creator_id INTEGER NOT NULL,
+                    created_at DATETIME,
+                    updated_at DATETIME,
+                    PRIMARY KEY (id),
+                    UNIQUE (product_code),
+                    FOREIGN KEY(creator_id) REFERENCES users (id)
+                )
+                '''
+            )
+            connection.exec_driver_sql(
+                'CREATE INDEX IF NOT EXISTS ix_assembly_products_product_code ON assembly_products (product_code)'
+            )
+            connection.exec_driver_sql(
+                'CREATE INDEX IF NOT EXISTS ix_assembly_products_product_name ON assembly_products (product_name)'
+            )
+            connection.exec_driver_sql(
+                'CREATE INDEX IF NOT EXISTS ix_assembly_products_creator_id ON assembly_products (creator_id)'
+            )
+
+    if not inspector.has_table('assembly_product_components'):
+        with db.engine.begin() as connection:
+            connection.exec_driver_sql(
+                '''
+                CREATE TABLE assembly_product_components (
+                    id INTEGER NOT NULL,
+                    product_id INTEGER NOT NULL,
+                    workpiece_id INTEGER NOT NULL,
+                    workpiece_code_snapshot VARCHAR(100) NOT NULL,
+                    workpiece_name_snapshot VARCHAR(200) NOT NULL,
+                    quantity_per_unit FLOAT NOT NULL DEFAULT 1,
+                    sort_order INTEGER,
+                    created_at DATETIME,
+                    PRIMARY KEY (id),
+                    FOREIGN KEY(product_id) REFERENCES assembly_products (id) ON DELETE CASCADE,
+                    FOREIGN KEY(workpiece_id) REFERENCES qc_workpieces (id) ON DELETE RESTRICT
+                )
+                '''
+            )
+            connection.exec_driver_sql(
+                'CREATE INDEX IF NOT EXISTS ix_assembly_product_components_product_id ON assembly_product_components (product_id)'
+            )
+            connection.exec_driver_sql(
+                'CREATE INDEX IF NOT EXISTS ix_assembly_product_components_workpiece_id ON assembly_product_components (workpiece_id)'
+            )
+
+    if not inspector.has_table('assembly_product_attachments'):
+        with db.engine.begin() as connection:
+            connection.exec_driver_sql(
+                '''
+                CREATE TABLE assembly_product_attachments (
+                    id INTEGER NOT NULL,
+                    product_id INTEGER NOT NULL,
+                    attach_type VARCHAR(50) NOT NULL,
+                    title VARCHAR(255),
+                    content TEXT,
+                    file_path VARCHAR(500) NOT NULL,
+                    file_type VARCHAR(50),
+                    is_required BOOLEAN,
+                    sort_order INTEGER,
+                    created_at DATETIME,
+                    PRIMARY KEY (id),
+                    FOREIGN KEY(product_id) REFERENCES assembly_products (id) ON DELETE CASCADE
+                )
+                '''
+            )
+            connection.exec_driver_sql(
+                'CREATE INDEX IF NOT EXISTS ix_assembly_product_attachments_product_id ON assembly_product_attachments (product_id)'
+            )
+            connection.exec_driver_sql(
+                'CREATE INDEX IF NOT EXISTS ix_assembly_product_attachments_attach_type ON assembly_product_attachments (attach_type)'
+            )
+
+    if not inspector.has_table('assembly_orders'):
+        with db.engine.begin() as connection:
+            connection.exec_driver_sql(
+                '''
+                CREATE TABLE assembly_orders (
+                    id INTEGER NOT NULL,
+                    batch_no VARCHAR(100) NOT NULL,
+                    product_id INTEGER,
+                    product_name_snapshot VARCHAR(200) NOT NULL,
+                    quantity FLOAT NOT NULL DEFAULT 0,
+                    controller_id INTEGER NOT NULL,
+                    inspector_id INTEGER,
+                    status VARCHAR(50) NOT NULL DEFAULT 'draft',
+                    assembly_submitted_at DATETIME,
+                    inspection_completed_at DATETIME,
+                    accepted_at DATETIME,
+                    inventory_posted_at DATETIME,
+                    rejected_at DATETIME,
+                    rejection_reason TEXT,
+                    registration_note_file_path VARCHAR(500),
+                    registration_note_file_type VARCHAR(50),
+                    registration_note_original_name VARCHAR(255),
+                    certificate_note_file_path VARCHAR(500),
+                    certificate_note_file_type VARCHAR(50),
+                    certificate_note_original_name VARCHAR(255),
+                    remark_note_file_path VARCHAR(500),
+                    remark_note_file_type VARCHAR(50),
+                    remark_note_original_name VARCHAR(255),
+                    created_at DATETIME,
+                    updated_at DATETIME,
+                    PRIMARY KEY (id),
+                    UNIQUE (batch_no),
+                    FOREIGN KEY(product_id) REFERENCES assembly_products (id) ON DELETE SET NULL,
+                    FOREIGN KEY(controller_id) REFERENCES users (id),
+                    FOREIGN KEY(inspector_id) REFERENCES users (id)
+                )
+                '''
+            )
+            connection.exec_driver_sql(
+                'CREATE INDEX IF NOT EXISTS ix_assembly_orders_batch_no ON assembly_orders (batch_no)'
+            )
+            connection.exec_driver_sql(
+                'CREATE INDEX IF NOT EXISTS ix_assembly_orders_product_id ON assembly_orders (product_id)'
+            )
+            connection.exec_driver_sql(
+                'CREATE INDEX IF NOT EXISTS ix_assembly_orders_status ON assembly_orders (status)'
+            )
+            connection.exec_driver_sql(
+                'CREATE INDEX IF NOT EXISTS ix_assembly_orders_controller_id ON assembly_orders (controller_id)'
+            )
+            connection.exec_driver_sql(
+                'CREATE INDEX IF NOT EXISTS ix_assembly_orders_inspector_id ON assembly_orders (inspector_id)'
+            )
+
+    if not inspector.has_table('assembly_order_components'):
+        with db.engine.begin() as connection:
+            connection.exec_driver_sql(
+                '''
+                CREATE TABLE assembly_order_components (
+                    id INTEGER NOT NULL,
+                    order_id INTEGER NOT NULL,
+                    workpiece_id INTEGER,
+                    workpiece_code_snapshot VARCHAR(100) NOT NULL,
+                    workpiece_name_snapshot VARCHAR(200) NOT NULL,
+                    quantity_per_unit FLOAT NOT NULL DEFAULT 1,
+                    total_required_quantity FLOAT NOT NULL DEFAULT 0,
+                    sort_order INTEGER,
+                    created_at DATETIME,
+                    PRIMARY KEY (id),
+                    FOREIGN KEY(order_id) REFERENCES assembly_orders (id) ON DELETE CASCADE,
+                    FOREIGN KEY(workpiece_id) REFERENCES qc_workpieces (id) ON DELETE SET NULL
+                )
+                '''
+            )
+            connection.exec_driver_sql(
+                'CREATE INDEX IF NOT EXISTS ix_assembly_order_components_order_id ON assembly_order_components (order_id)'
+            )
+            connection.exec_driver_sql(
+                'CREATE INDEX IF NOT EXISTS ix_assembly_order_components_workpiece_id ON assembly_order_components (workpiece_id)'
+            )
+
+    if not inspector.has_table('assembly_order_attachments'):
+        with db.engine.begin() as connection:
+            connection.exec_driver_sql(
+                '''
+                CREATE TABLE assembly_order_attachments (
+                    id INTEGER NOT NULL,
+                    order_id INTEGER NOT NULL,
+                    attach_type VARCHAR(50) NOT NULL,
+                    source_type VARCHAR(30) NOT NULL DEFAULT 'product_snapshot',
+                    title VARCHAR(255),
+                    content TEXT,
+                    file_path VARCHAR(500) NOT NULL,
+                    file_type VARCHAR(50),
+                    is_required BOOLEAN,
+                    sort_order INTEGER,
+                    created_at DATETIME,
+                    PRIMARY KEY (id),
+                    FOREIGN KEY(order_id) REFERENCES assembly_orders (id) ON DELETE CASCADE
+                )
+                '''
+            )
+            connection.exec_driver_sql(
+                'CREATE INDEX IF NOT EXISTS ix_assembly_order_attachments_order_id ON assembly_order_attachments (order_id)'
+            )
+            connection.exec_driver_sql(
+                'CREATE INDEX IF NOT EXISTS ix_assembly_order_attachments_attach_type ON assembly_order_attachments (attach_type)'
+            )
+
+    if not inspector.has_table('assembly_inspection_records'):
+        with db.engine.begin() as connection:
+            connection.exec_driver_sql(
+                '''
+                CREATE TABLE assembly_inspection_records (
+                    id INTEGER NOT NULL,
+                    order_id INTEGER NOT NULL,
+                    inspector_id INTEGER NOT NULL,
+                    attachment_id INTEGER NOT NULL,
+                    result VARCHAR(20) NOT NULL DEFAULT 'draft',
+                    remark TEXT,
+                    report_file_path VARCHAR(500),
+                    report_file_type VARCHAR(50),
+                    report_original_name VARCHAR(255),
+                    created_at DATETIME,
+                    updated_at DATETIME,
+                    PRIMARY KEY (id),
+                    FOREIGN KEY(order_id) REFERENCES assembly_orders (id) ON DELETE CASCADE,
+                    FOREIGN KEY(inspector_id) REFERENCES users (id),
+                    FOREIGN KEY(attachment_id) REFERENCES assembly_order_attachments (id) ON DELETE CASCADE
+                )
+                '''
+            )
+            connection.exec_driver_sql(
+                'CREATE INDEX IF NOT EXISTS ix_assembly_inspection_records_order_id ON assembly_inspection_records (order_id)'
+            )
+            connection.exec_driver_sql(
+                'CREATE INDEX IF NOT EXISTS ix_assembly_inspection_records_attachment_id ON assembly_inspection_records (attachment_id)'
+            )
+            connection.exec_driver_sql(
+                'CREATE INDEX IF NOT EXISTS ix_assembly_inspection_records_inspector_id ON assembly_inspection_records (inspector_id)'
+            )
+
+    if not inspector.has_table('assembly_acceptance_signatures'):
+        with db.engine.begin() as connection:
+            connection.exec_driver_sql(
+                '''
+                CREATE TABLE assembly_acceptance_signatures (
+                    id INTEGER NOT NULL,
+                    order_id INTEGER NOT NULL,
+                    signer_id INTEGER NOT NULL,
+                    signer_role VARCHAR(50) NOT NULL,
+                    signed_at DATETIME,
+                    PRIMARY KEY (id),
+                    FOREIGN KEY(order_id) REFERENCES assembly_orders (id) ON DELETE CASCADE,
+                    FOREIGN KEY(signer_id) REFERENCES users (id),
+                    UNIQUE (order_id, signer_role)
+                )
+                '''
+            )
+            connection.exec_driver_sql(
+                'CREATE INDEX IF NOT EXISTS ix_assembly_acceptance_signatures_order_id ON assembly_acceptance_signatures (order_id)'
+            )
+
+    if not inspector.has_table('assembly_order_histories'):
+        with db.engine.begin() as connection:
+            connection.exec_driver_sql(
+                '''
+                CREATE TABLE assembly_order_histories (
+                    id INTEGER NOT NULL,
+                    order_id INTEGER NOT NULL,
+                    operator_id INTEGER,
+                    action VARCHAR(100) NOT NULL,
+                    detail TEXT,
+                    created_at DATETIME,
+                    PRIMARY KEY (id),
+                    FOREIGN KEY(order_id) REFERENCES assembly_orders (id) ON DELETE CASCADE,
+                    FOREIGN KEY(operator_id) REFERENCES users (id)
+                )
+                '''
+            )
+            connection.exec_driver_sql(
+                'CREATE INDEX IF NOT EXISTS ix_assembly_order_histories_order_id ON assembly_order_histories (order_id)'
+            )
+            connection.exec_driver_sql(
+                'CREATE INDEX IF NOT EXISTS ix_assembly_order_histories_operator_id ON assembly_order_histories (operator_id)'
+            )
+            connection.exec_driver_sql(
+                'CREATE INDEX IF NOT EXISTS ix_assembly_order_histories_created_at ON assembly_order_histories (created_at)'
+            )
 
 
 def create_app(config_name='default'):

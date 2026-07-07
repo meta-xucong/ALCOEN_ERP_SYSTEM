@@ -1,0 +1,249 @@
+{% extends 'qc/base.html' %}
+
+{% block title %}验收/出厂 - ALCOEN AI CATS{% endblock %}
+
+{% block extra_css %}
+<style>
+    .truncate-name {
+        display: inline-block;
+        max-width: 220px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        vertical-align: bottom;
+        white-space: nowrap;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center flex-wrap gap-3 mb-4">
+    <h1 class="d-flex align-items-center gap-3 mb-0">
+        <i class="bi bi-patch-check text-gradient" style="font-size: 2rem; color: #20c997;"></i>
+        <span class="text-gradient" style="font-weight: 700; font-size: 2rem;">验收/出厂</span>
+        {% set status_info = order.get_acceptance_status_display() %}
+        <span class="badge {{ status_info.badge }} fs-6">{{ status_info.text }}</span>
+    </h1>
+    <div class="d-flex gap-2 flex-wrap">
+        {% if order.status == 'accepted' %}
+        <a href="{{ url_for('qc.assembly_acceptance_print', order_id=order.id) }}" target="_blank" class="btn btn-outline-success">
+            <i class="bi bi-printer"></i> 打印出厂报告
+        </a>
+        <a href="{{ url_for('qc.assembly_acceptance_coa_print', order_id=order.id) }}" target="_blank" class="btn btn-outline-primary">
+            <i class="bi bi-file-earmark-medical"></i> 打印 COA 报告
+        </a>
+        {% endif %}
+        <a href="{{ url_for('qc.assembly_acceptance_list') }}" class="btn btn-outline-secondary">
+            <i class="bi bi-arrow-left"></i> 返回列表
+        </a>
+    </div>
+</div>
+
+<div class="card mb-4">
+    <div class="card-header bg-primary text-white">
+        <h5 class="mb-0"><i class="bi bi-info-circle"></i> 基础信息</h5>
+    </div>
+    <div class="card-body">
+        <div class="row">
+            <div class="col-md-3 mb-3">
+                <label class="text-muted small">批次编号</label>
+                <div class="fw-medium fs-5">{{ order.batch_no }}</div>
+            </div>
+            <div class="col-md-3 mb-3">
+                <label class="text-muted small">产品名称</label>
+                <div class="fw-medium fs-5 truncate-name" title="{{ order.product_name_snapshot }}">{{ order.product_name_snapshot }}</div>
+            </div>
+            <div class="col-md-3 mb-3">
+                <label class="text-muted small">装配数量</label>
+                <div class="fw-medium fs-5">{{ '{:g}'.format(order.quantity or 0) }}</div>
+            </div>
+            <div class="col-md-3 mb-3">
+                <label class="text-muted small">装配负责人</label>
+                <div class="fw-medium fs-5">{{ order.controller.real_name or order.controller.username }}</div>
+            </div>
+            {% if order.inspector %}
+            <div class="col-md-3 mb-3">
+                <label class="text-muted small">指导 / 验收人员</label>
+                <div class="fw-medium fs-5">{{ order.inspector.real_name or order.inspector.username }}</div>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<div class="card mb-4">
+    <div class="card-header bg-light">
+        <h5 class="mb-0"><i class="bi bi-list-check"></i> 质检记录汇总</h5>
+    </div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-hover mb-0 align-middle">
+                <thead class="table-light">
+                    <tr>
+                        <th>栏目</th>
+                        <th>内容/文件名</th>
+                        <th>合格报告</th>
+                        <th class="text-center">质检结果</th>
+                        <th>质检备注</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for attachment in order.ordered_attachments %}
+                    {% set record = inspection_records_by_attachment.get(attachment.id) %}
+                    <tr>
+                        <td>{{ attachment.display_title }}</td>
+                        <td>
+                            <span class="truncate-name" title="{{ attachment.content or attachment.file_path.split('/')[-1] }}">
+                                {{ attachment.content or attachment.file_path.split('/')[-1] }}
+                            </span>
+                        </td>
+                        <td>
+                            {% if record and record.report_file_path %}
+                            <a href="{{ record.report_url }}" target="_blank" class="truncate-name" title="{{ record.report_filename }}">{{ record.report_filename }}</a>
+                            {% else %}
+                            <span class="text-muted">-</span>
+                            {% endif %}
+                        </td>
+                        <td class="text-center">
+                            {% if record %}
+                                {% if record.result == 'pass' %}
+                                <span class="badge bg-success"><i class="bi bi-check-lg"></i> 通过</span>
+                                {% elif record.result == 'fail' %}
+                                <span class="badge bg-danger"><i class="bi bi-x-lg"></i> 不通过</span>
+                                {% else %}
+                                <span class="badge bg-secondary">草稿</span>
+                                {% endif %}
+                            {% else %}
+                            <span class="badge bg-secondary">-</span>
+                            {% endif %}
+                        </td>
+                        <td class="text-muted">{{ record.remark or '' if record else '' }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+{% if order.status in ['inspection_completed', 'accepted'] %}
+<div class="card mb-4 border-success">
+    <div class="card-header bg-success text-white">
+        <h5 class="mb-0"><i class="bi bi-pen"></i> 验收签字</h5>
+    </div>
+    <div class="card-body">
+        <div class="row">
+            <div class="col-md-6 mb-3">
+                <div class="card h-100 {{ 'border-success' if 'qc_controller' in signatures else 'border-secondary' }}">
+                    <div class="card-body text-center">
+                        <h6 class="card-title">装配负责人确认</h6>
+                        {% if 'qc_controller' in signatures %}
+                            <div class="text-success mb-2"><i class="bi bi-check-circle-fill" style="font-size: 2rem;"></i></div>
+                            <p class="mb-0">已确认</p>
+                            <small class="text-muted d-block mb-2">{{ signatures['qc_controller'].signed_at.strftime('%Y-%m-%d %H:%M') }}</small>
+                            {% if can_cancel_signatures.get('qc_controller') %}
+                            <form method="POST" action="{{ url_for('qc.assembly_acceptance_cancel_signature', order_id=order.id, signer_role='qc_controller') }}" onsubmit="return confirm('确认取消装配负责人验收确认？');">
+                                <button type="submit" class="btn btn-outline-warning btn-sm">
+                                    <i class="bi bi-arrow-counterclockwise"></i> 取消确认
+                                </button>
+                            </form>
+                            {% endif %}
+                        {% else %}
+                            <div class="text-muted mb-2"><i class="bi bi-circle" style="font-size: 2rem;"></i></div>
+                            <p class="text-muted">待确认</p>
+                            {% if 'qc_controller' in eligible_signer_roles %}
+                            <form method="POST" action="{{ url_for('qc.assembly_acceptance_sign', order_id=order.id) }}">
+                                <input type="hidden" name="signer_role" value="qc_controller">
+                                <button type="submit" class="btn btn-success">
+                                    <i class="bi bi-check-lg"></i> 点击确认
+                                </button>
+                            </form>
+                            {% endif %}
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6 mb-3">
+                <div class="card h-100 {{ 'border-success' if 'qc_inspector' in signatures else 'border-secondary' }}">
+                    <div class="card-body text-center">
+                        <h6 class="card-title">指导 / 验收人员确认</h6>
+                        {% if 'qc_inspector' in signatures %}
+                            <div class="text-success mb-2"><i class="bi bi-check-circle-fill" style="font-size: 2rem;"></i></div>
+                            <p class="mb-0">已确认</p>
+                            <small class="text-muted d-block mb-2">{{ signatures['qc_inspector'].signed_at.strftime('%Y-%m-%d %H:%M') }}</small>
+                            {% if can_cancel_signatures.get('qc_inspector') %}
+                            <form method="POST" action="{{ url_for('qc.assembly_acceptance_cancel_signature', order_id=order.id, signer_role='qc_inspector') }}" onsubmit="return confirm('确认取消指导 / 验收人员确认？');">
+                                <button type="submit" class="btn btn-outline-warning btn-sm">
+                                    <i class="bi bi-arrow-counterclockwise"></i> 取消确认
+                                </button>
+                            </form>
+                            {% endif %}
+                        {% else %}
+                            <div class="text-muted mb-2"><i class="bi bi-circle" style="font-size: 2rem;"></i></div>
+                            <p class="text-muted">待确认</p>
+                            {% if 'qc_inspector' in eligible_signer_roles %}
+                            <form method="POST" action="{{ url_for('qc.assembly_acceptance_sign', order_id=order.id) }}">
+                                <input type="hidden" name="signer_role" value="qc_inspector">
+                                <button type="submit" class="btn btn-success">
+                                    <i class="bi bi-check-lg"></i> 点击确认
+                                </button>
+                            </form>
+                            {% endif %}
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% if current_user.is_superadmin or current_user.ai_cats_is_manager %}
+        <div class="alert alert-info mb-0">
+            <i class="bi bi-info-circle"></i> 管理员、总经理、总经理助理可分别代两方确认，但需要逐项点击。
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endif %}
+
+{% if order.status in ['inspection_completed', 'accepted'] %}
+    {% if (current_user.ai_cats_is_controller and order.controller_id == current_user.id and current_user.has_ai_cats_permission('qc_acceptance_rollback')) or current_user.is_superadmin or (current_user.ai_cats_is_manager and current_user.has_ai_cats_permission('qc_acceptance_rollback')) %}
+    <div class="d-flex gap-2">
+        <button type="button" class="btn btn-warning" data-bs-toggle="modal" data-bs-target="#rollbackModal">
+            <i class="bi bi-arrow-counterclockwise"></i> 撤销验收并回退
+        </button>
+    </div>
+    {% endif %}
+{% endif %}
+
+{% if order.status in ['inspection_completed', 'accepted'] %}
+<div class="modal fade" id="rollbackModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form method="POST" action="{{ url_for('qc.assembly_acceptance_rollback', order_id=order.id) }}">
+                <div class="modal-header">
+                    <h5 class="modal-title">撤销验收并回退</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label">回退目标 <span class="text-danger">*</span></label>
+                        <select name="target" class="form-select" required>
+                            <option value="">-- 请选择 --</option>
+                            <option value="assembly">发起装配（重新调整资料 / 数量）</option>
+                            <option value="inspection">质量检测（重新质检）</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">回退原因 <span class="text-danger">*</span></label>
+                        <textarea name="reason" class="form-control" rows="3" required placeholder="请填写回退原因..."></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                    <button type="submit" class="btn btn-warning">确认回退</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+{% include 'qc/_work_order_history.html' %}
+{% endblock %}

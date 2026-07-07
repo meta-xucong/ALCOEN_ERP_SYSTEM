@@ -76,6 +76,14 @@
                 <div class="fw-medium fs-5">{{ order.workpiece_name }}</div>
             </div>
             <div class="col-md-3 mb-3">
+                <label class="text-muted small">工件类型</label>
+                <div class="fw-medium fs-5">
+                    <span class="badge {{ 'bg-info' if order.is_outsourced else 'bg-success' }}">
+                        {{ order.workpiece_type_display }}
+                    </span>
+                </div>
+            </div>
+            <div class="col-md-3 mb-3">
                 <label class="text-muted small">生产数量</label>
                 <div class="fw-medium fs-5">{{ order.quantity }}</div>
             </div>
@@ -95,7 +103,7 @@
     <div class="card-body">
         <div class="row g-3">
             <div class="col-md-4">
-                <label class="text-muted small d-block mb-2">图纸批注信息</label>
+                <label class="text-muted small d-block mb-2">{{ order.primary_material_label }}批注信息</label>
                 {% if order.drawing_note_file_path %}
                 <a href="{{ order.drawing_note_file_url }}" target="_blank" class="btn btn-outline-secondary btn-sm text-truncate report-name">
                     <i class="bi bi-file-earmark-arrow-down"></i> {{ order.drawing_note_filename }}
@@ -152,8 +160,8 @@
                 <div class="row attachment-title-row">
                     <div class="col-12">
                         <h6 class="fw-bold mb-0">
-                            {% if attachment.attach_type == 'drawing' %}
-                                <i class="bi bi-image"></i> 图纸
+                            {% if attachment.attach_type in ['drawing', 'qc_material'] %}
+                                <i class="bi {{ 'bi-folder-check' if attachment.attach_type == 'qc_material' else 'bi-image' }}"></i> {{ attachment.display_title }}
                             {% elif attachment.attach_type == 'remark' %}
                                 <i class="bi bi-sticky"></i> 备注
                             {% else %}
@@ -181,8 +189,8 @@
                     </div>
                     <div class="col-lg-3 attachment-subsection">
                         <label class="attachment-subsection-title">
-                            {% if attachment.attach_type == 'drawing' %}
-                            图纸确认函（可选）
+                            {% if attachment.report_label %}
+                            {{ attachment.report_label }}
                             {% elif attachment.attach_type == 'remark' %}
                             附加文件
                             {% else %}
@@ -206,7 +214,7 @@
                                    onchange="markReportSelected({{ attachment.id }}, this)">
                         </div>
                         <small class="text-muted">
-                            {% if attachment.attach_type == 'drawing' %}
+                            {% if attachment.attach_type in ['drawing', 'qc_material'] %}
                             可选上传图片或 PDF。
                             {% elif attachment.attach_type == 'remark' %}
                             可补充上传图片或 PDF。
@@ -244,7 +252,7 @@
                         </div>
                         {% if attachment.requires_report %}
                         <small class="text-muted d-block">未上传合格报告前不可勾选。</small>
-                        {% elif attachment.attach_type == 'drawing' %}
+                        {% elif attachment.attach_type in ['drawing', 'qc_material'] %}
                         <small class="text-muted d-block">附加文件，可选上传。</small>
                         {% endif %}
                     </div>
@@ -268,6 +276,8 @@
     </div>
     {% endif %}
 </form>
+
+{% include 'qc/_work_order_history.html' %}
 {% endblock %}
 
 {% block extra_js %}

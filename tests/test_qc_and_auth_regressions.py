@@ -1,9 +1,10 @@
-"""Regression tests for QC workflow and auth verification behavior."""
+﻿"""Regression tests for QC workflow and auth verification behavior."""
 
 from __future__ import annotations
 
 import io
 import json
+from datetime import datetime
 from pathlib import Path
 import pytest
 from werkzeug.datastructures import FileStorage
@@ -12,8 +13,14 @@ from werkzeug.security import generate_password_hash
 from app import db
 from app.models import (
     Department,
+    QCAcceptanceSignature,
+    QC_QUALITY_MATERIAL_ATTACHMENT_TYPE,
     QCInspectionRecord,
     QCUserBinding,
+    ResearchAcceptanceSignature,
+    ResearchBatch,
+    ResearchBatchAttachment,
+    ResearchProject,
     QCWorkOrder,
     QCWorkOrderAttachment,
     QCWorkpiece,
@@ -97,6 +104,80 @@ def _seed_qc_users() -> tuple[int, int, int]:
     db.session.commit()
 
     return controller.id, inspector.id, dept.id
+
+
+def _seed_research_batch(
+    *,
+    status: str = "research_submitted",
+    with_attachment: bool = True,
+) -> dict[str, int]:
+    """Create a minimal research project/batch pair for route rendering tests."""
+    controller_id, inspector_id, _ = _seed_qc_users()
+
+    project = ResearchProject(
+        project_code="PRJ-001",
+        project_name="色谱柱连接件开发",
+        project_category="方法开发",
+        research_direction="接口一致性验证",
+        creator_id=controller_id,
+    )
+    db.session.add(project)
+    db.session.flush()
+
+    batch = ResearchBatch(
+        batch_no="RB-001",
+        project_id=project.id,
+        project_name_snapshot=project.project_name,
+        sample_quantity=6,
+        researcher_id=controller_id,
+        reviewer_id=inspector_id,
+        status=status,
+    )
+    if status in ["review_completed", "accepted"]:
+        batch.review_completed_at = datetime.now()
+    if status == "accepted":
+        batch.accepted_at = datetime.now()
+    db.session.add(batch)
+    db.session.flush()
+
+    if with_attachment:
+        db.session.add(
+            ResearchBatchAttachment(
+                batch_id=batch.id,
+                attach_type="experiment_plan",
+                source_type="project_snapshot",
+                title="实验方案 1",
+                content="验证方案说明",
+                file_path="experiment_plans/demo_plan.pdf",
+                file_type="pdf",
+                is_required=True,
+                sort_order=0,
+            )
+        )
+
+    if status == "accepted":
+        db.session.add_all(
+            [
+                ResearchAcceptanceSignature(
+                    batch_id=batch.id,
+                    signer_id=controller_id,
+                    signer_role="researcher",
+                ),
+                ResearchAcceptanceSignature(
+                    batch_id=batch.id,
+                    signer_id=inspector_id,
+                    signer_role="reviewer",
+                ),
+            ]
+        )
+
+    db.session.commit()
+    return {
+        "controller_id": controller_id,
+        "inspector_id": inspector_id,
+        "project_id": project.id,
+        "batch_id": batch.id,
+    }
 
 
 def test_quality_control_edit_updates_attachments(app, client, login, monkeypatch):
@@ -358,6 +439,246 @@ def test_quality_control_new_handles_sparse_dynamic_indexes(app, client, login, 
         ).all()
         assert len(remarks) == 1
         assert remarks[0].content == "备注B"
+
+
+def test_outsourced_workpiece_materials_flow_updates_inventory_and_history(app, client, login, monkeypatch):
+    """Outsourced workpieces should use QC materials, flow through inspection, and post inventory once."""
+    with app.app_context():
+        controller_id, inspector_id, _ = _seed_qc_users()
+
+    login(controller_id)
+
+    monkeypatch.setattr(
+        QCService,
+        "_save_workpiece_file",
+        staticmethod(lambda file, workpiece_id, subfolder: f"{subfolder}/saved_{file.filename}"),
+    )
+
+    response = client.post(
+        "/qc/workpieces/new",
+        data={
+            "workpiece_code": "OUT-MAT-001",
+            "workpiece_name": "Outsourced Material Part",
+            "workpiece_type": "outsourced",
+            "material_title_0": "Supplier CoA",
+            "material_content_0": "Lot A",
+            "material_file_0": (io.BytesIO(b"coa"), "coa.png"),
+            "material_title_3": "Incoming Check",
+            "material_content_3": "Lot B",
+            "material_file_3": (io.BytesIO(b"check"), "check.pdf"),
+            "guide_title_0": "Guide A",
+            "guide_content_0": "Check dimension",
+            "guide_file_0": (io.BytesIO(b"guide"), "guide.png"),
+        },
+        content_type="multipart/form-data",
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 302
+
+    monkeypatch.setattr(
+        QCService,
+        "_copy_workpiece_file_to_order",
+        staticmethod(
+            lambda workpiece_id, work_order_id, relative_path, attach_type: (
+                f"{attach_type}/copied_{Path(relative_path).name}",
+                Path(relative_path).suffix.lstrip(".") or "png",
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        QCService,
+        "_save_uploaded_file",
+        staticmethod(lambda file, work_order_id, subfolder: f"{subfolder}/saved_{file.filename}"),
+    )
+
+    with app.app_context():
+        workpiece = QCWorkpiece.query.filter_by(workpiece_code="OUT-MAT-001").first()
+        assert workpiece is not None
+        assert workpiece.is_outsourced is True
+        assert workpiece.drawing_attachment is None
+        assert len(workpiece.quality_material_attachments) == 2
+        assert all(
+            material.attach_type == QC_QUALITY_MATERIAL_ATTACHMENT_TYPE
+            for material in workpiece.quality_material_attachments
+        )
+
+        preview = QCService.serialize_workpiece_preview(workpiece)
+        assert preview["workpiece_type"] == "outsourced"
+        assert preview["primary_material_label"] == "质检材料"
+        assert len(preview["quality_materials"]) == 2
+
+        controller = User.query.get(controller_id)
+        inspector = User.query.get(inspector_id)
+        order = QCService.create_work_order(
+            data={
+                "batch_no": "OUT-MAT-BATCH-001",
+                "workpiece_id": workpiece.id,
+                "workpiece_name": workpiece.workpiece_name,
+                "workpiece_type": "outsourced",
+                "quantity": "12",
+            },
+            controller_id=controller_id,
+            auto_commit=False,
+        )
+        QCService.apply_workpiece_to_order(order.id, workpiece.id, controller)
+        order = QCWorkOrder.query.get(order.id)
+
+        assert order.is_outsourced is True
+        assert len(order.quality_material_attachments) == 2
+        assert len(order.primary_material_attachments) == 2
+
+        QCService.complete_quality_control(order.id, inspector.id, controller)
+        results = []
+        for attachment in order.ordered_attachments:
+            results.append(
+                {
+                    "attachment_id": attachment.id,
+                    "result": "pass",
+                    "remark": "",
+                    "report_file": _report_file(f"report_{attachment.id}.png") if attachment.requires_report else None,
+                }
+            )
+        QCService.submit_inspection(order.id, results, inspector)
+        QCService.sign_acceptance(order.id, controller)
+        QCService.sign_acceptance(order.id, inspector)
+
+        accepted_order = QCWorkOrder.query.get(order.id)
+        accepted_workpiece = QCWorkpiece.query.get(workpiece.id)
+        assert accepted_order.status == "accepted"
+        assert accepted_order.inventory_posted_at is not None
+        assert accepted_workpiece.stock_quantity == 12.0
+        history_actions = [history.action for history in accepted_order.histories]
+        assert "创建工件订单" in history_actions
+        assert "应用工件库快照" in history_actions
+        assert "验收入库" in history_actions
+
+        QCService.rollback_acceptance(order.id, "inspection", "复测", controller)
+        rolled_back_order = QCWorkOrder.query.get(order.id)
+        rolled_back_workpiece = QCWorkpiece.query.get(workpiece.id)
+        assert rolled_back_order.inventory_posted_at is None
+        assert rolled_back_workpiece.stock_quantity == 0.0
+        history_actions = [history.action for history in rolled_back_order.histories]
+        assert "撤销入库" in history_actions
+        assert "验收回退" in history_actions
+
+
+def test_self_produced_workpiece_supports_multiple_drawings_and_preview(app, client, login, monkeypatch):
+    """Self-produced workpieces should store drawings with the same multi-file structure as materials."""
+    with app.app_context():
+        controller_id, _, _ = _seed_qc_users()
+
+    login(controller_id)
+
+    monkeypatch.setattr(
+        QCService,
+        "_save_workpiece_file",
+        staticmethod(lambda file, workpiece_id, subfolder: f"{subfolder}/saved_{file.filename}"),
+    )
+    monkeypatch.setattr(
+        QCService,
+        "_copy_workpiece_file_to_order",
+        staticmethod(
+            lambda workpiece_id, work_order_id, relative_path, attach_type: (
+                f"{attach_type}/copied_{Path(relative_path).name}",
+                Path(relative_path).suffix.lstrip(".") or "png",
+            )
+        ),
+    )
+
+    response = client.post(
+        "/qc/workpieces/new",
+        data={
+            "workpiece_code": "SELF-DRAW-001",
+            "workpiece_name": "Self Drawing Part",
+            "workpiece_type": "self_produced",
+            "drawing_title_0": "Drawing A",
+            "drawing_content_0": "Version A",
+            "drawing_file_0": (io.BytesIO(b"draw-a"), "drawing-a.png"),
+            "drawing_title_2": "Drawing B",
+            "drawing_content_2": "Version B",
+            "drawing_file_2": (io.BytesIO(b"draw-b"), "drawing-b.pdf"),
+            "guide_title_0": "Guide A",
+            "guide_content_0": "Instruction",
+            "guide_file_0": (io.BytesIO(b"guide"), "guide.png"),
+        },
+        content_type="multipart/form-data",
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 302
+
+    with app.app_context():
+        controller = User.query.get(controller_id)
+        workpiece = QCWorkpiece.query.filter_by(workpiece_code="SELF-DRAW-001").first()
+        assert workpiece is not None
+        assert len(workpiece.drawing_attachments) == 2
+        assert [drawing.display_title for drawing in workpiece.drawing_attachments] == ["Drawing A", "Drawing B"]
+
+        preview = QCService.serialize_workpiece_preview(workpiece)
+        assert len(preview["drawings"]) == 2
+        assert preview["drawings"][0]["filename"] == "saved_drawing-a.png"
+
+        order = QCService.create_work_order(
+            data={
+                "batch_no": "SELF-DRAW-BATCH-001",
+                "workpiece_id": workpiece.id,
+                "workpiece_name": workpiece.workpiece_name,
+                "workpiece_type": "self_produced",
+                "quantity": "3",
+            },
+            controller_id=controller_id,
+            auto_commit=False,
+        )
+        QCService.apply_workpiece_to_order(order.id, workpiece.id, controller)
+        order = QCWorkOrder.query.get(order.id)
+        assert len(order.drawing_attachments) == 2
+        assert len(order.primary_material_attachments) == 2
+
+
+def test_cancel_acceptance_signature_reopens_accepted_order_and_reverses_inventory(app):
+    """Cancelling a signature should restore acceptance state without full workflow rollback."""
+    with app.app_context():
+        controller_id, inspector_id, _ = _seed_qc_users()
+
+        controller = User.query.get(controller_id)
+        inspector = User.query.get(inspector_id)
+        workpiece = QCWorkpiece(
+            workpiece_code="CANCEL-ACCEPT-001",
+            workpiece_name="Cancel Acceptance",
+            creator_id=controller_id,
+            stock_quantity=0,
+        )
+        db.session.add(workpiece)
+        db.session.flush()
+        order = QCWorkOrder(
+            batch_no="BATCH-CANCEL-ACCEPT",
+            workpiece_id=workpiece.id,
+            workpiece_name=workpiece.workpiece_name,
+            quantity=4,
+            controller_id=controller_id,
+            inspector_id=inspector_id,
+            status="inspection_completed",
+        )
+        db.session.add(order)
+        db.session.commit()
+
+        QCService.sign_acceptance(order.id, controller)
+        QCService.sign_acceptance(order.id, inspector)
+        accepted = QCWorkOrder.query.get(order.id)
+        assert accepted.status == "accepted"
+        assert workpiece.stock_quantity == 4
+
+        QCService.cancel_acceptance_signature(order.id, "qc_inspector", inspector)
+        reopened = QCWorkOrder.query.get(order.id)
+        assert reopened.status == "inspection_completed"
+        assert reopened.accepted_at is None
+        assert reopened.inventory_posted_at is None
+        assert workpiece.stock_quantity == 0
+        roles = {signature.signer_role for signature in reopened.signatures}
+        assert "qc_inspector" not in roles
+        assert "qc_controller" in roles
+        assert "取消验收确认" in [history.action for history in reopened.histories]
 
 
 def test_qc_inspector_cannot_open_quality_control_module(app, client, login):
@@ -774,7 +1095,7 @@ def test_gm_assistant_dashboard_links_to_qc_order_list_and_detail(app, client, l
 
     login(gm_assistant_id)
 
-    dashboard = client.get("/qc/")
+    dashboard = client.get("/qc/production/")
     assert dashboard.status_code == 200
     assert b"/qc/quality-control/" in dashboard.data
     assert f"/qc/quality-control/{order_id}".encode() in dashboard.data
@@ -1457,7 +1778,7 @@ def test_qc_manager_navigation_and_admin_visibility(app, client, login):
         gm_assistant_id = gm_assistant.id
 
     login(gm_id)
-    gm_dashboard = client.get("/qc/", follow_redirects=False)
+    gm_dashboard = client.get("/qc/production/", follow_redirects=False)
     assert gm_dashboard.status_code == 200
     assert b"/qc/quality-control/" in gm_dashboard.data
     assert b"/qc/quality-inspection/" in gm_dashboard.data
@@ -1468,7 +1789,7 @@ def test_qc_manager_navigation_and_admin_visibility(app, client, login):
     assert client.get("/qc/admin/users", follow_redirects=False).status_code == 200
 
     login(gm_assistant_id)
-    assistant_dashboard = client.get("/qc/", follow_redirects=False)
+    assistant_dashboard = client.get("/qc/production/", follow_redirects=False)
     assert assistant_dashboard.status_code == 200
     assert b"/qc/quality-control/" in assistant_dashboard.data
     assert b"/qc/quality-inspection/" in assistant_dashboard.data
@@ -1679,7 +2000,7 @@ def test_qc_inspector_sees_acceptance_module_and_list(app, client, login):
         order_id = order.id
 
     login(inspector_id)
-    dashboard = client.get("/qc/", follow_redirects=False)
+    dashboard = client.get("/qc/production/", follow_redirects=False)
     assert dashboard.status_code == 200
     assert b"/qc/acceptance/" in dashboard.data
 
@@ -2506,6 +2827,261 @@ def test_switch_routes_change_subsystem_context(app, client, login):
         assert sess.get("subsystem") == "qc"
 
 
+def test_qc_module_selector_and_top_level_shells(client, login, base_data):
+    """AI CATS should open a module selector before entering top-level modules."""
+    login(base_data["superadmin_id"])
+
+    selector = client.get("/qc/", follow_redirects=False)
+    assert selector.status_code == 200
+    selector_text = selector.get_data(as_text=True)
+    assert "选择 AI CATS 模块" in selector_text
+    assert "配件生产" in selector_text
+    assert "/qc/production/" in selector_text
+    assert "/qc/assembly/" in selector_text
+    assert "/qc/research/" in selector_text
+    assert "coming soon" in selector_text
+    assert "即将开放" in selector_text
+
+    production = client.get("/qc/production/", follow_redirects=False)
+    assert production.status_code == 200
+    assert "AI CATS 仪表盘" in production.get_data(as_text=True)
+
+    assembly = client.get("/qc/assembly/", follow_redirects=False)
+    assert assembly.status_code == 200
+    assert "装配/出厂" in assembly.get_data(as_text=True)
+
+    research = client.get("/qc/research/", follow_redirects=False)
+    assert research.status_code == 200
+    assert "研究/实验" in research.get_data(as_text=True)
+
+
+def test_research_module_phase1_routes_load(client, login, base_data):
+    """Research module Phase 1 dashboard and list shells should render for superadmin."""
+    login(base_data["superadmin_id"])
+
+    dashboard = client.get("/qc/research/", follow_redirects=False)
+    assert dashboard.status_code == 200
+    dashboard_text = dashboard.get_data(as_text=True)
+    assert "AI CATS Research & Experiment" in dashboard_text
+    assert "研究项目库" in dashboard_text
+    assert "/qc/research/projects/" in dashboard_text
+    assert "/qc/research/batches/" in dashboard_text
+    assert "/qc/research/reviews/" in dashboard_text
+    assert "/qc/research/acceptance/" in dashboard_text
+
+    projects = client.get("/qc/research/projects/", follow_redirects=False)
+    assert projects.status_code == 200
+    assert "研究项目库" in projects.get_data(as_text=True)
+
+    batches = client.get("/qc/research/batches/", follow_redirects=False)
+    assert batches.status_code == 200
+    assert "研究发起" in batches.get_data(as_text=True)
+
+    reviews = client.get("/qc/research/reviews/", follow_redirects=False)
+    assert reviews.status_code == 200
+    assert "指导审批" in reviews.get_data(as_text=True)
+
+    acceptance = client.get("/qc/research/acceptance/", follow_redirects=False)
+    assert acceptance.status_code == 200
+    assert "共同验收" in acceptance.get_data(as_text=True)
+
+
+def test_research_batch_detail_shows_selected_project_display(app, client, login):
+    """Research batch detail should render the linked project code and name."""
+    with app.app_context():
+        seeded = _seed_research_batch(status="draft", with_attachment=False)
+
+    login(seeded["controller_id"])
+    response = client.get(f"/qc/research/batches/{seeded['batch_id']}", follow_redirects=False)
+
+    assert response.status_code == 200
+    text = response.get_data(as_text=True)
+    assert "研究项目" in text
+    assert "PRJ-001 / 色谱柱连接件开发" in text
+
+
+def test_research_review_detail_uses_stable_layout_and_project_display(app, client, login):
+    """Research review page should render the optimized review layout and project display."""
+    with app.app_context():
+        seeded = _seed_research_batch(status="research_submitted", with_attachment=True)
+
+    login(seeded["inspector_id"])
+    response = client.get(f"/qc/research/reviews/{seeded['batch_id']}", follow_redirects=False)
+
+    assert response.status_code == 200
+    text = response.get_data(as_text=True)
+    assert "研究项目" in text
+    assert "PRJ-001 / 色谱柱连接件开发" in text
+    assert text.index("指导建议") < text.index("指导结果")
+    assert "review-editor-stack" in text
+    assert "review-secondary-grid" in text
+    assert "review-status-panel" in text
+    assert "review-feedback-panel" in text
+
+
+def test_research_acceptance_page_allows_actual_participants_to_sign(app, client, login):
+    """Research acceptance should still allow the assigned participants to sign their own roles."""
+    with app.app_context():
+        seeded = _seed_research_batch(status="review_completed", with_attachment=True)
+
+    login(seeded["controller_id"])
+    researcher_page = client.get(f"/qc/research/acceptance/{seeded['batch_id']}", follow_redirects=False)
+    researcher_text = researcher_page.get_data(as_text=True)
+    assert researcher_page.status_code == 200
+    assert researcher_text.count("点击确认") == 1
+    assert 'name="signer_role" value="researcher"' in researcher_text
+
+    first_sign = client.post(
+        f"/qc/research/acceptance/{seeded['batch_id']}/sign",
+        data={"signer_role": "researcher"},
+        follow_redirects=True,
+    )
+    first_sign_text = first_sign.get_data(as_text=True)
+    assert first_sign.status_code == 200
+    assert "共同验收确认已提交，等待另一方确认" in first_sign_text
+
+    with app.app_context():
+        batch = ResearchBatch.query.get(seeded["batch_id"])
+        signatures = ResearchAcceptanceSignature.query.filter_by(batch_id=seeded["batch_id"]).all()
+        assert batch.status == "review_completed"
+        assert len(signatures) == 1
+        assert signatures[0].signer_role == "researcher"
+        assert signatures[0].signer_id == seeded["controller_id"]
+
+    login(seeded["inspector_id"])
+    reviewer_page = client.get(f"/qc/research/acceptance/{seeded['batch_id']}", follow_redirects=False)
+    reviewer_text = reviewer_page.get_data(as_text=True)
+    assert reviewer_page.status_code == 200
+    assert reviewer_text.count("点击确认") == 1
+    assert 'name="signer_role" value="reviewer"' in reviewer_text
+
+    second_sign = client.post(
+        f"/qc/research/acceptance/{seeded['batch_id']}/sign",
+        data={"signer_role": "reviewer"},
+        follow_redirects=True,
+    )
+    second_sign_text = second_sign.get_data(as_text=True)
+    assert second_sign.status_code == 200
+    assert "双方已确认，阶段研发完成" in second_sign_text
+
+    with app.app_context():
+        batch = ResearchBatch.query.get(seeded["batch_id"])
+        signatures = ResearchAcceptanceSignature.query.filter_by(batch_id=seeded["batch_id"]).all()
+        assert batch.status == "accepted"
+        assert len(signatures) == 2
+        assert {signature.signer_role for signature in signatures} == {"researcher", "reviewer"}
+        assert {signature.signer_id for signature in signatures} == {
+            seeded["controller_id"],
+            seeded["inspector_id"],
+        }
+
+
+def test_research_acceptance_page_allows_manager_to_sign_all_roles(app, client, login, base_data):
+    """Research acceptance should allow manager roles to confirm both sides when needed."""
+    with app.app_context():
+        seeded = _seed_research_batch(status="review_completed", with_attachment=True)
+        manager_role = Role(
+            name="总经理",
+            code="general_manager",
+            permissions=json.dumps(["qc_acceptance_perform", "qc_acceptance_rollback"]),
+            level=80,
+        )
+        db.session.add(manager_role)
+        db.session.flush()
+
+        manager_user = User(
+            username="research_manager",
+            password_hash="x",
+            real_name="Research Manager",
+            role_id=manager_role.id,
+            department_id=base_data["department_id"],
+            is_active=True,
+            is_superadmin=False,
+            require_password_change=False,
+        )
+        db.session.add(manager_user)
+        db.session.commit()
+        manager_id = manager_user.id
+
+    login(manager_id)
+    response = client.get(f"/qc/research/acceptance/{seeded['batch_id']}", follow_redirects=False)
+
+    assert response.status_code == 200
+    text = response.get_data(as_text=True)
+    assert "研究项目" in text
+    assert "PRJ-001 / 色谱柱连接件开发" in text
+    assert text.count("点击确认") == 2
+    assert 'name="signer_role" value="researcher"' in text
+    assert 'name="signer_role" value="reviewer"' in text
+
+    first_sign = client.post(
+        f"/qc/research/acceptance/{seeded['batch_id']}/sign",
+        data={"signer_role": "researcher"},
+        follow_redirects=True,
+    )
+    first_sign_text = first_sign.get_data(as_text=True)
+    assert first_sign.status_code == 200
+    assert "共同验收确认已提交，等待另一方确认" in first_sign_text
+
+    with app.app_context():
+        batch = ResearchBatch.query.get(seeded["batch_id"])
+        signatures = ResearchAcceptanceSignature.query.filter_by(batch_id=seeded["batch_id"]).all()
+        assert batch.status == "review_completed"
+        assert len(signatures) == 1
+        assert signatures[0].signer_role == "researcher"
+        assert signatures[0].signer_id == manager_id
+
+    second_sign = client.post(
+        f"/qc/research/acceptance/{seeded['batch_id']}/sign",
+        data={"signer_role": "reviewer"},
+        follow_redirects=True,
+    )
+    second_sign_text = second_sign.get_data(as_text=True)
+    assert second_sign.status_code == 200
+    assert "双方已确认，阶段研发完成" in second_sign_text
+
+    with app.app_context():
+        batch = ResearchBatch.query.get(seeded["batch_id"])
+        signatures = ResearchAcceptanceSignature.query.filter_by(batch_id=seeded["batch_id"]).all()
+        assert batch.status == "accepted"
+        assert len(signatures) == 2
+        assert {signature.signer_role for signature in signatures} == {"researcher", "reviewer"}
+        assert {signature.signer_id for signature in signatures} == {manager_id}
+
+
+def test_ai_cats_module_nav_is_isolated_between_production_and_research(client, login, base_data):
+    """Production and research pages should render only their own module navigation items."""
+    login(base_data["superadmin_id"])
+
+    production = client.get("/qc/production/", follow_redirects=False)
+    assert production.status_code == 200
+    production_text = production.get_data(as_text=True)
+    assert "当前模块" in production_text
+    assert "工件库" in production_text
+    assert "质量控制" in production_text
+    assert "质量检测" in production_text
+    assert "验收模块" in production_text
+    assert "ERP 系统" in production_text
+    assert "研究项目库" not in production_text
+    assert "研究发起" not in production_text
+    assert "指导审批" not in production_text
+    assert "共同验收" not in production_text
+
+    research = client.get("/qc/research/", follow_redirects=False)
+    assert research.status_code == 200
+    research_text = research.get_data(as_text=True)
+    assert "当前模块" in research_text
+    assert "研究项目库" in research_text
+    assert "研究发起" in research_text
+    assert "指导审批" in research_text
+    assert "共同验收" in research_text
+    assert "ERP 系统" in research_text
+    assert "工件库" not in research_text
+    assert "质量控制" not in research_text
+    assert "质量检测" not in research_text
+    assert "验收模块" not in research_text
+
+
 def test_portal_cards_switch_systems_for_logged_in_users(app, client):
     """Portal system cards should use explicit switch routes once the user is logged in."""
     with app.app_context():
@@ -2851,3 +3427,114 @@ def test_qc_only_user_can_update_profile_after_erp_filtering(app, client, login)
         assert refreshed_user.real_name == 'QC Profile Updated'
         assert refreshed_user.email == 'qc_profile_updated@example.com'
         assert refreshed_user.phone == '13800003333'
+
+
+def test_quality_control_supplier_picker_excludes_manager_roles(app, client, login, base_data):
+    """The production work-order supplier picker should only list supplier/inspector users."""
+    with app.app_context():
+        controller_id, inspector_id, _ = _seed_qc_users()
+        manager_role = Role(
+            name="总经理",
+            code="general_manager",
+            permissions=json.dumps(["qc_acceptance_perform", "qc_acceptance_rollback"]),
+            level=80,
+        )
+        db.session.add(manager_role)
+        db.session.flush()
+        manager = User(
+            username="supplier_picker_manager",
+            password_hash="x",
+            real_name="不应出现在供应商下拉",
+            role_id=manager_role.id,
+            department_id=base_data["department_id"],
+            is_active=True,
+            is_superadmin=False,
+            require_password_change=False,
+        )
+        db.session.add(manager)
+        db.session.commit()
+
+    login(controller_id)
+    response = client.get("/qc/quality-control/new", follow_redirects=False)
+    text = response.get_data(as_text=True)
+    assert response.status_code == 200
+    assert "QC Inspector" in text
+    assert "不应出现在供应商下拉" not in text
+    assert "supplier_picker_manager" not in text
+
+
+def test_quality_control_manager_acceptance_requires_one_role_per_click(app, client, login, base_data):
+    """Managers can sign both production acceptance roles, but not in one click."""
+    with app.app_context():
+        controller_id, inspector_id, _ = _seed_qc_users()
+        manager_role = Role(
+            name="总经理",
+            code="general_manager",
+            permissions=json.dumps(["qc_acceptance_perform", "qc_acceptance_rollback"]),
+            level=80,
+        )
+        db.session.add(manager_role)
+        db.session.flush()
+        manager = User(
+            username="qc_acceptance_manager",
+            password_hash="x",
+            real_name="QC Acceptance Manager",
+            role_id=manager_role.id,
+            department_id=base_data["department_id"],
+            is_active=True,
+            is_superadmin=False,
+            require_password_change=False,
+        )
+        order = QCWorkOrder(
+            batch_no="QC-MGR-001",
+            workpiece_name="Manager Sign Workpiece",
+            quantity=1,
+            controller_id=controller_id,
+            inspector_id=inspector_id,
+            status="inspection_completed",
+        )
+        db.session.add_all([manager, order])
+        db.session.commit()
+        manager_id = manager.id
+        order_id = order.id
+
+    login(manager_id)
+    page = client.get(f"/qc/acceptance/{order_id}", follow_redirects=False)
+    text = page.get_data(as_text=True)
+    assert page.status_code == 200
+    assert text.count("点击确认") == 2
+    assert 'name="signer_role" value="qc_controller"' in text
+    assert 'name="signer_role" value="qc_inspector"' in text
+
+    first_sign = client.post(
+        f"/qc/acceptance/{order_id}/sign",
+        data={"signer_role": "qc_controller"},
+        follow_redirects=True,
+    )
+    first_text = first_sign.get_data(as_text=True)
+    assert first_sign.status_code == 200
+    assert "验收确认已提交，等待另一方确认" in first_text
+
+    with app.app_context():
+        order = QCWorkOrder.query.get(order_id)
+        signatures = QCAcceptanceSignature.query.filter_by(work_order_id=order_id).all()
+        assert order.status == "inspection_completed"
+        assert len(signatures) == 1
+        assert signatures[0].signer_role == "qc_controller"
+
+    second_sign = client.post(
+        f"/qc/acceptance/{order_id}/sign",
+        data={"signer_role": "qc_inspector"},
+        follow_redirects=True,
+    )
+    second_text = second_sign.get_data(as_text=True)
+    assert second_sign.status_code == 200
+    assert "双方已确认，验收完成" in second_text
+
+    with app.app_context():
+        order = QCWorkOrder.query.get(order_id)
+        signatures = QCAcceptanceSignature.query.filter_by(work_order_id=order_id).all()
+        assert order.status == "accepted"
+        assert len(signatures) == 2
+        assert {signature.signer_role for signature in signatures} == {"qc_controller", "qc_inspector"}
+        assert {signature.signer_id for signature in signatures} == {manager_id}

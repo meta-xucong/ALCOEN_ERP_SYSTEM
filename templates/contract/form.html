@@ -682,7 +682,7 @@
                 <input type="text" class="form-control" name="payment_{index}_remark" maxlength="50">
             </div>
             <div class="col-md-8">
-                <div class="form-text mb-0">回款金额、开票金额至少填写一项。只填其中一项时，保存后会显示对应状态标签。</div>
+                <div class="form-text mb-0">回款金额、开票金额至少填写一项；两项均填 0 表示不需要回款/开票。</div>
             </div>
         </div>
     </div>
@@ -826,8 +826,13 @@ function updatePaymentRowStatus(row) {
 
     const paymentAmount = toNumber(row.querySelector('.payment-amount-input')?.value, 0);
     const invoiceAmount = toNumber(row.querySelector('.payment-invoice-amount-input')?.value, 0);
+    const paymentRaw = row.querySelector('.payment-amount-input')?.value ?? '';
+    const invoiceRaw = row.querySelector('.payment-invoice-amount-input')?.value ?? '';
     const badges = [];
 
+    if (paymentRaw !== '' && invoiceRaw !== '' && paymentAmount === 0 && invoiceAmount === 0) {
+        badges.push('<span class="badge bg-secondary-subtle text-secondary-emphasis border border-secondary-subtle">不需要回款/开票</span>');
+    }
     if (paymentAmount > 0 && invoiceAmount <= 0) {
         badges.push('<span class="badge bg-success-subtle text-success-emphasis border border-success-subtle">已回款，未开票</span>');
     }

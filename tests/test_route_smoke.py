@@ -26,6 +26,10 @@ import pytest
         "/user/",
         "/user/pending",
         "/auth/change-password",
+        "/qc/",
+        "/qc/production/",
+        "/qc/assembly/",
+        "/qc/research/",
     ],
 )
 def test_protected_pages_load_for_superadmin(client, login, base_data, path):

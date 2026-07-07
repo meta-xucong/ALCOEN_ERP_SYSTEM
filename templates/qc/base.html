@@ -10,10 +10,145 @@
     <link href="{{ url_for('static', filename='css/alco-glass-theme.css') }}" rel="stylesheet">
     <link href="{{ url_for('static', filename='css/theme-preferences.css') }}" rel="stylesheet">
 
+    <style>
+        .qc-navbar-collapse {
+            align-items: center;
+        }
+        .qc-primary-nav {
+            align-items: center;
+            gap: 0.15rem;
+        }
+        .qc-logo-mark {
+            display: inline-flex;
+            align-items: center;
+            justify-content: flex-start;
+            margin-right: 0.35rem;
+            flex: 0 0 auto;
+        }
+        .qc-logo-mark img {
+            width: auto;
+            height: 32px;
+            object-fit: contain;
+        }
+        .qc-current-module-wrap {
+            display: flex;
+            align-items: center;
+            padding: 0.15rem 0.45rem 0.15rem 0.25rem;
+        }
+        .qc-current-module {
+            display: inline-flex;
+            flex-direction: column;
+            gap: 0.14rem;
+            padding: 0.5rem 0.78rem;
+            border-radius: 14px;
+            border: 1px solid rgba(30, 58, 95, 0.14);
+            background:
+                linear-gradient(135deg, rgba(255, 255, 255, 0.96), rgba(232, 244, 248, 0.92));
+            box-shadow: 0 10px 22px rgba(31, 58, 95, 0.08);
+            color: var(--alco-primary);
+            pointer-events: none;
+            user-select: none;
+            white-space: nowrap;
+        }
+        .qc-current-module-link {
+            pointer-events: auto;
+            user-select: auto;
+            text-decoration: none;
+            transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+        }
+        .qc-current-module-link:hover,
+        .qc-current-module-link:focus-visible {
+            transform: translateY(-1px);
+            border-color: rgba(25, 135, 84, 0.26);
+            box-shadow: 0 12px 26px rgba(31, 58, 95, 0.1);
+            text-decoration: none;
+        }
+        .qc-current-module-label {
+            font-size: 0.62rem;
+            font-weight: 700;
+            letter-spacing: 0.08em;
+            color: rgba(30, 58, 95, 0.58);
+        }
+        .qc-current-module-value {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.42rem;
+            font-size: 0.92rem;
+            font-weight: 800;
+            color: var(--alco-primary);
+            line-height: 1.1;
+        }
+        .qc-current-module-value i {
+            font-size: 0.96rem;
+            color: #198754;
+        }
+        .timeline-list {
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+        }
+        .timeline-item {
+            position: relative;
+            display: grid;
+            grid-template-columns: 18px minmax(0, 1fr);
+            gap: 0.75rem;
+        }
+        .timeline-item:not(:last-child)::before {
+            content: "";
+            position: absolute;
+            left: 8px;
+            top: 18px;
+            bottom: -1rem;
+            width: 2px;
+            background: rgba(25, 135, 84, 0.16);
+        }
+        .timeline-dot {
+            position: relative;
+            z-index: 1;
+            width: 18px;
+            height: 18px;
+            margin-top: 0.2rem;
+            border-radius: 50%;
+            border: 3px solid rgba(25, 135, 84, 0.18);
+            background: #198754;
+            box-shadow: 0 0 0 4px rgba(25, 135, 84, 0.08);
+        }
+        .timeline-content {
+            min-width: 0;
+            border: 1px solid rgba(0, 0, 0, 0.06);
+            border-radius: 14px;
+            padding: 0.9rem 1rem;
+            background: rgba(255, 255, 255, 0.72);
+        }
+        .research-file-preview {
+            width: 100%;
+            min-width: 0;
+        }
+        .research-file-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.45rem;
+            width: 100%;
+            max-width: 100%;
+            overflow: hidden;
+            justify-content: flex-start;
+        }
+        .research-file-link-text {
+            flex: 1 1 auto;
+            min-width: 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+    </style>
     {% block extra_css %}{% endblock %}
 </head>
-<body class="theme-{{ theme.theme }} style-{{ theme.style }}" data-theme="{{ theme.theme }}">
-    {% if theme.bg_type == 'video' %}
+<body class="theme-{{ theme.theme }} style-{{ theme.style }} qc-shell-{{ qc_shell|default('app') }}" data-theme="{{ theme.theme }}">
+    {% set qc_shell_mode = qc_shell|default('app') %}
+    {% if qc_shell_mode == 'landing' %}
+    <div class="solid-background" style="position: fixed; inset: 0; z-index: -2; background: linear-gradient(135deg, #e8f4f8 0%, #d4e9f2 50%, #c5e0ec 100%);"></div>
+    {% elif theme.bg_type == 'video' %}
     <div class="video-background">
         <video autoplay muted loop playsinline>
             <source src="{{ url_for('static', filename='video/video_main.mp4') }}" type="video/mp4">
@@ -25,91 +160,139 @@
     <div class="solid-background" style="position: fixed; inset: 0; z-index: -2; background: linear-gradient(135deg, #e8f4f8 0%, #d4e9f2 50%, #c5e0ec 100%);"></div>
     {% endif %}
 
-    {% if theme.bg_type == 'solid' %}
+    {% if qc_shell_mode == 'landing' or theme.bg_type == 'solid' %}
     <div class="orb orb-1"></div>
     <div class="orb orb-2"></div>
     <div class="orb orb-3"></div>
     {% endif %}
 
-    {% set qc_manager_roles = ['superadmin', 'general_manager', 'gm_assistant'] %}
-    {% set qc_operator_roles = ['qc_controller', 'qc_inspector'] %}
-    {% set role_code = current_user.role.code if current_user and current_user.role else '' %}
-    {% set can_access_qc_workpieces = current_user and (
-        current_user.is_superadmin
-        or (role_code in ['general_manager', 'gm_assistant', 'qc_controller'] and (
-            current_user.has_qc_permission('qc_workpiece_view')
-            or current_user.has_qc_permission('qc_workpiece_create')
-            or current_user.has_qc_permission('qc_workpiece_edit')
-            or current_user.has_qc_permission('qc_workpiece_delete')
-        ))
-    ) %}
-    {% set can_access_qc_orders = current_user and (
-        current_user.is_superadmin
-        or (role_code in ['general_manager', 'gm_assistant', 'qc_controller'] and (
-            current_user.has_qc_permission('qc_work_order_view')
-            or current_user.has_qc_permission('qc_work_order_create')
-            or current_user.has_qc_permission('qc_work_order_edit')
-            or current_user.has_qc_permission('qc_work_order_delete')
-        ))
-    ) %}
-    {% set can_access_qc_inspection = current_user and (
-        current_user.is_superadmin
-        or (role_code in qc_manager_roles + qc_operator_roles and (
-            current_user.has_qc_permission('qc_inspection_view')
-            or current_user.has_qc_permission('qc_inspection_perform')
-        ))
-    ) %}
-    {% set can_access_qc_acceptance = current_user and (
-        current_user.is_superadmin
-        or (role_code in qc_manager_roles + qc_operator_roles and (
-            current_user.has_qc_permission('qc_acceptance_perform')
-            or current_user.has_qc_permission('qc_acceptance_rollback')
-        ))
-    ) %}
-    {% set can_access_qc_admin = current_user and (current_user.is_superadmin or role_code == 'general_manager') %}
+    {% set qc_nav_context = qc_nav if qc_nav is defined else {} %}
+    {% set production_nav = qc_nav_context.production if qc_nav_context.production is defined else {} %}
+    {% set assembly_nav = qc_nav_context.assembly if qc_nav_context.assembly is defined else {} %}
+    {% set research_nav = qc_nav_context.research if qc_nav_context.research is defined else {} %}
+    {% set can_access_qc_admin = qc_nav_context.admin if qc_nav_context.admin is defined else false %}
+    {% set qc_module_key = qc_module|default('production') %}
 
+    {% if qc_shell_mode == 'landing' %}
+    <main class="qc-landing-main">
+        {% block landing_content %}{% endblock %}
+    </main>
+    {% else %}
     <nav class="navbar navbar-expand-lg">
         <div class="container">
-            <a class="navbar-brand" href="{{ url_for('qc.index') }}">
-                <img src="{{ url_for('static', filename='img/logo.png') }}" alt="ALCOEN"> AI CATS
-            </a>
             <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
                 <span class="navbar-toggler-icon"></span>
             </button>
-            <div class="collapse navbar-collapse" id="navbarNav">
-                <ul class="navbar-nav me-auto">
+            <div class="collapse navbar-collapse qc-navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav me-auto qc-primary-nav">
                     <li class="nav-item">
-                        <a class="nav-link" href="{{ url_for('qc.index') }}">
-                            <i class="bi bi-house-door"></i> 首页
+                        <span class="qc-logo-mark" aria-label="AI CATS logo">
+                            <img src="{{ url_for('static', filename='img/logo.png') }}" alt="AI CATS">
+                        </span>
+                    </li>
+                    <li class="nav-item qc-current-module-wrap">
+                        <a class="qc-current-module qc-current-module-link" href="{{ url_for('qc.index') }}" aria-label="当前模块，切换到模块选择页面">
+                            <span class="qc-current-module-label">当前模块</span>
+                            <span class="qc-current-module-value">
+                                <i class="bi {{ 'bi-lightbulb' if qc_module_key == 'research' else ('bi-tools' if qc_module_key == 'assembly' else 'bi-box-seam') }}"></i>
+                                {{ '研究/实验' if qc_module_key == 'research' else ('装配/出厂' if qc_module_key == 'assembly' else '配件生产') }}
+                            </span>
                         </a>
                     </li>
-                    {% if can_access_qc_workpieces %}
-                    <li class="nav-item">
-                        <a class="nav-link" href="{{ url_for('qc.workpiece_list') }}">
-                            <i class="bi bi-box-seam"></i> 工件库
-                        </a>
-                    </li>
-                    {% endif %}
-                    {% if can_access_qc_orders %}
-                    <li class="nav-item">
-                        <a class="nav-link" href="{{ url_for('qc.quality_control_list') }}">
-                            <i class="bi bi-clipboard-check"></i> 质量控制
-                        </a>
-                    </li>
-                    {% endif %}
-                    {% if can_access_qc_inspection %}
-                    <li class="nav-item">
-                        <a class="nav-link" href="{{ url_for('qc.quality_inspection_list') }}">
-                            <i class="bi bi-search"></i> 质量检测
-                        </a>
-                    </li>
-                    {% endif %}
-                    {% if can_access_qc_acceptance %}
-                    <li class="nav-item">
-                        <a class="nav-link" href="{{ url_for('qc.acceptance_list') }}">
-                            <i class="bi bi-check2-circle"></i> 验收模块
-                        </a>
-                    </li>
+                    {% if qc_module_key == 'research' %}
+                        {% if research_nav.projects %}
+                        <li class="nav-item">
+                            <a class="nav-link" href="{{ url_for('qc.research_project_list') }}">
+                                <i class="bi bi-journal-text"></i> 研究项目库
+                            </a>
+                        </li>
+                        {% endif %}
+                        {% if research_nav.batch_launch %}
+                        <li class="nav-item">
+                            <a class="nav-link" href="{{ url_for('qc.research_batch_list') }}">
+                                <i class="bi bi-flask"></i> 研究发起
+                            </a>
+                        </li>
+                        {% endif %}
+                        {% if research_nav.review %}
+                        <li class="nav-item">
+                            <a class="nav-link" href="{{ url_for('qc.research_review_list') }}">
+                                <i class="bi bi-chat-square-text"></i> 指导审批
+                            </a>
+                        </li>
+                        {% endif %}
+                        {% if research_nav.acceptance %}
+                        <li class="nav-item">
+                            <a class="nav-link" href="{{ url_for('qc.research_acceptance_list') }}">
+                                <i class="bi bi-patch-check"></i> 共同验收
+                            </a>
+                        </li>
+                        {% endif %}
+                    {% elif qc_module_key == 'assembly' %}
+                        {% if assembly_nav.products %}
+                        <li class="nav-item">
+                            <a class="nav-link" href="{{ url_for('qc.assembly_product_list') }}">
+                                <i class="bi bi-boxes"></i> 产品库
+                            </a>
+                        </li>
+                        {% endif %}
+                        {% if assembly_nav.workpieces %}
+                        <li class="nav-item">
+                            <a class="nav-link" href="{{ url_for('qc.workpiece_list') }}">
+                                <i class="bi bi-box-seam"></i> 工件库
+                            </a>
+                        </li>
+                        {% endif %}
+                        {% if assembly_nav.launch %}
+                        <li class="nav-item">
+                            <a class="nav-link" href="{{ url_for('qc.assembly_launch_list') }}">
+                                <i class="bi bi-tools"></i> 发起装配
+                            </a>
+                        </li>
+                        {% endif %}
+                        {% if assembly_nav.inspection %}
+                        <li class="nav-item">
+                            <a class="nav-link" href="{{ url_for('qc.assembly_inspection_list') }}">
+                                <i class="bi bi-search"></i> 质量检测
+                            </a>
+                        </li>
+                        {% endif %}
+                        {% if assembly_nav.acceptance %}
+                        <li class="nav-item">
+                            <a class="nav-link" href="{{ url_for('qc.assembly_acceptance_list') }}">
+                                <i class="bi bi-patch-check"></i> 验收/出厂
+                            </a>
+                        </li>
+                        {% endif %}
+                    {% else %}
+                        {% if production_nav.workpieces %}
+                        <li class="nav-item">
+                            <a class="nav-link" href="{{ url_for('qc.workpiece_list') }}">
+                                <i class="bi bi-box-seam"></i> 工件库
+                            </a>
+                        </li>
+                        {% endif %}
+                        {% if production_nav.quality_control %}
+                        <li class="nav-item">
+                            <a class="nav-link" href="{{ url_for('qc.quality_control_list') }}">
+                                <i class="bi bi-clipboard-check"></i> 质量控制
+                            </a>
+                        </li>
+                        {% endif %}
+                        {% if production_nav.inspection %}
+                        <li class="nav-item">
+                            <a class="nav-link" href="{{ url_for('qc.quality_inspection_list') }}">
+                                <i class="bi bi-search"></i> 质量检测
+                            </a>
+                        </li>
+                        {% endif %}
+                        {% if production_nav.acceptance %}
+                        <li class="nav-item">
+                            <a class="nav-link" href="{{ url_for('qc.acceptance_list') }}">
+                                <i class="bi bi-check2-circle"></i> 验收模块
+                            </a>
+                        </li>
+                        {% endif %}
                     {% endif %}
                     {% if can_access_qc_admin %}
                     <li class="nav-item dropdown">
@@ -182,6 +365,7 @@
             <small style="color: var(--alco-primary); font-weight: 500;">ALCOEN AI CATS V1.0 &copy; 2026</small>
         </div>
     </footer>
+    {% endif %}
 
     <script src="{{ url_for('static', filename='vendor/bootstrap/js/bootstrap.bundle.min.js') }}"></script>
     <script src="{{ url_for('static', filename='js/app.js') }}"></script>

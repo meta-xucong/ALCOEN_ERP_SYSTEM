@@ -34,3 +34,56 @@ def test_payment_record_amount_and_date_fields_are_optional(db_session):
 
     assert column_info["payment_amount"][3] == 0
     assert column_info["payment_date"][3] == 0
+
+
+def test_qc_production_tables_have_type_stock_and_history_columns(db_session):
+    """AI CATS production tables must support workpiece types, inventory and immutable history."""
+    workpiece_cols = _columns(db_session, "qc_workpieces")
+    order_cols = _columns(db_session, "qc_work_orders")
+    history_cols = _columns(db_session, "qc_work_order_histories")
+
+    assert {"workpiece_type", "stock_quantity"} <= workpiece_cols
+    assert {"workpiece_type", "inventory_posted_at"} <= order_cols
+    assert {"work_order_id", "operator_id", "action", "detail", "created_at"} <= history_cols
+
+
+def test_research_module_tables_have_required_columns(db_session):
+    """AI CATS research tables must expose the Phase 1 foundation columns."""
+    project_cols = _columns(db_session, "research_projects")
+    project_attachment_cols = _columns(db_session, "research_project_attachments")
+    batch_cols = _columns(db_session, "research_batches")
+    batch_attachment_cols = _columns(db_session, "research_batch_attachments")
+    review_cols = _columns(db_session, "research_review_records")
+    signature_cols = _columns(db_session, "research_acceptance_signatures")
+    history_cols = _columns(db_session, "research_batch_histories")
+
+    assert {"project_code", "project_name", "project_category", "creator_id"} <= project_cols
+    assert {"project_id", "attach_type", "file_path", "sort_order"} <= project_attachment_cols
+    assert {"batch_no", "project_id", "researcher_id", "reviewer_id", "status"} <= batch_cols
+    assert {"batch_id", "attach_type", "source_type", "file_path"} <= batch_attachment_cols
+    assert {"batch_id", "reviewer_id", "attachment_id", "result"} <= review_cols
+    assert {"batch_id", "signer_id", "signer_role", "signed_at"} <= signature_cols
+    assert {"batch_id", "operator_id", "action", "detail", "created_at"} <= history_cols
+
+
+def test_assembly_module_tables_have_required_columns(db_session):
+    """AI CATS assembly/shipping tables must expose the required foundation columns."""
+    product_cols = _columns(db_session, "assembly_products")
+    component_cols = _columns(db_session, "assembly_product_components")
+    product_attachment_cols = _columns(db_session, "assembly_product_attachments")
+    order_cols = _columns(db_session, "assembly_orders")
+    order_component_cols = _columns(db_session, "assembly_order_components")
+    order_attachment_cols = _columns(db_session, "assembly_order_attachments")
+    inspection_cols = _columns(db_session, "assembly_inspection_records")
+    signature_cols = _columns(db_session, "assembly_acceptance_signatures")
+    history_cols = _columns(db_session, "assembly_order_histories")
+
+    assert {"product_code", "product_name", "creator_id"} <= product_cols
+    assert {"product_id", "workpiece_id", "workpiece_code_snapshot", "quantity_per_unit"} <= component_cols
+    assert {"product_id", "attach_type", "file_path", "sort_order"} <= product_attachment_cols
+    assert {"batch_no", "product_id", "controller_id", "status", "inventory_posted_at"} <= order_cols
+    assert {"order_id", "workpiece_id", "quantity_per_unit", "total_required_quantity"} <= order_component_cols
+    assert {"order_id", "attach_type", "source_type", "file_path"} <= order_attachment_cols
+    assert {"order_id", "inspector_id", "attachment_id", "result"} <= inspection_cols
+    assert {"order_id", "signer_id", "signer_role", "signed_at"} <= signature_cols
+    assert {"order_id", "operator_id", "action", "detail", "created_at"} <= history_cols

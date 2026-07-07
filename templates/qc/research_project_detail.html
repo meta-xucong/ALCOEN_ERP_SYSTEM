@@ -1,0 +1,118 @@
+{% extends 'qc/base.html' %}
+{% from 'qc/_research_file_macros.html' import file_preview %}
+
+{% macro render_project_section(title, icon_class, attachments, empty_text) %}
+<div class="card h-100 border-0 shadow-sm">
+    <div class="card-header bg-light">
+        <h5 class="mb-0"><i class="bi {{ icon_class }}"></i> {{ title }}</h5>
+    </div>
+    <div class="card-body">
+        {% if attachments %}
+            {% for attachment in attachments %}
+            <div class="border rounded p-3 mb-3">
+                <h6 class="fw-bold mb-2">{{ attachment.display_title }}</h6>
+                {% if attachment.content %}
+                <p class="text-muted small mb-3">{{ attachment.content }}</p>
+                {% endif %}
+                {{ file_preview(attachment.file_url, attachment.file_path.split('/')[-1], attachment.is_image, attachment.display_title) }}
+            </div>
+            {% endfor %}
+        {% else %}
+        <p class="text-muted mb-0">{{ empty_text }}</p>
+        {% endif %}
+    </div>
+</div>
+{% endmacro %}
+
+{% block title %}研究项目详情 - ALCOEN AI CATS{% endblock %}
+
+{% block extra_css %}
+<style>
+    .research-thumb {
+        max-height: 220px;
+        max-width: 100%;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center flex-wrap gap-3 mb-4">
+    <h1 class="d-flex align-items-center gap-3 mb-0">
+        <i class="bi bi-journal-richtext text-warning" style="font-size: 2rem;"></i>
+        <span class="text-gradient" style="font-weight: 800; font-size: 2rem;">研究项目详情</span>
+    </h1>
+    <div class="d-flex gap-2 flex-wrap">
+        {% if can_edit_project %}
+        <a href="{{ url_for('qc.research_project_edit', project_id=project.id) }}" class="btn btn-info">
+            <i class="bi bi-pencil"></i> 编辑
+        </a>
+        {% endif %}
+        {% if can_delete_project %}
+        <form method="POST" action="{{ url_for('qc.research_project_delete', project_id=project.id) }}" onsubmit="return confirm('确定要删除这个研究项目吗？');">
+            <button type="submit" class="btn btn-outline-danger">
+                <i class="bi bi-trash"></i> 删除
+            </button>
+        </form>
+        {% endif %}
+        <a href="{{ url_for('qc.research_project_list') }}" class="btn btn-outline-secondary">
+            <i class="bi bi-arrow-left"></i> 返回列表
+        </a>
+    </div>
+</div>
+
+<div class="card mb-4">
+    <div class="card-header bg-primary text-white">
+        <h5 class="mb-0"><i class="bi bi-info-circle"></i> 基础信息</h5>
+    </div>
+    <div class="card-body">
+        <div class="row">
+            <div class="col-md-3 mb-3">
+                <label class="text-muted small">项目编号</label>
+                <div class="fw-medium fs-5">{{ project.project_code }}</div>
+            </div>
+            <div class="col-md-3 mb-3">
+                <label class="text-muted small">项目名称</label>
+                <div class="fw-medium fs-5">{{ project.project_name }}</div>
+            </div>
+            <div class="col-md-3 mb-3">
+                <label class="text-muted small">项目分类</label>
+                <div class="fw-medium fs-5">{{ project.project_category or '-' }}</div>
+            </div>
+            <div class="col-md-3 mb-3">
+                <label class="text-muted small">研究方向</label>
+                <div class="fw-medium fs-5">{{ project.research_direction or '-' }}</div>
+            </div>
+            <div class="col-md-3 mb-3">
+                <label class="text-muted small">创建人</label>
+                <div class="fw-medium fs-5">{{ project.creator.real_name or project.creator.username }}</div>
+            </div>
+            <div class="col-md-3 mb-3">
+                <label class="text-muted small">创建时间</label>
+                <div class="fw-medium fs-5">{{ project.created_at.strftime('%Y-%m-%d %H:%M') }}</div>
+            </div>
+            <div class="col-md-3 mb-3">
+                <label class="text-muted small">最后更新</label>
+                <div class="fw-medium fs-5">{{ project.updated_at.strftime('%Y-%m-%d %H:%M') }}</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row g-4">
+    <div class="col-12 col-xl-6">
+        {{ render_project_section('立项资料', 'bi-folder2-open', project.initiation_materials, '暂无立项资料') }}
+    </div>
+    <div class="col-12 col-xl-6">
+        {{ render_project_section('研究资料', 'bi-bezier2', project.research_materials, '暂无研究资料') }}
+    </div>
+    <div class="col-12 col-xl-6">
+        {{ render_project_section('实验方案', 'bi-diagram-3', project.experiment_plans, '暂无实验方案') }}
+    </div>
+    <div class="col-12 col-xl-6">
+        {{ render_project_section('观察项 / 验证目标', 'bi-binoculars', project.validation_items, '暂无观察项 / 验证目标') }}
+    </div>
+    <div class="col-12">
+        {{ render_project_section('风险提示 / 补充说明', 'bi-exclamation-diamond', project.risk_notes, '暂无风险提示 / 补充说明') }}
+    </div>
+</div>
+{% endblock %}
