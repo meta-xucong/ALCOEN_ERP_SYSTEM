@@ -801,6 +801,21 @@ def _run_lightweight_schema_upgrades():
                 '''
             )
 
+    if inspector.has_table('assembly_order_components'):
+        with db.engine.begin() as connection:
+            order_component_columns = {
+                row[1] for row in connection.exec_driver_sql('PRAGMA table_info(assembly_order_components)').fetchall()
+            }
+            alter_statements = []
+            if 'component_type' not in order_component_columns:
+                alter_statements.append("ALTER TABLE assembly_order_components ADD COLUMN component_type VARCHAR(20) NOT NULL DEFAULT 'workpiece'")
+            if 'component_product_id' not in order_component_columns:
+                alter_statements.append('ALTER TABLE assembly_order_components ADD COLUMN component_product_id INTEGER')
+            for statement in alter_statements:
+                connection.exec_driver_sql(statement)
+            connection.exec_driver_sql('CREATE INDEX IF NOT EXISTS ix_assembly_order_components_component_type ON assembly_order_components (component_type)')
+            connection.exec_driver_sql('CREATE INDEX IF NOT EXISTS ix_assembly_order_components_component_product_id ON assembly_order_components (component_product_id)')
+
     if inspector.has_table('assembly_acceptance_batches'):
         with db.engine.begin() as connection:
             connection.exec_driver_sql(
@@ -980,18 +995,20 @@ def _run_lightweight_schema_upgrades():
             )
 
     if inspector.has_table('assembly_order_components'):
-        order_component_columns = {column['name'] for column in inspector.get_columns('assembly_order_components')}
         alter_statements = []
-        if 'component_type' not in order_component_columns:
-            alter_statements.append("ALTER TABLE assembly_order_components ADD COLUMN component_type VARCHAR(20) NOT NULL DEFAULT 'workpiece'")
-        if 'component_product_id' not in order_component_columns:
-            alter_statements.append('ALTER TABLE assembly_order_components ADD COLUMN component_product_id INTEGER')
-        if alter_statements:
-            with db.engine.begin() as connection:
+        with db.engine.begin() as connection:
+            order_component_columns = {
+                row[1] for row in connection.exec_driver_sql('PRAGMA table_info(assembly_order_components)').fetchall()
+            }
+            if 'component_type' not in order_component_columns:
+                alter_statements.append("ALTER TABLE assembly_order_components ADD COLUMN component_type VARCHAR(20) NOT NULL DEFAULT 'workpiece'")
+            if 'component_product_id' not in order_component_columns:
+                alter_statements.append('ALTER TABLE assembly_order_components ADD COLUMN component_product_id INTEGER')
+            if alter_statements:
                 for statement in alter_statements:
                     connection.exec_driver_sql(statement)
-                connection.exec_driver_sql('CREATE INDEX IF NOT EXISTS ix_assembly_order_components_component_type ON assembly_order_components (component_type)')
-                connection.exec_driver_sql('CREATE INDEX IF NOT EXISTS ix_assembly_order_components_component_product_id ON assembly_order_components (component_product_id)')
+            connection.exec_driver_sql('CREATE INDEX IF NOT EXISTS ix_assembly_order_components_component_type ON assembly_order_components (component_type)')
+            connection.exec_driver_sql('CREATE INDEX IF NOT EXISTS ix_assembly_order_components_component_product_id ON assembly_order_components (component_product_id)')
 
     if not inspector.has_table('assembly_order_attachments'):
         with db.engine.begin() as connection:
