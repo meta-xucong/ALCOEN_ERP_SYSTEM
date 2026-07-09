@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
@@ -121,6 +121,37 @@
             padding: 0.9rem 1rem;
             background: rgba(255, 255, 255, 0.72);
         }
+        .qc-history-scroll {
+            max-height: 360px;
+            overflow-y: auto;
+            padding-right: 0.35rem;
+        }
+        .qc-history-table-scroll {
+            max-height: 380px;
+            overflow: auto;
+        }
+        .qc-history-table-scroll table {
+            min-width: 980px;
+        }
+        .qc-history-scroll::-webkit-scrollbar,
+        .qc-history-table-scroll::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        .qc-history-scroll::-webkit-scrollbar-track,
+        .qc-history-table-scroll::-webkit-scrollbar-track {
+            background: rgba(30, 58, 95, 0.06);
+            border-radius: 999px;
+        }
+        .qc-history-scroll::-webkit-scrollbar-thumb,
+        .qc-history-table-scroll::-webkit-scrollbar-thumb {
+            background: rgba(25, 135, 84, 0.32);
+            border-radius: 999px;
+        }
+        .qc-history-scroll::-webkit-scrollbar-thumb:hover,
+        .qc-history-table-scroll::-webkit-scrollbar-thumb:hover {
+            background: rgba(25, 135, 84, 0.5);
+        }
         .research-file-preview {
             width: 100%;
             min-width: 0;
@@ -229,18 +260,21 @@
                         </li>
                         {% endif %}
                     {% elif qc_module_key == 'assembly' %}
-                        {% if assembly_nav.products %}
-                        <li class="nav-item">
-                            <a class="nav-link" href="{{ url_for('qc.assembly_product_list') }}">
-                                <i class="bi bi-boxes"></i> 产品库
+                        {% if assembly_nav.products or assembly_nav.workpieces %}
+                        <li class="nav-item dropdown">
+                            <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown">
+                                <i class="bi bi-boxes"></i> 产品/工件库
                             </a>
-                        </li>
-                        {% endif %}
-                        {% if assembly_nav.workpieces %}
-                        <li class="nav-item">
-                            <a class="nav-link" href="{{ url_for('qc.workpiece_list') }}">
-                                <i class="bi bi-box-seam"></i> 工件库
-                            </a>
+                            <ul class="dropdown-menu">
+                                {% if assembly_nav.workpieces %}
+                                <li><a class="dropdown-item" href="{{ url_for('qc.workpiece_list') }}"><i class="bi bi-box-seam"></i> 工件库</a></li>
+                                {% endif %}
+                                {% if assembly_nav.products %}
+                                <li><a class="dropdown-item" href="{{ url_for('qc.assembly_product_list', level=1) }}"><i class="bi bi-1-circle"></i> 一级产品库</a></li>
+                                <li><a class="dropdown-item" href="{{ url_for('qc.assembly_product_list', level=2) }}"><i class="bi bi-2-circle"></i> 二级产品库</a></li>
+                                <li><a class="dropdown-item" href="{{ url_for('qc.assembly_product_list', level=3) }}"><i class="bi bi-3-circle"></i> 三级产品库</a></li>
+                                {% endif %}
+                            </ul>
                         </li>
                         {% endif %}
                         {% if assembly_nav.launch %}
@@ -260,7 +294,14 @@
                         {% if assembly_nav.acceptance %}
                         <li class="nav-item">
                             <a class="nav-link" href="{{ url_for('qc.assembly_acceptance_list') }}">
-                                <i class="bi bi-patch-check"></i> 验收/出厂
+                                <i class="bi bi-patch-check"></i> 验收
+                            </a>
+                        </li>
+                        {% endif %}
+                        {% if assembly_nav.outbound %}
+                        <li class="nav-item">
+                            <a class="nav-link" href="{{ url_for('qc.assembly_outbound_list') }}">
+                                <i class="bi bi-truck"></i> 出厂
                             </a>
                         </li>
                         {% endif %}

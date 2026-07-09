@@ -1,6 +1,6 @@
 {% extends 'qc/base.html' %}
 
-{% block title %}产品详情 - ALCOEN AI CATS{% endblock %}
+{% block title %}{{ product.product_level_display }}详情 - ALCOEN AI CATS{% endblock %}
 
 {% block content %}
 {% macro render_attachment_file(attachment, image_alt='附件') %}
@@ -19,7 +19,7 @@
 <div class="d-flex justify-content-between align-items-center mb-4">
     <h1 class="d-flex align-items-center gap-3 mb-0">
         <i class="bi bi-boxes text-gradient" style="font-size: 2rem; color: #198754;"></i>
-        <span class="text-gradient" style="font-weight: 700; font-size: 2rem;">产品详情</span>
+        <span class="text-gradient" style="font-weight: 700; font-size: 2rem;">{{ product.product_level_display }}详情</span>
     </h1>
     <div class="d-flex gap-2">
         {% if can_edit_product %}
@@ -34,8 +34,8 @@
             </button>
         </form>
         {% endif %}
-        <a href="{{ url_for('qc.assembly_product_list') }}" class="btn btn-outline-secondary">
-            <i class="bi bi-arrow-left"></i> 返回列表
+        <a href="{{ url_for('qc.assembly_product_list', level=product.product_level) }}" class="btn btn-outline-secondary">
+            <i class="bi bi-arrow-left"></i> 返回{{ product.product_level_display }}
         </a>
     </div>
 </div>
@@ -46,15 +46,23 @@
     </div>
     <div class="card-body">
         <div class="row">
-            <div class="col-md-4 mb-3">
+            <div class="col-md-3 mb-3">
+                <label class="text-muted small">产品层级</label>
+                <div class="fw-medium fs-5"><span class="badge bg-info">{{ product.product_level_display }}</span></div>
+            </div>
+            <div class="col-md-3 mb-3">
                 <label class="text-muted small">产品编号</label>
                 <div class="fw-medium fs-5">{{ product.product_code }}</div>
             </div>
-            <div class="col-md-4 mb-3">
+            <div class="col-md-3 mb-3">
                 <label class="text-muted small">产品名称</label>
                 <div class="fw-medium fs-5">{{ product.product_name }}</div>
             </div>
-            <div class="col-md-4 mb-3">
+            <div class="col-md-3 mb-3">
+                <label class="text-muted small">库存数量</label>
+                <div class="fw-medium fs-5 text-success">{{ '{:g}'.format(product.stock_quantity or 0) }}</div>
+            </div>
+            <div class="col-md-3 mb-3">
                 <label class="text-muted small">创建人</label>
                 <div class="fw-medium fs-5">{{ product.creator.real_name or product.creator.username }}</div>
             </div>
@@ -71,8 +79,9 @@
             <table class="table table-hover mb-0 align-middle">
                 <thead class="table-light">
                     <tr>
-                        <th>工件编号</th>
-                        <th>工件名称</th>
+                        <th>来源</th>
+                        <th>编号</th>
+                        <th>名称</th>
                         <th class="text-center">单件用量</th>
                         <th class="text-center">当前库存</th>
                     </tr>
@@ -80,14 +89,15 @@
                 <tbody>
                     {% for component in product.components %}
                     <tr>
+                        <td><span class="badge bg-light text-dark">{{ component.component_type_display }}</span></td>
                         <td><strong>{{ component.workpiece_code_snapshot }}</strong></td>
                         <td>{{ component.workpiece_name_snapshot }}</td>
                         <td class="text-center">{{ '{:g}'.format(component.quantity_per_unit or 0) }}</td>
-                        <td class="text-center">{{ '{:g}'.format(component.workpiece.stock_quantity or 0) if component.workpiece else '-' }}</td>
+                        <td class="text-center">{{ '{:g}'.format(component.component_stock_quantity) }}</td>
                     </tr>
                     {% else %}
                     <tr>
-                        <td colspan="4" class="text-center py-4 text-muted">暂无装配结构</td>
+                        <td colspan="5" class="text-center py-4 text-muted">暂无装配结构</td>
                     </tr>
                     {% endfor %}
                 </tbody>
@@ -114,6 +124,22 @@
 </div>
 
 <div class="card mb-4">
+    <div class="card-header bg-success text-white">
+        <h5 class="mb-0"><i class="bi bi-file-earmark-word"></i> COA报告模板</h5>
+    </div>
+    <div class="card-body">
+        {% for attachment in product.coa_template_attachments %}
+        <div class="border rounded p-3 mb-3">
+            <h6 class="fw-bold">{{ attachment.display_title }}</h6>
+            {{ render_attachment_file(attachment, attachment.display_title) }}
+        </div>
+        {% else %}
+        <p class="text-muted mb-0">未上传 COA 报告模板，出厂打印时将使用基础默认模板。</p>
+        {% endfor %}
+    </div>
+</div>
+
+<div class="card mb-4">
     <div class="card-header bg-secondary text-white">
         <h5 class="mb-0"><i class="bi bi-sticky"></i> 备注</h5>
     </div>
@@ -129,6 +155,68 @@
         {% else %}
         <p class="text-muted mb-0">未配置备注</p>
         {% endfor %}
+    </div>
+</div>
+
+<div class="card mb-4">
+    <div class="card-header bg-light">
+        <h5 class="mb-0"><i class="bi bi-clock-history"></i> 库存历史记录</h5>
+    </div>
+    <div class="card-body p-0">
+        <div class="table-responsive qc-history-table-scroll">
+            <table class="table table-hover mb-0 align-middle">
+                <thead class="table-light">
+                    <tr>
+                        <th style="width: 14%;">时间</th>
+                        <th style="width: 14%;">来源批次</th>
+                        <th style="width: 12%;">类型</th>
+                        <th class="text-center" style="width: 10%;">生产/出厂数</th>
+                        <th class="text-center" style="width: 10%;">合格数</th>
+                        <th class="text-center" style="width: 10%;">库存变化</th>
+                        <th class="text-center" style="width: 12%;">变动前 / 后</th>
+                        <th style="width: 10%;">操作人</th>
+                        <th>备注</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for history in product.stock_histories %}
+                    <tr>
+                        <td>{{ history.created_at.strftime('%Y-%m-%d %H:%M') if history.created_at else '-' }}</td>
+                        <td>
+                            {% if history.assembly_order_id %}
+                            <a href="{{ url_for('qc.assembly_acceptance_detail', order_id=history.assembly_order_id) }}" class="fw-semibold">
+                                {{ history.batch_no or '-' }}
+                            </a>
+                            {% elif history.outbound_order_id %}
+                            <a href="{{ url_for('qc.assembly_outbound_detail', order_id=history.outbound_order_id) }}" class="fw-semibold">
+                                {{ history.batch_no or '-' }}
+                            </a>
+                            {% else %}
+                            {{ history.batch_no or '-' }}
+                            {% endif %}
+                        </td>
+                        <td>
+                            <span class="badge {{ 'bg-success' if history.quantity_delta >= 0 else 'bg-warning text-dark' }}">
+                                {{ history.change_type_display }}
+                            </span>
+                        </td>
+                        <td class="text-center">{{ '{:g}'.format(history.production_quantity or 0) }}</td>
+                        <td class="text-center">{{ '{:g}'.format(history.accepted_quantity or 0) }}</td>
+                        <td class="text-center fw-semibold {{ 'text-success' if history.quantity_delta >= 0 else 'text-warning' }}">
+                            {{ '+' if history.quantity_delta >= 0 else '' }}{{ '{:g}'.format(history.quantity_delta or 0) }}
+                        </td>
+                        <td class="text-center">{{ '{:g}'.format(history.stock_before or 0) }} / {{ '{:g}'.format(history.stock_after or 0) }}</td>
+                        <td>{{ history.operator_name }}</td>
+                        <td class="text-muted">{{ history.note or '-' }}</td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="9" class="text-center py-4 text-muted">暂无库存变动记录</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
     </div>
 </div>
 {% endblock %}

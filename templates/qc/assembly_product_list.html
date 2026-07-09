@@ -1,16 +1,16 @@
 {% extends 'qc/base.html' %}
 
-{% block title %}产品库 - ALCOEN AI CATS{% endblock %}
+{% block title %}{{ product_level_display }} - ALCOEN AI CATS{% endblock %}
 
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-4">
     <h1 class="d-flex align-items-center gap-3">
         <i class="bi bi-boxes text-gradient" style="font-size: 2rem; color: #198754;"></i>
-        <span class="text-gradient" style="font-weight: 700; font-size: 2rem;">产品库</span>
+        <span class="text-gradient" style="font-weight: 700; font-size: 2rem;">{{ product_level_display }}</span>
     </h1>
     {% if can_create_product %}
-    <a href="{{ url_for('qc.assembly_product_new') }}" class="btn btn-primary">
-        <i class="bi bi-plus-circle"></i> 新增产品
+    <a href="{{ url_for('qc.assembly_product_new', level=product_level) }}" class="btn btn-primary">
+        <i class="bi bi-plus-circle"></i> 新增{{ product_level_display|replace("库", "") }}
     </a>
     {% endif %}
 </div>
@@ -18,6 +18,7 @@
 <div class="card mb-4">
     <div class="card-body">
         <form method="GET" class="row g-2">
+            <input type="hidden" name="level" value="{{ product_level }}">
             <div class="col-md-8">
                 <input type="text" name="keyword" class="form-control" placeholder="产品编号 / 产品名称" value="{{ keyword }}">
             </div>
@@ -25,7 +26,7 @@
                 <button type="submit" class="btn btn-outline-primary w-100"><i class="bi bi-search"></i> 查询</button>
             </div>
             <div class="col-md-2">
-                <a href="{{ url_for('qc.assembly_product_list') }}" class="btn btn-outline-secondary w-100"><i class="bi bi-x-circle"></i> 重置</a>
+                <a href="{{ url_for('qc.assembly_product_list', level=product_level) }}" class="btn btn-outline-secondary w-100"><i class="bi bi-x-circle"></i> 重置</a>
             </div>
         </form>
     </div>
@@ -40,8 +41,7 @@
                         <th>产品编号</th>
                         <th>产品名称</th>
                         <th class="text-center">创建人</th>
-                        <th class="text-center">配件数量</th>
-                        <th class="text-center">装配单</th>
+                        <th class="text-center">库存数量</th>
                         <th class="text-center">备注</th>
                         <th class="text-center">更新时间</th>
                         <th class="text-center">操作</th>
@@ -53,8 +53,9 @@
                         <td><strong>{{ product.product_code }}</strong></td>
                         <td>{{ product.product_name }}</td>
                         <td class="text-center">{{ product.creator.real_name or product.creator.username }}</td>
-                        <td class="text-center">{{ product.components | length }}</td>
-                        <td class="text-center">{{ product.assembly_sheet_attachments | length }}</td>
+                        <td class="text-center">
+                            <span class="badge bg-success">{{ '{:g}'.format(product.stock_quantity or 0) }}</span>
+                        </td>
                         <td class="text-center">{{ product.remark_attachments | length }}</td>
                         <td class="text-center">{{ product.updated_at.strftime('%Y-%m-%d %H:%M') }}</td>
                         <td class="text-center">
@@ -65,7 +66,7 @@
                     </tr>
                     {% else %}
                     <tr>
-                        <td colspan="8" class="text-center py-5 text-muted">
+                        <td colspan="7" class="text-center py-5 text-muted">
                             <i class="bi bi-inbox" style="font-size: 2rem;"></i>
                             <p class="mt-2">暂无产品模板</p>
                         </td>
@@ -81,19 +82,19 @@
 <nav class="mt-4">
     <ul class="pagination justify-content-center">
         <li class="page-item {% if not pagination.has_prev %}disabled{% endif %}">
-            <a class="page-link" href="{{ url_for('qc.assembly_product_list', page=pagination.prev_num, keyword=keyword) if pagination.has_prev else '#' }}">上一页</a>
+            <a class="page-link" href="{{ url_for('qc.assembly_product_list', page=pagination.prev_num, keyword=keyword, level=product_level) if pagination.has_prev else '#' }}">上一页</a>
         </li>
         {% for page_num in pagination.iter_pages() %}
             {% if page_num %}
             <li class="page-item {% if page_num == pagination.page %}active{% endif %}">
-                <a class="page-link" href="{{ url_for('qc.assembly_product_list', page=page_num, keyword=keyword) }}">{{ page_num }}</a>
+                <a class="page-link" href="{{ url_for('qc.assembly_product_list', page=page_num, keyword=keyword, level=product_level) }}">{{ page_num }}</a>
             </li>
             {% else %}
             <li class="page-item disabled"><span class="page-link">...</span></li>
             {% endif %}
         {% endfor %}
         <li class="page-item {% if not pagination.has_next %}disabled{% endif %}">
-            <a class="page-link" href="{{ url_for('qc.assembly_product_list', page=pagination.next_num, keyword=keyword) if pagination.has_next else '#' }}">下一页</a>
+            <a class="page-link" href="{{ url_for('qc.assembly_product_list', page=pagination.next_num, keyword=keyword, level=product_level) if pagination.has_next else '#' }}">下一页</a>
         </li>
     </ul>
 </nav>

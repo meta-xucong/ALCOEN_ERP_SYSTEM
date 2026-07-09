@@ -1,0 +1,257 @@
+{% extends 'qc/base.html' %}
+
+{% block title %}出厂详情 - ALCOEN AI CATS{% endblock %}
+
+{% block extra_css %}
+<style>
+    .outbound-metric {
+        border-radius: 1rem;
+        background: rgba(25, 135, 84, 0.08);
+        padding: 1rem;
+        height: 100%;
+    }
+    .outbound-role-card {
+        border-radius: 0.75rem;
+        padding: 0.85rem;
+        height: 100%;
+        background: rgba(255, 255, 255, 0.92);
+        border: 1px solid rgba(0, 0, 0, 0.08);
+    }
+    .outbound-role-icon {
+        width: 2rem;
+        height: 2rem;
+        border-radius: 999px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        margin-right: 0.5rem;
+    }
+    .outbound-plus-btn {
+        width: 3rem;
+        height: 3rem;
+        border-radius: 999px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.4rem;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+{% set status_info = order.get_status_display() %}
+<div class="d-flex justify-content-between align-items-center flex-wrap gap-3 mb-4">
+    <h1 class="d-flex align-items-center gap-3 mb-0">
+        <i class="bi bi-truck text-success" style="font-size: 2rem;"></i>
+        <span class="text-gradient" style="font-weight: 700; font-size: 2rem;">出厂详情</span>
+        <span class="badge {{ status_info.badge }} fs-6">{{ status_info.text }}</span>
+    </h1>
+    <a href="{{ url_for('qc.assembly_outbound_list') }}" class="btn btn-outline-secondary">
+        <i class="bi bi-arrow-left"></i> 返回列表
+    </a>
+</div>
+
+<div class="card mb-4">
+    <div class="card-header bg-primary text-white">
+        <h5 class="mb-0"><i class="bi bi-info-circle"></i> 基础信息</h5>
+    </div>
+    <div class="card-body">
+        <div class="row">
+            <div class="col-md-3 mb-3">
+                <label class="text-muted small">出厂批次</label>
+                <div class="fw-medium fs-5">{{ order.outbound_no }}</div>
+            </div>
+            <div class="col-md-3 mb-3">
+                <label class="text-muted small">出厂对象</label>
+                <div class="fw-medium fs-5">{{ order.item_display_name }}</div>
+            </div>
+            <div class="col-md-3 mb-3">
+                <label class="text-muted small">来源库</label>
+                <div class="fw-medium fs-5"><span class="badge bg-light text-dark">{{ order.item_type_display }}</span></div>
+            </div>
+            <div class="col-md-3 mb-3">
+                <label class="text-muted small">出厂日期</label>
+                <div class="fw-medium fs-5">{{ order.outbound_date.strftime('%Y-%m-%d') if order.outbound_date else '-' }}</div>
+            </div>
+            <div class="col-md-3 mb-3">
+                <label class="text-muted small">发起人</label>
+                <div class="fw-medium fs-5">{{ order.initiator.real_name or order.initiator.username }}</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card mb-4 border-success">
+    <div class="card-header bg-success text-white d-flex justify-content-between align-items-center">
+        <h5 class="mb-0"><i class="bi bi-pen"></i> 出厂确认</h5>
+        <span class="badge bg-light text-success">已出厂 {{ '{:g}'.format(order.shipped_quantity or 0) }} / 计划 {{ '{:g}'.format(order.planned_quantity or 0) }}</span>
+    </div>
+    <div class="card-body">
+        <div class="row g-3 mb-3">
+            <div class="col-md-4"><div class="outbound-metric"><label class="text-muted small">计划出厂总数量</label><div class="fw-bold fs-4">{{ '{:g}'.format(order.planned_quantity or 0) }}</div></div></div>
+            <div class="col-md-4"><div class="outbound-metric"><label class="text-muted small">累计出厂数量</label><div class="fw-bold fs-4 text-success">{{ '{:g}'.format(order.shipped_quantity or 0) }}</div></div></div>
+            <div class="col-md-4"><div class="outbound-metric"><label class="text-muted small">剩余待出厂数量</label><div class="fw-bold fs-4 text-warning">{{ '{:g}'.format(order.remaining_quantity or 0) }}</div></div></div>
+        </div>
+
+        {% if batches %}
+        <div class="accordion" id="outboundAccordion">
+            {% for batch in batches %}
+            {% set batch_signatures = batch.signatures_by_role %}
+            {% set is_active_batch = active_batch and active_batch.id == batch.id %}
+            {% set collapse_id = 'outboundBatch' ~ batch.id %}
+            <div class="accordion-item mb-2 border rounded-3 overflow-hidden">
+                <h2 class="accordion-header" id="heading{{ batch.id }}">
+                    <button class="accordion-button {{ '' if is_active_batch else 'collapsed' }}" type="button" data-bs-toggle="collapse" data-bs-target="#{{ collapse_id }}">
+                        <div class="d-flex flex-wrap align-items-center gap-2 w-100 pe-3">
+                            <span class="fw-bold">出厂批次 #{{ loop.index }}</span>
+                            <span class="badge {{ 'bg-success' if batch.completed_at else 'bg-warning text-dark' }}">发起人：{{ '已确认' if 'initiator' in batch_signatures else '未确认' }} / 验收人：{{ '已确认' if 'approver' in batch_signatures else '未确认' }}</span>
+                            <span class="small text-muted ms-auto">出厂 {{ '{:g}'.format(batch.outbound_quantity or 0) }}</span>
+                        </div>
+                    </button>
+                </h2>
+                <div id="{{ collapse_id }}" class="accordion-collapse collapse {{ 'show' if is_active_batch else '' }}" data-bs-parent="#outboundAccordion">
+                    <div class="accordion-body">
+                        <form method="POST" action="{{ url_for('qc.assembly_outbound_sign', order_id=order.id) }}" id="outboundRoleForm{{ batch.id }}"></form>
+                        <div class="row g-3 align-items-end mb-3">
+                            <div class="col-md-4">
+                                <label class="form-label">出厂数量 <span class="text-danger">*</span></label>
+                                <input type="number" step="0.01" min="0.01" class="form-control form-control-sm" name="outbound_quantity" form="outboundRoleForm{{ batch.id }}" value="{{ '{:g}'.format(batch.outbound_quantity) if batch.outbound_quantity else '' }}" {% if not is_active_batch or batch_signatures %}readonly{% endif %} required>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="small text-muted">
+                                    {% if batch.completed_at %}完成时间：{{ batch.completed_at.strftime('%Y-%m-%d %H:%M') }}
+                                    {% elif batch_signatures %}数量已锁定，等待另一方确认。
+                                    {% else %}填写数量后，由发起人与另一名验收人分别确认。
+                                    {% endif %}
+                                </div>
+                            </div>
+                            <div class="col-md-4 text-md-end">
+                                {% if batch.completed_at %}
+                                <a href="{{ url_for('qc.assembly_outbound_coa', order_id=order.id, batch_id=batch.id) }}" class="btn btn-outline-primary btn-sm">
+                                    <i class="bi bi-file-earmark-word"></i> 打印 COA 报告
+                                </a>
+                                {% endif %}
+                            </div>
+                        </div>
+                        <div class="row g-2">
+                            {% for role, title in [('initiator', '出厂发起人确认'), ('approver', '出厂验收人确认')] %}
+                            <div class="col-md-6">
+                                <div class="outbound-role-card {{ 'border-success' if role in batch_signatures else '' }}">
+                                    <div class="d-flex align-items-center justify-content-between gap-2">
+                                        <div class="d-flex align-items-center">
+                                            <span class="outbound-role-icon {{ 'bg-success text-white' if role in batch_signatures else 'bg-light text-muted' }}"><i class="bi {{ 'bi-check-lg' if role in batch_signatures else 'bi-circle' }}"></i></span>
+                                            <div><div class="fw-semibold">{{ title }}</div>{% if role in batch_signatures %}<small class="text-muted">{{ batch_signatures[role].signer.real_name or batch_signatures[role].signer.username }} · {{ batch_signatures[role].signed_at.strftime('%Y-%m-%d %H:%M') }}</small>{% else %}<small class="text-muted">未确认</small>{% endif %}</div>
+                                        </div>
+                                        <div>
+                                            {% if role in batch_signatures %}
+                                            <span class="badge bg-success">已确认</span>
+                                            {% elif is_active_batch and role in eligible_signer_roles %}
+                                            <button type="submit" name="signer_role" value="{{ role }}" form="outboundRoleForm{{ batch.id }}" class="btn btn-success btn-sm">点击确认</button>
+                                            {% else %}
+                                            <span class="badge bg-secondary">待确认</span>
+                                            {% endif %}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <div class="text-center text-muted py-4 border rounded-3 mb-3"><i class="bi bi-inboxes" style="font-size: 2rem;"></i><p class="mb-0 mt-2">尚未发起出厂批次。</p></div>
+        {% endif %}
+
+        <div class="text-center pt-3">
+            {% if order.remaining_quantity <= 0 %}
+            <div class="alert alert-success mb-0"><i class="bi bi-lock-fill"></i> 出厂数量已等于计划出厂总数量，本订单已锁定完成。</div>
+            {% elif active_batch %}
+            <button type="button" class="btn btn-outline-secondary outbound-plus-btn" disabled title="请先完成当前出厂批次"><i class="bi bi-plus-lg"></i></button>
+            <div class="small text-muted mt-2">请先完成当前出厂批次，再发起下一批。</div>
+            {% elif eligible_signer_roles %}
+            <form method="POST" action="{{ url_for('qc.assembly_outbound_start_batch', order_id=order.id) }}" class="d-inline-block"><button type="submit" class="btn btn-outline-success outbound-plus-btn" title="发起新的出厂批次"><i class="bi bi-plus-lg"></i></button></form>
+            <div class="small text-muted mt-2">发起新的出厂批次</div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<div class="card mb-4 border-primary">
+    <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
+        <h5 class="mb-0"><i class="bi bi-file-earmark-word"></i> COA报告</h5>
+        <span class="badge bg-light text-primary">出厂完成后可打印</span>
+    </div>
+    <div class="card-body">
+        {% if order.coa_template_attachment %}
+        <div class="alert alert-info py-2">
+            <i class="bi bi-info-circle"></i>
+            当前使用库存对象中上传的 COA 报告模板；报告将按“基础参数页 + 模板内容 + 签名页”生成。
+        </div>
+        {% else %}
+        <div class="alert alert-warning py-2">
+            <i class="bi bi-exclamation-triangle"></i>
+            当前库存对象未上传 COA 报告模板，将使用系统默认模板内容。
+        </div>
+        {% endif %}
+
+        {% set coa_ns = namespace(has_completed=false) %}
+        <div class="row g-3">
+            {% for batch in batches %}
+                {% if batch.completed_at %}
+                {% set coa_ns.has_completed = true %}
+                <div class="col-md-6 col-xl-4">
+                    <div class="border rounded-3 p-3 h-100 bg-light">
+                        <div class="d-flex justify-content-between align-items-start gap-2 mb-2">
+                            <div>
+                                <div class="fw-bold">出厂批次 #{{ loop.index }}</div>
+                                <div class="text-muted small">出厂数量：{{ '{:g}'.format(batch.outbound_quantity or 0) }}</div>
+                            </div>
+                            <span class="badge bg-success">已完成</span>
+                        </div>
+                        <div class="text-muted small mb-3">完成时间：{{ batch.completed_at.strftime('%Y-%m-%d %H:%M') if batch.completed_at else '-' }}</div>
+                        <a href="{{ url_for('qc.assembly_outbound_coa', order_id=order.id, batch_id=batch.id) }}" class="btn btn-primary btn-sm w-100">
+                            <i class="bi bi-printer"></i> 打印COA报告
+                        </a>
+                    </div>
+                </div>
+                {% endif %}
+            {% endfor %}
+        </div>
+
+        {% if not coa_ns.has_completed %}
+        <div class="text-center text-muted py-4 border rounded-3">
+            <i class="bi bi-file-earmark-lock" style="font-size: 2rem;"></i>
+            <p class="mb-0 mt-2">暂无可打印的 COA 报告；请先完成至少一个出厂批次的双方确认。</p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<div class="card mb-4">
+    <div class="card-header bg-light">
+        <h5 class="mb-0"><i class="bi bi-clock-history"></i> 历史记录</h5>
+    </div>
+    <div class="card-body">
+        <div class="timeline-list qc-history-scroll">
+            {% for history in order.histories %}
+            <div class="timeline-item">
+                <div class="timeline-dot"></div>
+                <div class="timeline-content">
+                    <div class="d-flex justify-content-between flex-wrap gap-2">
+                        <strong>{{ history.action }}</strong>
+                        <span class="text-muted small">{{ history.created_at.strftime('%Y-%m-%d %H:%M') if history.created_at else '' }}</span>
+                    </div>
+                    <div class="text-muted small mt-1">操作人：{{ history.operator_name }}</div>
+                    {% if history.detail %}<div class="mt-2">{{ history.detail }}</div>{% endif %}
+                </div>
+            </div>
+            {% else %}
+            <p class="text-muted mb-0">暂无历史记录</p>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+{% endblock %}

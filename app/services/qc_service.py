@@ -23,9 +23,11 @@ from app.models import (
     QCWorkOrderAttachment,
     QCWorkOrderHistory,
     QCInspectionRecord,
+    QCAcceptanceBatch,
     QCAcceptanceSignature,
     QCWorkpiece,
     QCWorkpieceAttachment,
+    QCWorkpieceStockHistory,
     User,
     normalize_qc_guide_title,
     normalize_qc_workpiece_type,
@@ -36,10 +38,12 @@ class QCService:
     """QC service operations."""
 
     ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'pdf'}
+    DOC_TEMPLATE_EXTENSIONS = {'docx'}
 
     _ATTACH_SUBFOLDER_MAP = {
         'drawing': 'drawings',
         'qc_material': 'qc_materials',
+        'coa_template': 'coa_templates',
         'instruction': 'instructions',
         'inspection_point': 'inspection_points',
         'remark': 'remarks',
@@ -78,8 +82,91 @@ class QCService:
         return history
 
     @staticmethod
+    def _acceptance_batch_sequence(work_order: QCWorkOrder, batch: QCAcceptanceBatch) -> int:
+        """Return the 1-based sequence of a batch within its own work order."""
+        ordered = sorted(
+            list(work_order.acceptance_batches or []),
+            key=lambda item: (item.created_at or datetime.min, item.id or 0),
+        )
+        for index, item in enumerate(ordered, 1):
+            if item is batch or (batch.id is not None and item.id == batch.id):
+                return index
+        return len(ordered) + 1
+
+    @staticmethod
+    def _post_acceptance_batch_inventory(batch: QCAcceptanceBatch, user: User | None = None) -> None:
+        """Increase workpiece stock once for one completed acceptance batch."""
+        work_order = batch.work_order
+        if batch.inventory_posted_at or not work_order.workpiece_id or not work_order.workpiece:
+            return
+
+        quantity = float(batch.accepted_quantity or 0)
+        if quantity <= 0:
+            return
+
+        stock_before = float(work_order.workpiece.stock_quantity or 0)
+        stock_after = stock_before + quantity
+        work_order.workpiece.stock_quantity = stock_after
+        batch.inventory_posted_at = datetime.now()
+        QCService._add_workpiece_stock_history(
+            work_order=work_order,
+            acceptance_batch=batch,
+            quantity_delta=quantity,
+            stock_before=stock_before,
+            stock_after=stock_after,
+            change_type='acceptance_in',
+            user=user,
+            note='验收模块验收成功，按质检合格件数入库',
+        )
+        batch_no = QCService._acceptance_batch_sequence(work_order, batch)
+        QCService.add_order_history(
+            work_order,
+            '验收入库',
+            f'验收批次 #{batch_no} 合格件数 {quantity:g} 已入库，当前库存 {work_order.workpiece.stock_quantity:g}',
+            user,
+        )
+
+    @staticmethod
+    def _reverse_acceptance_batch_inventory(batch: QCAcceptanceBatch, user: User | None = None) -> None:
+        """Reverse stock added by one acceptance batch."""
+        work_order = batch.work_order
+        if not batch.inventory_posted_at or not work_order.workpiece_id or not work_order.workpiece:
+            return
+
+        quantity = float(batch.accepted_quantity or 0)
+        if quantity <= 0:
+            batch.inventory_posted_at = None
+            return
+
+        current_stock = float(work_order.workpiece.stock_quantity or 0)
+        stock_after = max(0.0, current_stock - quantity)
+        work_order.workpiece.stock_quantity = stock_after
+        batch.inventory_posted_at = None
+        QCService._add_workpiece_stock_history(
+            work_order=work_order,
+            acceptance_batch=batch,
+            quantity_delta=-quantity,
+            stock_before=current_stock,
+            stock_after=stock_after,
+            change_type='acceptance_reverse',
+            user=user,
+            note='验收撤销/回退，扣回该批次已入库数量',
+        )
+        batch_no = QCService._acceptance_batch_sequence(work_order, batch)
+        QCService.add_order_history(
+            work_order,
+            '撤销入库',
+            f'验收批次 #{batch_no} 取消，工件库存扣回 {quantity:g}，当前库存 {work_order.workpiece.stock_quantity:g}',
+            user,
+        )
+
+    @staticmethod
     def _post_inventory_if_needed(work_order: QCWorkOrder, user: User | None = None) -> None:
-        """Increase workpiece stock once when a work order reaches final acceptance."""
+        """Backward-compatible full-order stock posting for legacy accepted orders."""
+        if work_order.acceptance_batches:
+            for batch in work_order.completed_acceptance_batches:
+                QCService._post_acceptance_batch_inventory(batch, user)
+            return
         if work_order.inventory_posted_at or not work_order.workpiece_id or not work_order.workpiece:
             return
 
@@ -87,8 +174,20 @@ class QCService:
         if quantity <= 0:
             return
 
-        work_order.workpiece.stock_quantity = float(work_order.workpiece.stock_quantity or 0) + quantity
+        stock_before = float(work_order.workpiece.stock_quantity or 0)
+        stock_after = stock_before + quantity
+        work_order.workpiece.stock_quantity = stock_after
         work_order.inventory_posted_at = datetime.now()
+        QCService._add_workpiece_stock_history(
+            work_order=work_order,
+            acceptance_batch=None,
+            quantity_delta=quantity,
+            stock_before=stock_before,
+            stock_after=stock_after,
+            change_type='acceptance_in',
+            user=user,
+            note='兼容旧订单整单验收入库',
+        )
         QCService.add_order_history(
             work_order,
             '验收入库',
@@ -98,7 +197,11 @@ class QCService:
 
     @staticmethod
     def _reverse_inventory_if_posted(work_order: QCWorkOrder, user: User | None = None) -> None:
-        """Reverse the stock increase when an accepted order is rolled back."""
+        """Reverse stock increases when acceptance is rolled back."""
+        if work_order.acceptance_batches:
+            for batch in list(work_order.completed_acceptance_batches):
+                QCService._reverse_acceptance_batch_inventory(batch, user)
+            return
         if not work_order.inventory_posted_at or not work_order.workpiece_id or not work_order.workpiece:
             return
 
@@ -108,8 +211,19 @@ class QCService:
             return
 
         current_stock = float(work_order.workpiece.stock_quantity or 0)
-        work_order.workpiece.stock_quantity = max(0.0, current_stock - quantity)
+        stock_after = max(0.0, current_stock - quantity)
+        work_order.workpiece.stock_quantity = stock_after
         work_order.inventory_posted_at = None
+        QCService._add_workpiece_stock_history(
+            work_order=work_order,
+            acceptance_batch=None,
+            quantity_delta=-quantity,
+            stock_before=current_stock,
+            stock_after=stock_after,
+            change_type='acceptance_reverse',
+            user=user,
+            note='兼容旧订单验收回退，扣回整单入库数量',
+        )
         QCService.add_order_history(
             work_order,
             '撤销入库',
@@ -118,9 +232,46 @@ class QCService:
         )
 
     @staticmethod
+    def _add_workpiece_stock_history(
+        work_order: QCWorkOrder,
+        acceptance_batch: QCAcceptanceBatch | None,
+        quantity_delta: float,
+        stock_before: float,
+        stock_after: float,
+        change_type: str,
+        user: User | None = None,
+        note: str | None = None,
+    ) -> QCWorkpieceStockHistory | None:
+        """Record an immutable workpiece stock movement."""
+        if not work_order.workpiece_id:
+            return None
+
+        history = QCWorkpieceStockHistory(
+            workpiece_id=work_order.workpiece_id,
+            work_order_id=work_order.id,
+            acceptance_batch_id=acceptance_batch.id if acceptance_batch else None,
+            operator_id=user.id if user else None,
+            change_type=change_type,
+            batch_no=work_order.batch_no,
+            production_quantity=float(acceptance_batch.production_quantity or 0) if acceptance_batch else float(work_order.quantity or 0),
+            accepted_quantity=float(acceptance_batch.accepted_quantity or 0) if acceptance_batch else abs(float(quantity_delta or 0)),
+            quantity_delta=float(quantity_delta or 0),
+            stock_before=float(stock_before or 0),
+            stock_after=float(stock_after or 0),
+            note=note,
+        )
+        db.session.add(history)
+        return history
+
+    @staticmethod
     def _allowed_file(filename: str) -> bool:
         """Check whether the uploaded filename extension is allowed."""
         return '.' in filename and filename.rsplit('.', 1)[1].lower() in QCService.ALLOWED_EXTENSIONS
+
+    @staticmethod
+    def _allowed_template_file(filename: str) -> bool:
+        """Check whether the uploaded filename extension is a Word template."""
+        return '.' in filename and filename.rsplit('.', 1)[1].lower() in QCService.DOC_TEMPLATE_EXTENSIONS
 
     @staticmethod
     def _get_file_extension(filename: str) -> str:
@@ -196,7 +347,10 @@ class QCService:
         """Persist a work-order attachment file and return its relative path and type."""
         if not file or not file.filename:
             raise ValueError('请选择要上传的文件')
-        if not QCService._allowed_file(file.filename):
+        if attach_type == 'coa_template':
+            if not QCService._allowed_template_file(file.filename):
+                raise ValueError('COA报告模板仅支持可拼接的 Word 模板（.docx）')
+        elif not QCService._allowed_file(file.filename):
             raise ValueError('不支持的文件格式，请上传图片或 PDF')
 
         subfolder = QCService._ATTACH_SUBFOLDER_MAP.get(attach_type, 'others')
@@ -209,7 +363,10 @@ class QCService:
         """Persist a workpiece attachment file and return its relative path and type."""
         if not file or not file.filename:
             raise ValueError('请选择要上传的文件')
-        if not QCService._allowed_file(file.filename):
+        if attach_type == 'coa_template':
+            if not QCService._allowed_template_file(file.filename):
+                raise ValueError('COA报告模板仅支持可拼接的 Word 模板（.docx）')
+        elif not QCService._allowed_file(file.filename):
             raise ValueError('不支持的文件格式，请上传图片或 PDF')
 
         subfolder = QCService._ATTACH_SUBFOLDER_MAP.get(attach_type, 'others')
@@ -426,6 +583,8 @@ class QCService:
         work_order.workpiece_type = normalize_qc_workpiece_type(workpiece.workpiece_type)
 
         for attachment in workpiece.attachments:
+            if attachment.attach_type == 'coa_template':
+                continue
             file_path = ''
             file_type = ''
             if attachment.file_path:
@@ -626,7 +785,9 @@ class QCService:
     @staticmethod
     def eligible_acceptance_signer_roles(user: User, work_order: QCWorkOrder) -> list[str]:
         """Return every acceptance signer role the user can act as for one work order."""
-        if work_order.status != 'inspection_completed':
+        if work_order.status not in ['inspection_completed', 'accepted']:
+            return []
+        if work_order.status == 'accepted' and work_order.remaining_acceptance_quantity <= 1e-9:
             return []
         if user.is_superadmin:
             return ['qc_controller', 'qc_inspector']
@@ -653,10 +814,128 @@ class QCService:
         return False
 
     @staticmethod
+    def current_acceptance_batch(work_order: QCWorkOrder) -> QCAcceptanceBatch | None:
+        """Return the currently open acceptance batch, if one exists."""
+        return work_order.active_acceptance_batch
+
+    @staticmethod
+    def _validate_acceptance_quantities(
+        work_order: QCWorkOrder,
+        production_quantity,
+        accepted_quantity,
+    ) -> tuple[float, float]:
+        """Validate and normalize one acceptance batch's quantity fields."""
+        try:
+            production_total = float(production_quantity)
+        except (TypeError, ValueError):
+            raise ValueError('请填写本次生产总数')
+        try:
+            accepted_total = float(accepted_quantity)
+        except (TypeError, ValueError):
+            raise ValueError('请填写质检合格件数')
+
+        if production_total <= 0:
+            raise ValueError('本次生产总数必须大于 0')
+        if accepted_total < 0:
+            raise ValueError('质检合格件数不能小于 0')
+        if accepted_total > production_total + 1e-9:
+            raise ValueError('质检合格件数不能大于本次生产总数')
+
+        remaining = work_order.remaining_acceptance_quantity
+        if remaining <= 1e-9:
+            raise ValueError('该订单已达到计划生产数量，无需继续验收')
+        if accepted_total > remaining + 1e-9:
+            raise ValueError(f'质检合格件数不能超过剩余待交付数量 {remaining:g}')
+        return production_total, accepted_total
+
+    @staticmethod
+    def start_acceptance_batch(order_id: int, user: User) -> QCAcceptanceBatch:
+        """Explicitly start a new acceptance batch for a partially delivered work order."""
+        work_order = QCWorkOrder.query.get(order_id)
+        if not work_order:
+            raise ValueError('工件订单不存在')
+        if work_order.status not in ['inspection_completed', 'accepted']:
+            raise ValueError('当前订单尚未进入验收确认阶段')
+        if work_order.remaining_acceptance_quantity <= 1e-9:
+            raise ValueError('该订单已达到计划生产数量，无需继续验收')
+        if work_order.active_acceptance_batch:
+            raise ValueError('当前已有未完成的验收批次，请先完成该批次确认')
+        if not QCService.eligible_acceptance_signer_roles(user, work_order):
+            raise ValueError('没有权限发起验收批次')
+
+        batch = QCAcceptanceBatch(
+            work_order_id=work_order.id,
+            production_quantity=0,
+            accepted_quantity=0,
+        )
+        db.session.add(batch)
+        db.session.flush()
+        batch_no = QCService._acceptance_batch_sequence(work_order, batch)
+        QCService.add_order_history(
+            work_order,
+            '发起验收批次',
+            f'发起第 {batch_no} 个验收批次，等待填写数量并双方确认',
+            user,
+        )
+        db.session.commit()
+        return batch
+
+    @staticmethod
+    def _ensure_acceptance_batch(
+        work_order: QCWorkOrder,
+        production_quantity,
+        accepted_quantity,
+    ) -> QCAcceptanceBatch:
+        """Get or create the open acceptance batch and validate its quantities."""
+        batch = work_order.active_acceptance_batch
+        if batch:
+            if not batch.signatures:
+                production_total, accepted_total = QCService._validate_acceptance_quantities(
+                    work_order,
+                    production_quantity,
+                    accepted_quantity,
+                )
+                batch.production_quantity = production_total
+                batch.accepted_quantity = accepted_total
+                batch.updated_at = datetime.now()
+                QCService.add_order_history(
+                    work_order,
+                    '填写验收批次数量',
+                    f'本次生产总数 {production_total:g}，质检合格件数 {accepted_total:g}',
+                )
+            elif float(batch.production_quantity or 0) <= 0:
+                raise ValueError('当前验收批次缺少本次生产总数')
+            return batch
+
+        production_total, accepted_total = QCService._validate_acceptance_quantities(
+            work_order,
+            production_quantity,
+            accepted_quantity,
+        )
+
+        batch = QCAcceptanceBatch(
+            work_order_id=work_order.id,
+            production_quantity=production_total,
+            accepted_quantity=accepted_total,
+        )
+        db.session.add(batch)
+        db.session.flush()
+        QCService.add_order_history(
+            work_order,
+            '创建验收批次',
+            f'本次生产总数 {production_total:g}，质检合格件数 {accepted_total:g}',
+        )
+        return batch
+
+    @staticmethod
     def can_cancel_acceptance_signature(user: User, work_order: QCWorkOrder, signer_role: str) -> bool:
         """Return whether the user can cancel one acceptance signature."""
         if work_order.status not in ['inspection_completed', 'accepted']:
             return False
+        if work_order.acceptance_batches:
+            batch = work_order.active_acceptance_batch
+            if not batch or signer_role not in batch.signatures_by_role:
+                return False
         if user.is_superadmin:
             return True
         if user.ai_cats_is_manager and user.has_ai_cats_permission('qc_acceptance_rollback'):
@@ -876,6 +1155,7 @@ class QCService:
         user: User,
         material_items: list[dict] | None = None,
         drawing_items: list[dict] | None = None,
+        coa_template_file=None,
     ) -> QCWorkpiece:
         """Synchronize workpiece-library attachments from the form."""
         workpiece = QCWorkpiece.query.get(workpiece_id)
@@ -1052,6 +1332,46 @@ class QCService:
             if redundant.file_path:
                 QCService._remove_workpiece_file(workpiece.id, redundant.file_path)
             db.session.delete(redundant)
+
+        existing_coa_templates = QCWorkpieceAttachment.query.filter_by(
+            workpiece_id=workpiece.id,
+            attach_type='coa_template',
+        ).order_by(QCWorkpieceAttachment.sort_order.asc(), QCWorkpieceAttachment.id.asc()).all()
+        if coa_template_file and coa_template_file.filename:
+            if existing_coa_templates:
+                template = existing_coa_templates[0]
+                template.title = 'COA报告模板'
+                template.content = ''
+                template.is_required = False
+                template.sort_order = 0
+                QCService._replace_workpiece_attachment_file(template, coa_template_file, 'coa_template')
+                for redundant in existing_coa_templates[1:]:
+                    if redundant.file_path:
+                        QCService._remove_workpiece_file(workpiece.id, redundant.file_path)
+                    db.session.delete(redundant)
+            else:
+                file_path, file_type = QCService._save_file_for_workpiece_attachment(
+                    file=coa_template_file,
+                    workpiece_id=workpiece.id,
+                    attach_type='coa_template',
+                )
+                db.session.add(
+                    QCWorkpieceAttachment(
+                        workpiece_id=workpiece.id,
+                        attach_type='coa_template',
+                        title='COA报告模板',
+                        content='',
+                        file_path=file_path,
+                        file_type=file_type,
+                        is_required=False,
+                        sort_order=0,
+                    )
+                )
+        elif len(existing_coa_templates) > 1:
+            for redundant in existing_coa_templates[1:]:
+                if redundant.file_path:
+                    QCService._remove_workpiece_file(workpiece.id, redundant.file_path)
+                db.session.delete(redundant)
 
         existing_remarks = QCWorkpieceAttachment.query.filter_by(
             workpiece_id=workpiece.id,
@@ -1702,7 +2022,8 @@ class QCService:
                     unresolved.append(attachment.display_title)
                     continue
                 if attachment.requires_report and not record.report_file_path:
-                    raise ValueError(f'{attachment.display_title} 必须上传合格报告后才能提交')
+                    report_label = (attachment.report_label or '合格报告').replace('（必选）', '')
+                    raise ValueError(f'{attachment.display_title} 必须上传{report_label}后才能提交')
                 if record.result == 'fail':
                     has_fail = True
 
@@ -1749,14 +2070,22 @@ class QCService:
         return work_order
 
     @staticmethod
-    def sign_acceptance(order_id: int, user: User, signer_role: Optional[str] = None) -> dict:
+    def sign_acceptance(
+        order_id: int,
+        user: User,
+        signer_role: Optional[str] = None,
+        production_quantity=None,
+        accepted_quantity=None,
+    ) -> dict:
         """Sign one acceptance role for the current user."""
         work_order = QCWorkOrder.query.get(order_id)
         if not work_order:
             raise ValueError('工件订单不存在')
 
-        if work_order.status != 'inspection_completed':
+        if work_order.status not in ['inspection_completed', 'accepted']:
             raise ValueError('当前订单尚未进入验收确认阶段')
+        if work_order.status == 'accepted' and work_order.remaining_acceptance_quantity <= 1e-9:
+            raise ValueError('该订单已完成全部计划数量的验收')
 
         eligible_roles = QCService.eligible_acceptance_signer_roles(user, work_order)
         if signer_role:
@@ -1772,8 +2101,15 @@ class QCService:
                 raise ValueError('请指定确认角色')
             signer_role = eligible_roles[0]
 
+        batch = QCService._ensure_acceptance_batch(
+            work_order,
+            production_quantity=production_quantity,
+            accepted_quantity=accepted_quantity,
+        )
+
         existing = QCAcceptanceSignature.query.filter_by(
             work_order_id=work_order.id,
+            acceptance_batch_id=batch.id,
             signer_role=signer_role,
         ).first()
         if existing:
@@ -1781,6 +2117,7 @@ class QCService:
 
         signature = QCAcceptanceSignature(
             work_order_id=work_order.id,
+            acceptance_batch_id=batch.id,
             signer_id=user.id,
             signer_role=signer_role,
         )
@@ -1793,15 +2130,36 @@ class QCService:
             user,
         )
 
-        signatures = QCAcceptanceSignature.query.filter_by(work_order_id=work_order.id).all()
+        signatures = QCAcceptanceSignature.query.filter_by(acceptance_batch_id=batch.id).all()
         roles_signed = {signature.signer_role for signature in signatures}
         if 'qc_controller' in roles_signed and 'qc_inspector' in roles_signed:
-            work_order.status = 'accepted'
-            work_order.accepted_at = datetime.now()
-            QCService.add_order_history(work_order, '验收完成', '双方确认完成，订单最终验收通过', user)
-            QCService._post_inventory_if_needed(work_order, user)
+            batch.completed_at = datetime.now()
+            QCService._post_acceptance_batch_inventory(batch, user)
+            delivered = work_order.actual_delivered_quantity
+            planned = float(work_order.quantity or 0)
+            if delivered + 1e-9 >= planned:
+                work_order.status = 'accepted'
+                work_order.accepted_at = datetime.now()
+                work_order.inventory_posted_at = datetime.now()
+                QCService.add_order_history(
+                    work_order,
+                    '验收完成',
+                    f'累计实际交付 {delivered:g} / 计划生产 {planned:g}，订单质检已完成',
+                    user,
+                )
+                message = '双方已确认，质检已完成'
+            else:
+                work_order.status = 'inspection_completed'
+                work_order.accepted_at = None
+                QCService.add_order_history(
+                    work_order,
+                    '阶段验收完成',
+                    f'本批合格 {float(batch.accepted_quantity or 0):g}，累计实际交付 {delivered:g} / 计划生产 {planned:g}',
+                    user,
+                )
+                message = '本次验收已确认，仍有剩余数量待验收'
             db.session.commit()
-            return {'completed': True, 'message': '双方已确认，验收完成'}
+            return {'completed': delivered + 1e-9 >= planned, 'message': message}
 
         db.session.commit()
         return {'completed': False, 'message': '验收确认已提交，等待另一方确认'}
@@ -1817,21 +2175,22 @@ class QCService:
         if not QCService.can_cancel_acceptance_signature(user, work_order, signer_role):
             raise ValueError('没有权限取消该验收确认')
 
-        signature = QCAcceptanceSignature.query.filter_by(
+        batch = work_order.active_acceptance_batch
+        query = QCAcceptanceSignature.query.filter_by(
             work_order_id=work_order.id,
             signer_role=signer_role,
-        ).first()
+        )
+        if batch:
+            query = query.filter_by(acceptance_batch_id=batch.id)
+        signature = query.order_by(QCAcceptanceSignature.id.desc()).first()
         if not signature:
             raise ValueError('该角色尚未完成验收确认')
 
-        was_accepted = work_order.status == 'accepted'
-        if was_accepted:
-            QCService._reverse_inventory_if_posted(work_order, user)
-            work_order.status = 'inspection_completed'
-            work_order.accepted_at = None
-
         role_display = signature.signer_role_display
         db.session.delete(signature)
+        db.session.flush()
+        if batch and not QCAcceptanceSignature.query.filter_by(acceptance_batch_id=batch.id).first():
+            db.session.delete(batch)
         QCService.add_order_history(
             work_order,
             '取消验收确认',
@@ -1860,12 +2219,12 @@ class QCService:
         if not reason or not reason.strip():
             raise ValueError('请填写回退原因')
 
-        was_accepted = work_order.status == 'accepted'
-        if was_accepted:
-            QCService._reverse_inventory_if_posted(work_order, user)
+        QCService._reverse_inventory_if_posted(work_order, user)
 
+        QCAcceptanceBatch.query.filter_by(work_order_id=work_order.id).delete()
         QCAcceptanceSignature.query.filter_by(work_order_id=work_order.id).delete()
         work_order.accepted_at = None
+        work_order.inventory_posted_at = None
 
         if target == 'qc':
             QCService._delete_inspection_report_files(work_order)

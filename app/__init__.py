@@ -101,6 +101,91 @@ def _run_lightweight_schema_upgrades():
                 for statement in alter_statements:
                     connection.exec_driver_sql(statement)
 
+    if not inspector.has_table('qc_workpiece_stock_histories'):
+        with db.engine.begin() as connection:
+            connection.exec_driver_sql(
+                '''
+                CREATE TABLE qc_workpiece_stock_histories (
+                    id INTEGER NOT NULL,
+                    workpiece_id INTEGER NOT NULL,
+                    work_order_id INTEGER,
+                    acceptance_batch_id INTEGER,
+                    assembly_order_id INTEGER,
+                    assembly_acceptance_batch_id INTEGER,
+                    outbound_order_id INTEGER,
+                    outbound_batch_id INTEGER,
+                    operator_id INTEGER,
+                    change_type VARCHAR(50) NOT NULL DEFAULT 'acceptance_in',
+                    batch_no VARCHAR(100),
+                    production_quantity FLOAT,
+                    accepted_quantity FLOAT,
+                    quantity_delta FLOAT NOT NULL DEFAULT 0,
+                    stock_before FLOAT NOT NULL DEFAULT 0,
+                    stock_after FLOAT NOT NULL DEFAULT 0,
+                    note TEXT,
+                    created_at DATETIME,
+                    PRIMARY KEY (id),
+                    FOREIGN KEY(workpiece_id) REFERENCES qc_workpieces (id) ON DELETE CASCADE,
+                    FOREIGN KEY(work_order_id) REFERENCES qc_work_orders (id) ON DELETE SET NULL,
+                    FOREIGN KEY(acceptance_batch_id) REFERENCES qc_acceptance_batches (id) ON DELETE SET NULL,
+                    FOREIGN KEY(assembly_order_id) REFERENCES assembly_orders (id) ON DELETE SET NULL,
+                    FOREIGN KEY(assembly_acceptance_batch_id) REFERENCES assembly_acceptance_batches (id) ON DELETE SET NULL,
+                    FOREIGN KEY(outbound_order_id) REFERENCES assembly_outbound_orders (id) ON DELETE SET NULL,
+                    FOREIGN KEY(outbound_batch_id) REFERENCES assembly_outbound_batches (id) ON DELETE SET NULL,
+                    FOREIGN KEY(operator_id) REFERENCES users (id)
+                )
+                '''
+            )
+            connection.exec_driver_sql(
+                'CREATE INDEX IF NOT EXISTS ix_qc_workpiece_stock_histories_workpiece_id ON qc_workpiece_stock_histories (workpiece_id)'
+            )
+            connection.exec_driver_sql(
+                'CREATE INDEX IF NOT EXISTS ix_qc_workpiece_stock_histories_work_order_id ON qc_workpiece_stock_histories (work_order_id)'
+            )
+            connection.exec_driver_sql(
+                'CREATE INDEX IF NOT EXISTS ix_qc_workpiece_stock_histories_acceptance_batch_id ON qc_workpiece_stock_histories (acceptance_batch_id)'
+            )
+            connection.exec_driver_sql(
+                'CREATE INDEX IF NOT EXISTS ix_qc_workpiece_stock_histories_operator_id ON qc_workpiece_stock_histories (operator_id)'
+            )
+            connection.exec_driver_sql(
+                'CREATE INDEX IF NOT EXISTS ix_qc_workpiece_stock_histories_batch_no ON qc_workpiece_stock_histories (batch_no)'
+            )
+            connection.exec_driver_sql(
+                'CREATE INDEX IF NOT EXISTS ix_qc_workpiece_stock_histories_created_at ON qc_workpiece_stock_histories (created_at)'
+            )
+            connection.exec_driver_sql(
+                'CREATE INDEX IF NOT EXISTS ix_qc_workpiece_stock_histories_assembly_order_id ON qc_workpiece_stock_histories (assembly_order_id)'
+            )
+            connection.exec_driver_sql(
+                'CREATE INDEX IF NOT EXISTS ix_qc_workpiece_stock_histories_assembly_acceptance_batch_id ON qc_workpiece_stock_histories (assembly_acceptance_batch_id)'
+            )
+            connection.exec_driver_sql(
+                'CREATE INDEX IF NOT EXISTS ix_qc_workpiece_stock_histories_outbound_order_id ON qc_workpiece_stock_histories (outbound_order_id)'
+            )
+            connection.exec_driver_sql(
+                'CREATE INDEX IF NOT EXISTS ix_qc_workpiece_stock_histories_outbound_batch_id ON qc_workpiece_stock_histories (outbound_batch_id)'
+            )
+    else:
+        stock_history_columns = {column['name'] for column in inspector.get_columns('qc_workpiece_stock_histories')}
+        stock_history_alters = []
+        for column_name, column_type in (
+            ('assembly_order_id', 'INTEGER'),
+            ('assembly_acceptance_batch_id', 'INTEGER'),
+            ('outbound_order_id', 'INTEGER'),
+            ('outbound_batch_id', 'INTEGER'),
+        ):
+            if column_name not in stock_history_columns:
+                stock_history_alters.append(f'ALTER TABLE qc_workpiece_stock_histories ADD COLUMN {column_name} {column_type}')
+        if stock_history_alters:
+            with db.engine.begin() as connection:
+                for statement in stock_history_alters:
+                    connection.exec_driver_sql(statement)
+                connection.exec_driver_sql('CREATE INDEX IF NOT EXISTS ix_qc_workpiece_stock_histories_assembly_order_id ON qc_workpiece_stock_histories (assembly_order_id)')
+                connection.exec_driver_sql('CREATE INDEX IF NOT EXISTS ix_qc_workpiece_stock_histories_assembly_acceptance_batch_id ON qc_workpiece_stock_histories (assembly_acceptance_batch_id)')
+                connection.exec_driver_sql('CREATE INDEX IF NOT EXISTS ix_qc_workpiece_stock_histories_outbound_order_id ON qc_workpiece_stock_histories (outbound_order_id)')
+                connection.exec_driver_sql('CREATE INDEX IF NOT EXISTS ix_qc_workpiece_stock_histories_outbound_batch_id ON qc_workpiece_stock_histories (outbound_batch_id)')
+
     if not inspector.has_table('qc_work_order_histories'):
         with db.engine.begin() as connection:
             connection.exec_driver_sql(
@@ -127,6 +212,101 @@ def _run_lightweight_schema_upgrades():
             connection.exec_driver_sql(
                 'CREATE INDEX IF NOT EXISTS ix_qc_work_order_histories_created_at ON qc_work_order_histories (created_at)'
             )
+
+    if not inspector.has_table('qc_acceptance_batches'):
+        with db.engine.begin() as connection:
+            connection.exec_driver_sql(
+                '''
+                CREATE TABLE qc_acceptance_batches (
+                    id INTEGER NOT NULL,
+                    work_order_id INTEGER NOT NULL,
+                    production_quantity FLOAT NOT NULL DEFAULT 0,
+                    accepted_quantity FLOAT NOT NULL DEFAULT 0,
+                    completed_at DATETIME,
+                    inventory_posted_at DATETIME,
+                    created_at DATETIME,
+                    updated_at DATETIME,
+                    PRIMARY KEY (id),
+                    FOREIGN KEY(work_order_id) REFERENCES qc_work_orders (id) ON DELETE CASCADE
+                )
+                '''
+            )
+            connection.exec_driver_sql(
+                'CREATE INDEX IF NOT EXISTS ix_qc_acceptance_batches_work_order_id ON qc_acceptance_batches (work_order_id)'
+            )
+
+    if inspector.has_table('qc_acceptance_signatures'):
+        signature_columns = {column['name'] for column in inspector.get_columns('qc_acceptance_signatures')}
+        alter_statements = []
+        if 'acceptance_batch_id' not in signature_columns:
+            alter_statements.append('ALTER TABLE qc_acceptance_signatures ADD COLUMN acceptance_batch_id INTEGER')
+        if alter_statements:
+            with db.engine.begin() as connection:
+                for statement in alter_statements:
+                    connection.exec_driver_sql(statement)
+                connection.exec_driver_sql(
+                    'CREATE INDEX IF NOT EXISTS ix_qc_acceptance_signatures_acceptance_batch_id ON qc_acceptance_signatures (acceptance_batch_id)'
+                )
+        with db.engine.begin() as connection:
+            index_rows = connection.exec_driver_sql('PRAGMA index_list(qc_acceptance_signatures)').fetchall()
+            has_legacy_unique = False
+            for index_row in index_rows:
+                index_name = index_row[1]
+                is_unique = bool(index_row[2])
+                if not is_unique:
+                    continue
+                columns = [
+                    column_row[2]
+                    for column_row in connection.exec_driver_sql(f'PRAGMA index_info({index_name})').fetchall()
+                ]
+                if columns == ['work_order_id', 'signer_role']:
+                    has_legacy_unique = True
+                    break
+            if has_legacy_unique:
+                connection.exec_driver_sql('PRAGMA foreign_keys=OFF')
+                connection.exec_driver_sql('ALTER TABLE qc_acceptance_signatures RENAME TO qc_acceptance_signatures_legacy')
+                connection.exec_driver_sql(
+                    '''
+                    CREATE TABLE qc_acceptance_signatures (
+                        id INTEGER NOT NULL,
+                        work_order_id INTEGER NOT NULL,
+                        acceptance_batch_id INTEGER,
+                        signer_id INTEGER NOT NULL,
+                        signer_role VARCHAR(50) NOT NULL,
+                        signed_at DATETIME,
+                        PRIMARY KEY (id),
+                        FOREIGN KEY(work_order_id) REFERENCES qc_work_orders (id) ON DELETE CASCADE,
+                        FOREIGN KEY(acceptance_batch_id) REFERENCES qc_acceptance_batches (id) ON DELETE CASCADE,
+                        FOREIGN KEY(signer_id) REFERENCES users (id)
+                    )
+                    '''
+                )
+                if 'acceptance_batch_id' in signature_columns:
+                    connection.exec_driver_sql(
+                        '''
+                        INSERT INTO qc_acceptance_signatures
+                            (id, work_order_id, acceptance_batch_id, signer_id, signer_role, signed_at)
+                        SELECT id, work_order_id, acceptance_batch_id, signer_id, signer_role, signed_at
+                        FROM qc_acceptance_signatures_legacy
+                        '''
+                    )
+                else:
+                    connection.exec_driver_sql(
+                        '''
+                        INSERT INTO qc_acceptance_signatures
+                            (id, work_order_id, acceptance_batch_id, signer_id, signer_role, signed_at)
+                        SELECT id, work_order_id, NULL, signer_id, signer_role, signed_at
+                        FROM qc_acceptance_signatures_legacy
+                        '''
+                    )
+                connection.exec_driver_sql('DROP TABLE qc_acceptance_signatures_legacy')
+                connection.exec_driver_sql(
+                    'CREATE INDEX IF NOT EXISTS ix_qc_acceptance_signatures_work_order_id ON qc_acceptance_signatures (work_order_id)'
+                )
+                connection.exec_driver_sql(
+                    'CREATE INDEX IF NOT EXISTS ix_qc_acceptance_signatures_acceptance_batch_id ON qc_acceptance_signatures (acceptance_batch_id)'
+                )
+                connection.exec_driver_sql('PRAGMA foreign_keys=ON')
 
     if inspector.has_table('qc_inspection_records'):
         inspection_columns = {column['name'] for column in inspector.get_columns('qc_inspection_records')}
@@ -396,6 +576,18 @@ def _run_lightweight_schema_upgrades():
                 'CREATE INDEX IF NOT EXISTS ix_assembly_products_creator_id ON assembly_products (creator_id)'
             )
 
+    if inspector.has_table('assembly_products'):
+        product_columns = {column['name'] for column in inspector.get_columns('assembly_products')}
+        alter_statements = []
+        if 'product_level' not in product_columns:
+            alter_statements.append('ALTER TABLE assembly_products ADD COLUMN product_level INTEGER NOT NULL DEFAULT 1')
+        if 'stock_quantity' not in product_columns:
+            alter_statements.append('ALTER TABLE assembly_products ADD COLUMN stock_quantity FLOAT NOT NULL DEFAULT 0')
+        if alter_statements:
+            with db.engine.begin() as connection:
+                for statement in alter_statements:
+                    connection.exec_driver_sql(statement)
+
     if not inspector.has_table('assembly_product_components'):
         with db.engine.begin() as connection:
             connection.exec_driver_sql(
@@ -422,6 +614,63 @@ def _run_lightweight_schema_upgrades():
                 'CREATE INDEX IF NOT EXISTS ix_assembly_product_components_workpiece_id ON assembly_product_components (workpiece_id)'
             )
 
+    if inspector.has_table('assembly_product_components'):
+        with db.engine.begin() as connection:
+            component_columns = {row[1]: row for row in connection.exec_driver_sql('PRAGMA table_info(assembly_product_components)').fetchall()}
+            needs_rebuild = (
+                'component_type' not in component_columns
+                or 'component_product_id' not in component_columns
+                or bool(component_columns.get('workpiece_id') and component_columns['workpiece_id'][3])
+            )
+            if needs_rebuild:
+                connection.exec_driver_sql('PRAGMA foreign_keys=OFF')
+                connection.exec_driver_sql('ALTER TABLE assembly_product_components RENAME TO assembly_product_components_legacy')
+                connection.exec_driver_sql(
+                    '''
+                    CREATE TABLE assembly_product_components (
+                        id INTEGER NOT NULL,
+                        product_id INTEGER NOT NULL,
+                        component_type VARCHAR(20) NOT NULL DEFAULT 'workpiece',
+                        workpiece_id INTEGER,
+                        component_product_id INTEGER,
+                        workpiece_code_snapshot VARCHAR(100) NOT NULL,
+                        workpiece_name_snapshot VARCHAR(200) NOT NULL,
+                        quantity_per_unit FLOAT NOT NULL DEFAULT 1,
+                        sort_order INTEGER,
+                        created_at DATETIME,
+                        PRIMARY KEY (id),
+                        FOREIGN KEY(product_id) REFERENCES assembly_products (id) ON DELETE CASCADE,
+                        FOREIGN KEY(workpiece_id) REFERENCES qc_workpieces (id) ON DELETE RESTRICT,
+                        FOREIGN KEY(component_product_id) REFERENCES assembly_products (id) ON DELETE RESTRICT
+                    )
+                    '''
+                )
+                legacy_columns = {row[1] for row in connection.exec_driver_sql('PRAGMA table_info(assembly_product_components_legacy)').fetchall()}
+                if 'component_type' in legacy_columns:
+                    connection.exec_driver_sql(
+                        '''
+                        INSERT INTO assembly_product_components
+                            (id, product_id, component_type, workpiece_id, component_product_id, workpiece_code_snapshot, workpiece_name_snapshot, quantity_per_unit, sort_order, created_at)
+                        SELECT id, product_id, COALESCE(component_type, 'workpiece'), workpiece_id, component_product_id, workpiece_code_snapshot, workpiece_name_snapshot, quantity_per_unit, sort_order, created_at
+                        FROM assembly_product_components_legacy
+                        '''
+                    )
+                else:
+                    connection.exec_driver_sql(
+                        '''
+                        INSERT INTO assembly_product_components
+                            (id, product_id, component_type, workpiece_id, component_product_id, workpiece_code_snapshot, workpiece_name_snapshot, quantity_per_unit, sort_order, created_at)
+                        SELECT id, product_id, 'workpiece', workpiece_id, NULL, workpiece_code_snapshot, workpiece_name_snapshot, quantity_per_unit, sort_order, created_at
+                        FROM assembly_product_components_legacy
+                        '''
+                    )
+                connection.exec_driver_sql('DROP TABLE assembly_product_components_legacy')
+                connection.exec_driver_sql('CREATE INDEX IF NOT EXISTS ix_assembly_product_components_product_id ON assembly_product_components (product_id)')
+                connection.exec_driver_sql('CREATE INDEX IF NOT EXISTS ix_assembly_product_components_component_type ON assembly_product_components (component_type)')
+                connection.exec_driver_sql('CREATE INDEX IF NOT EXISTS ix_assembly_product_components_workpiece_id ON assembly_product_components (workpiece_id)')
+                connection.exec_driver_sql('CREATE INDEX IF NOT EXISTS ix_assembly_product_components_component_product_id ON assembly_product_components (component_product_id)')
+                connection.exec_driver_sql('PRAGMA foreign_keys=ON')
+
     if not inspector.has_table('assembly_product_attachments'):
         with db.engine.begin() as connection:
             connection.exec_driver_sql(
@@ -447,6 +696,206 @@ def _run_lightweight_schema_upgrades():
             )
             connection.exec_driver_sql(
                 'CREATE INDEX IF NOT EXISTS ix_assembly_product_attachments_attach_type ON assembly_product_attachments (attach_type)'
+            )
+
+    if not inspector.has_table('assembly_product_stock_histories'):
+        with db.engine.begin() as connection:
+            connection.exec_driver_sql(
+                '''
+                CREATE TABLE assembly_product_stock_histories (
+                    id INTEGER NOT NULL,
+                    product_id INTEGER NOT NULL,
+                    assembly_order_id INTEGER,
+                    assembly_acceptance_batch_id INTEGER,
+                    outbound_order_id INTEGER,
+                    outbound_batch_id INTEGER,
+                    operator_id INTEGER,
+                    change_type VARCHAR(50) NOT NULL DEFAULT 'acceptance_in',
+                    batch_no VARCHAR(100),
+                    production_quantity FLOAT,
+                    accepted_quantity FLOAT,
+                    quantity_delta FLOAT NOT NULL DEFAULT 0,
+                    stock_before FLOAT NOT NULL DEFAULT 0,
+                    stock_after FLOAT NOT NULL DEFAULT 0,
+                    note TEXT,
+                    created_at DATETIME,
+                    PRIMARY KEY (id),
+                    FOREIGN KEY(product_id) REFERENCES assembly_products (id) ON DELETE CASCADE,
+                    FOREIGN KEY(assembly_order_id) REFERENCES assembly_orders (id) ON DELETE SET NULL,
+                    FOREIGN KEY(assembly_acceptance_batch_id) REFERENCES assembly_acceptance_batches (id) ON DELETE SET NULL,
+                    FOREIGN KEY(outbound_order_id) REFERENCES assembly_outbound_orders (id) ON DELETE SET NULL,
+                    FOREIGN KEY(outbound_batch_id) REFERENCES assembly_outbound_batches (id) ON DELETE SET NULL,
+                    FOREIGN KEY(operator_id) REFERENCES users (id)
+                )
+                '''
+            )
+            connection.exec_driver_sql('CREATE INDEX IF NOT EXISTS ix_assembly_product_stock_histories_product_id ON assembly_product_stock_histories (product_id)')
+            connection.exec_driver_sql('CREATE INDEX IF NOT EXISTS ix_assembly_product_stock_histories_assembly_order_id ON assembly_product_stock_histories (assembly_order_id)')
+            connection.exec_driver_sql('CREATE INDEX IF NOT EXISTS ix_assembly_product_stock_histories_assembly_acceptance_batch_id ON assembly_product_stock_histories (assembly_acceptance_batch_id)')
+            connection.exec_driver_sql('CREATE INDEX IF NOT EXISTS ix_assembly_product_stock_histories_outbound_order_id ON assembly_product_stock_histories (outbound_order_id)')
+            connection.exec_driver_sql('CREATE INDEX IF NOT EXISTS ix_assembly_product_stock_histories_outbound_batch_id ON assembly_product_stock_histories (outbound_batch_id)')
+            connection.exec_driver_sql('CREATE INDEX IF NOT EXISTS ix_assembly_product_stock_histories_operator_id ON assembly_product_stock_histories (operator_id)')
+            connection.exec_driver_sql('CREATE INDEX IF NOT EXISTS ix_assembly_product_stock_histories_batch_no ON assembly_product_stock_histories (batch_no)')
+            connection.exec_driver_sql('CREATE INDEX IF NOT EXISTS ix_assembly_product_stock_histories_created_at ON assembly_product_stock_histories (created_at)')
+
+    if inspector.has_table('assembly_outbound_batches'):
+        with db.engine.begin() as connection:
+            connection.exec_driver_sql(
+                '''
+                INSERT INTO assembly_product_stock_histories (
+                    product_id, outbound_order_id, outbound_batch_id, operator_id,
+                    change_type, batch_no, production_quantity, accepted_quantity,
+                    quantity_delta, stock_before, stock_after, note, created_at
+                )
+                SELECT
+                    o.product_id, o.id, b.id, o.initiator_id,
+                    'outbound_out', o.outbound_no, b.outbound_quantity, b.outbound_quantity,
+                    -b.outbound_quantity,
+                    COALESCE(p.stock_quantity, 0) + COALESCE(b.outbound_quantity, 0),
+                    COALESCE(p.stock_quantity, 0),
+                    '历史补录：出厂批次已完成，补充产品库出库流水',
+                    COALESCE(b.inventory_posted_at, b.completed_at, CURRENT_TIMESTAMP)
+                FROM assembly_outbound_orders o
+                JOIN assembly_outbound_batches b ON b.order_id = o.id
+                JOIN assembly_products p ON p.id = o.product_id
+                WHERE o.item_type = 'product'
+                  AND b.completed_at IS NOT NULL
+                  AND b.inventory_posted_at IS NOT NULL
+                  AND NOT EXISTS (
+                      SELECT 1 FROM assembly_product_stock_histories h
+                      WHERE h.product_id = o.product_id
+                        AND h.outbound_order_id = o.id
+                        AND h.outbound_batch_id = b.id
+                        AND h.change_type = 'outbound_out'
+                  )
+                '''
+            )
+            connection.exec_driver_sql(
+                '''
+                INSERT INTO qc_workpiece_stock_histories (
+                    workpiece_id, outbound_order_id, outbound_batch_id, operator_id,
+                    change_type, batch_no, production_quantity, accepted_quantity,
+                    quantity_delta, stock_before, stock_after, note, created_at
+                )
+                SELECT
+                    o.workpiece_id, o.id, b.id, o.initiator_id,
+                    'outbound_out', o.outbound_no, b.outbound_quantity, b.outbound_quantity,
+                    -b.outbound_quantity,
+                    COALESCE(w.stock_quantity, 0) + COALESCE(b.outbound_quantity, 0),
+                    COALESCE(w.stock_quantity, 0),
+                    '历史补录：出厂批次已完成，补充工件库出库流水',
+                    COALESCE(b.inventory_posted_at, b.completed_at, CURRENT_TIMESTAMP)
+                FROM assembly_outbound_orders o
+                JOIN assembly_outbound_batches b ON b.order_id = o.id
+                JOIN qc_workpieces w ON w.id = o.workpiece_id
+                WHERE o.item_type = 'workpiece'
+                  AND b.completed_at IS NOT NULL
+                  AND b.inventory_posted_at IS NOT NULL
+                  AND NOT EXISTS (
+                      SELECT 1 FROM qc_workpiece_stock_histories h
+                      WHERE h.workpiece_id = o.workpiece_id
+                        AND h.outbound_order_id = o.id
+                        AND h.outbound_batch_id = b.id
+                        AND h.change_type = 'outbound_out'
+                  )
+                '''
+            )
+
+    if inspector.has_table('assembly_acceptance_batches'):
+        with db.engine.begin() as connection:
+            connection.exec_driver_sql(
+                '''
+                INSERT INTO assembly_product_stock_histories (
+                    product_id, assembly_order_id, assembly_acceptance_batch_id, operator_id,
+                    change_type, batch_no, production_quantity, accepted_quantity,
+                    quantity_delta, stock_before, stock_after, note, created_at
+                )
+                SELECT
+                    o.product_id, o.id, b.id, o.controller_id,
+                    'acceptance_in', o.batch_no, b.production_quantity, b.accepted_quantity,
+                    b.accepted_quantity,
+                    MAX(COALESCE(p.stock_quantity, 0) - COALESCE(b.accepted_quantity, 0), 0),
+                    COALESCE(p.stock_quantity, 0),
+                    '历史补录：装配验收已完成，补充产品库入库流水',
+                    COALESCE(b.inventory_posted_at, b.completed_at, CURRENT_TIMESTAMP)
+                FROM assembly_orders o
+                JOIN assembly_acceptance_batches b ON b.order_id = o.id
+                JOIN assembly_products p ON p.id = o.product_id
+                WHERE b.completed_at IS NOT NULL
+                  AND b.inventory_posted_at IS NOT NULL
+                  AND o.product_id IS NOT NULL
+                  AND NOT EXISTS (
+                      SELECT 1 FROM assembly_product_stock_histories h
+                      WHERE h.product_id = o.product_id
+                        AND h.assembly_order_id = o.id
+                        AND h.assembly_acceptance_batch_id = b.id
+                        AND h.change_type = 'acceptance_in'
+                  )
+                '''
+            )
+            connection.exec_driver_sql(
+                '''
+                INSERT INTO qc_workpiece_stock_histories (
+                    workpiece_id, assembly_order_id, assembly_acceptance_batch_id, operator_id,
+                    change_type, batch_no, production_quantity, accepted_quantity,
+                    quantity_delta, stock_before, stock_after, note, created_at
+                )
+                SELECT
+                    c.workpiece_id, o.id, b.id, o.controller_id,
+                    'assembly_consumption', o.batch_no, b.production_quantity, b.accepted_quantity,
+                    -(COALESCE(c.quantity_per_unit, 0) * COALESCE(b.accepted_quantity, 0)),
+                    COALESCE(w.stock_quantity, 0) + (COALESCE(c.quantity_per_unit, 0) * COALESCE(b.accepted_quantity, 0)),
+                    COALESCE(w.stock_quantity, 0),
+                    '历史补录：装配验收已完成，补充工件库组件扣减流水',
+                    COALESCE(b.inventory_posted_at, b.completed_at, CURRENT_TIMESTAMP)
+                FROM assembly_orders o
+                JOIN assembly_acceptance_batches b ON b.order_id = o.id
+                JOIN assembly_order_components c ON c.order_id = o.id
+                JOIN qc_workpieces w ON w.id = c.workpiece_id
+                WHERE b.completed_at IS NOT NULL
+                  AND b.inventory_posted_at IS NOT NULL
+                  AND COALESCE(c.component_type, 'workpiece') = 'workpiece'
+                  AND c.workpiece_id IS NOT NULL
+                  AND NOT EXISTS (
+                      SELECT 1 FROM qc_workpiece_stock_histories h
+                      WHERE h.workpiece_id = c.workpiece_id
+                        AND h.assembly_order_id = o.id
+                        AND h.assembly_acceptance_batch_id = b.id
+                        AND h.change_type = 'assembly_consumption'
+                  )
+                '''
+            )
+            connection.exec_driver_sql(
+                '''
+                INSERT INTO assembly_product_stock_histories (
+                    product_id, assembly_order_id, assembly_acceptance_batch_id, operator_id,
+                    change_type, batch_no, production_quantity, accepted_quantity,
+                    quantity_delta, stock_before, stock_after, note, created_at
+                )
+                SELECT
+                    c.component_product_id, o.id, b.id, o.controller_id,
+                    'assembly_consumption', o.batch_no, b.production_quantity, b.accepted_quantity,
+                    -(COALESCE(c.quantity_per_unit, 0) * COALESCE(b.accepted_quantity, 0)),
+                    COALESCE(p.stock_quantity, 0) + (COALESCE(c.quantity_per_unit, 0) * COALESCE(b.accepted_quantity, 0)),
+                    COALESCE(p.stock_quantity, 0),
+                    '历史补录：装配验收已完成，补充产品库组件扣减流水',
+                    COALESCE(b.inventory_posted_at, b.completed_at, CURRENT_TIMESTAMP)
+                FROM assembly_orders o
+                JOIN assembly_acceptance_batches b ON b.order_id = o.id
+                JOIN assembly_order_components c ON c.order_id = o.id
+                JOIN assembly_products p ON p.id = c.component_product_id
+                WHERE b.completed_at IS NOT NULL
+                  AND b.inventory_posted_at IS NOT NULL
+                  AND c.component_type = 'product'
+                  AND c.component_product_id IS NOT NULL
+                  AND NOT EXISTS (
+                      SELECT 1 FROM assembly_product_stock_histories h
+                      WHERE h.product_id = c.component_product_id
+                        AND h.assembly_order_id = o.id
+                        AND h.assembly_acceptance_batch_id = b.id
+                        AND h.change_type = 'assembly_consumption'
+                  )
+                '''
             )
 
     if not inspector.has_table('assembly_orders'):
@@ -530,6 +979,20 @@ def _run_lightweight_schema_upgrades():
                 'CREATE INDEX IF NOT EXISTS ix_assembly_order_components_workpiece_id ON assembly_order_components (workpiece_id)'
             )
 
+    if inspector.has_table('assembly_order_components'):
+        order_component_columns = {column['name'] for column in inspector.get_columns('assembly_order_components')}
+        alter_statements = []
+        if 'component_type' not in order_component_columns:
+            alter_statements.append("ALTER TABLE assembly_order_components ADD COLUMN component_type VARCHAR(20) NOT NULL DEFAULT 'workpiece'")
+        if 'component_product_id' not in order_component_columns:
+            alter_statements.append('ALTER TABLE assembly_order_components ADD COLUMN component_product_id INTEGER')
+        if alter_statements:
+            with db.engine.begin() as connection:
+                for statement in alter_statements:
+                    connection.exec_driver_sql(statement)
+                connection.exec_driver_sql('CREATE INDEX IF NOT EXISTS ix_assembly_order_components_component_type ON assembly_order_components (component_type)')
+                connection.exec_driver_sql('CREATE INDEX IF NOT EXISTS ix_assembly_order_components_component_product_id ON assembly_order_components (component_product_id)')
+
     if not inspector.has_table('assembly_order_attachments'):
         with db.engine.begin() as connection:
             connection.exec_driver_sql(
@@ -591,6 +1054,26 @@ def _run_lightweight_schema_upgrades():
                 'CREATE INDEX IF NOT EXISTS ix_assembly_inspection_records_inspector_id ON assembly_inspection_records (inspector_id)'
             )
 
+    if not inspector.has_table('assembly_acceptance_batches'):
+        with db.engine.begin() as connection:
+            connection.exec_driver_sql(
+                '''
+                CREATE TABLE assembly_acceptance_batches (
+                    id INTEGER NOT NULL,
+                    order_id INTEGER NOT NULL,
+                    production_quantity FLOAT NOT NULL DEFAULT 0,
+                    accepted_quantity FLOAT NOT NULL DEFAULT 0,
+                    completed_at DATETIME,
+                    inventory_posted_at DATETIME,
+                    created_at DATETIME,
+                    updated_at DATETIME,
+                    PRIMARY KEY (id),
+                    FOREIGN KEY(order_id) REFERENCES assembly_orders (id) ON DELETE CASCADE
+                )
+                '''
+            )
+            connection.exec_driver_sql('CREATE INDEX IF NOT EXISTS ix_assembly_acceptance_batches_order_id ON assembly_acceptance_batches (order_id)')
+
     if not inspector.has_table('assembly_acceptance_signatures'):
         with db.engine.begin() as connection:
             connection.exec_driver_sql(
@@ -598,19 +1081,75 @@ def _run_lightweight_schema_upgrades():
                 CREATE TABLE assembly_acceptance_signatures (
                     id INTEGER NOT NULL,
                     order_id INTEGER NOT NULL,
+                    acceptance_batch_id INTEGER,
                     signer_id INTEGER NOT NULL,
                     signer_role VARCHAR(50) NOT NULL,
                     signed_at DATETIME,
                     PRIMARY KEY (id),
                     FOREIGN KEY(order_id) REFERENCES assembly_orders (id) ON DELETE CASCADE,
-                    FOREIGN KEY(signer_id) REFERENCES users (id),
-                    UNIQUE (order_id, signer_role)
+                    FOREIGN KEY(acceptance_batch_id) REFERENCES assembly_acceptance_batches (id) ON DELETE CASCADE,
+                    FOREIGN KEY(signer_id) REFERENCES users (id)
                 )
                 '''
             )
-            connection.exec_driver_sql(
-                'CREATE INDEX IF NOT EXISTS ix_assembly_acceptance_signatures_order_id ON assembly_acceptance_signatures (order_id)'
-            )
+            connection.exec_driver_sql('CREATE INDEX IF NOT EXISTS ix_assembly_acceptance_signatures_order_id ON assembly_acceptance_signatures (order_id)')
+            connection.exec_driver_sql('CREATE INDEX IF NOT EXISTS ix_assembly_acceptance_signatures_acceptance_batch_id ON assembly_acceptance_signatures (acceptance_batch_id)')
+
+    if inspector.has_table('assembly_acceptance_signatures'):
+        with db.engine.begin() as connection:
+            signature_columns = {row[1] for row in connection.exec_driver_sql('PRAGMA table_info(assembly_acceptance_signatures)').fetchall()}
+            index_rows = connection.exec_driver_sql('PRAGMA index_list(assembly_acceptance_signatures)').fetchall()
+            has_legacy_unique = False
+            for index_row in index_rows:
+                index_name = index_row[1]
+                is_unique = bool(index_row[2])
+                if not is_unique:
+                    continue
+                columns = [column_row[2] for column_row in connection.exec_driver_sql(f'PRAGMA index_info({index_name})').fetchall()]
+                if columns == ['order_id', 'signer_role']:
+                    has_legacy_unique = True
+                    break
+            if 'acceptance_batch_id' not in signature_columns or has_legacy_unique:
+                connection.exec_driver_sql('PRAGMA foreign_keys=OFF')
+                connection.exec_driver_sql('ALTER TABLE assembly_acceptance_signatures RENAME TO assembly_acceptance_signatures_legacy')
+                connection.exec_driver_sql(
+                    '''
+                    CREATE TABLE assembly_acceptance_signatures (
+                        id INTEGER NOT NULL,
+                        order_id INTEGER NOT NULL,
+                        acceptance_batch_id INTEGER,
+                        signer_id INTEGER NOT NULL,
+                        signer_role VARCHAR(50) NOT NULL,
+                        signed_at DATETIME,
+                        PRIMARY KEY (id),
+                        FOREIGN KEY(order_id) REFERENCES assembly_orders (id) ON DELETE CASCADE,
+                        FOREIGN KEY(acceptance_batch_id) REFERENCES assembly_acceptance_batches (id) ON DELETE CASCADE,
+                        FOREIGN KEY(signer_id) REFERENCES users (id)
+                    )
+                    '''
+                )
+                if 'acceptance_batch_id' in signature_columns:
+                    connection.exec_driver_sql(
+                        '''
+                        INSERT INTO assembly_acceptance_signatures
+                            (id, order_id, acceptance_batch_id, signer_id, signer_role, signed_at)
+                        SELECT id, order_id, acceptance_batch_id, signer_id, signer_role, signed_at
+                        FROM assembly_acceptance_signatures_legacy
+                        '''
+                    )
+                else:
+                    connection.exec_driver_sql(
+                        '''
+                        INSERT INTO assembly_acceptance_signatures
+                            (id, order_id, acceptance_batch_id, signer_id, signer_role, signed_at)
+                        SELECT id, order_id, NULL, signer_id, signer_role, signed_at
+                        FROM assembly_acceptance_signatures_legacy
+                        '''
+                    )
+                connection.exec_driver_sql('DROP TABLE assembly_acceptance_signatures_legacy')
+                connection.exec_driver_sql('CREATE INDEX IF NOT EXISTS ix_assembly_acceptance_signatures_order_id ON assembly_acceptance_signatures (order_id)')
+                connection.exec_driver_sql('CREATE INDEX IF NOT EXISTS ix_assembly_acceptance_signatures_acceptance_batch_id ON assembly_acceptance_signatures (acceptance_batch_id)')
+                connection.exec_driver_sql('PRAGMA foreign_keys=ON')
 
     if not inspector.has_table('assembly_order_histories'):
         with db.engine.begin() as connection:
@@ -638,6 +1177,102 @@ def _run_lightweight_schema_upgrades():
             connection.exec_driver_sql(
                 'CREATE INDEX IF NOT EXISTS ix_assembly_order_histories_created_at ON assembly_order_histories (created_at)'
             )
+
+    if not inspector.has_table('assembly_outbound_orders'):
+        with db.engine.begin() as connection:
+            connection.exec_driver_sql(
+                '''
+                CREATE TABLE assembly_outbound_orders (
+                    id INTEGER NOT NULL,
+                    outbound_no VARCHAR(100) NOT NULL,
+                    item_type VARCHAR(20) NOT NULL DEFAULT 'workpiece',
+                    workpiece_id INTEGER,
+                    product_id INTEGER,
+                    item_code_snapshot VARCHAR(100) NOT NULL,
+                    item_name_snapshot VARCHAR(200) NOT NULL,
+                    planned_quantity FLOAT NOT NULL DEFAULT 0,
+                    outbound_date DATE,
+                    initiator_id INTEGER NOT NULL,
+                    status VARCHAR(50) NOT NULL DEFAULT 'confirming',
+                    completed_at DATETIME,
+                    created_at DATETIME,
+                    updated_at DATETIME,
+                    PRIMARY KEY (id),
+                    UNIQUE (outbound_no),
+                    FOREIGN KEY(workpiece_id) REFERENCES qc_workpieces (id) ON DELETE SET NULL,
+                    FOREIGN KEY(product_id) REFERENCES assembly_products (id) ON DELETE SET NULL,
+                    FOREIGN KEY(initiator_id) REFERENCES users (id)
+                )
+                '''
+            )
+            connection.exec_driver_sql('CREATE INDEX IF NOT EXISTS ix_assembly_outbound_orders_outbound_no ON assembly_outbound_orders (outbound_no)')
+            connection.exec_driver_sql('CREATE INDEX IF NOT EXISTS ix_assembly_outbound_orders_item_type ON assembly_outbound_orders (item_type)')
+            connection.exec_driver_sql('CREATE INDEX IF NOT EXISTS ix_assembly_outbound_orders_workpiece_id ON assembly_outbound_orders (workpiece_id)')
+            connection.exec_driver_sql('CREATE INDEX IF NOT EXISTS ix_assembly_outbound_orders_product_id ON assembly_outbound_orders (product_id)')
+            connection.exec_driver_sql('CREATE INDEX IF NOT EXISTS ix_assembly_outbound_orders_initiator_id ON assembly_outbound_orders (initiator_id)')
+            connection.exec_driver_sql('CREATE INDEX IF NOT EXISTS ix_assembly_outbound_orders_status ON assembly_outbound_orders (status)')
+
+    if not inspector.has_table('assembly_outbound_batches'):
+        with db.engine.begin() as connection:
+            connection.exec_driver_sql(
+                '''
+                CREATE TABLE assembly_outbound_batches (
+                    id INTEGER NOT NULL,
+                    order_id INTEGER NOT NULL,
+                    outbound_quantity FLOAT NOT NULL DEFAULT 0,
+                    completed_at DATETIME,
+                    inventory_posted_at DATETIME,
+                    created_at DATETIME,
+                    updated_at DATETIME,
+                    PRIMARY KEY (id),
+                    FOREIGN KEY(order_id) REFERENCES assembly_outbound_orders (id) ON DELETE CASCADE
+                )
+                '''
+            )
+            connection.exec_driver_sql('CREATE INDEX IF NOT EXISTS ix_assembly_outbound_batches_order_id ON assembly_outbound_batches (order_id)')
+
+    if not inspector.has_table('assembly_outbound_signatures'):
+        with db.engine.begin() as connection:
+            connection.exec_driver_sql(
+                '''
+                CREATE TABLE assembly_outbound_signatures (
+                    id INTEGER NOT NULL,
+                    outbound_order_id INTEGER NOT NULL,
+                    outbound_batch_id INTEGER NOT NULL,
+                    signer_id INTEGER NOT NULL,
+                    signer_role VARCHAR(50) NOT NULL,
+                    signed_at DATETIME,
+                    PRIMARY KEY (id),
+                    FOREIGN KEY(outbound_order_id) REFERENCES assembly_outbound_orders (id) ON DELETE CASCADE,
+                    FOREIGN KEY(outbound_batch_id) REFERENCES assembly_outbound_batches (id) ON DELETE CASCADE,
+                    FOREIGN KEY(signer_id) REFERENCES users (id)
+                )
+                '''
+            )
+            connection.exec_driver_sql('CREATE INDEX IF NOT EXISTS ix_assembly_outbound_signatures_outbound_order_id ON assembly_outbound_signatures (outbound_order_id)')
+            connection.exec_driver_sql('CREATE INDEX IF NOT EXISTS ix_assembly_outbound_signatures_outbound_batch_id ON assembly_outbound_signatures (outbound_batch_id)')
+            connection.exec_driver_sql('CREATE INDEX IF NOT EXISTS ix_assembly_outbound_signatures_signer_id ON assembly_outbound_signatures (signer_id)')
+
+    if not inspector.has_table('assembly_outbound_histories'):
+        with db.engine.begin() as connection:
+            connection.exec_driver_sql(
+                '''
+                CREATE TABLE assembly_outbound_histories (
+                    id INTEGER NOT NULL,
+                    outbound_order_id INTEGER NOT NULL,
+                    operator_id INTEGER,
+                    action VARCHAR(100) NOT NULL,
+                    detail TEXT,
+                    created_at DATETIME,
+                    PRIMARY KEY (id),
+                    FOREIGN KEY(outbound_order_id) REFERENCES assembly_outbound_orders (id) ON DELETE CASCADE,
+                    FOREIGN KEY(operator_id) REFERENCES users (id)
+                )
+                '''
+            )
+            connection.exec_driver_sql('CREATE INDEX IF NOT EXISTS ix_assembly_outbound_histories_outbound_order_id ON assembly_outbound_histories (outbound_order_id)')
+            connection.exec_driver_sql('CREATE INDEX IF NOT EXISTS ix_assembly_outbound_histories_operator_id ON assembly_outbound_histories (operator_id)')
+            connection.exec_driver_sql('CREATE INDEX IF NOT EXISTS ix_assembly_outbound_histories_created_at ON assembly_outbound_histories (created_at)')
 
 
 def create_app(config_name='default'):

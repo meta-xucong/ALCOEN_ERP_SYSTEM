@@ -1089,7 +1089,19 @@ ASSEMBLY_STATUS_DISPLAY = {
 
 ASSEMBLY_PRODUCT_ATTACHMENT_TITLE_PREFIX = {
     'assembly_sheet': '装配单',
+    'coa_template': 'COA报告模板',
     'remark': '备注',
+}
+
+ASSEMBLY_OUTBOUND_STATUS_DISPLAY = {
+    'confirming': {'text': '待出厂确认', 'badge': 'bg-primary'},
+    'completed': {'text': '出厂完成', 'badge': 'bg-success'},
+}
+
+ASSEMBLY_PRODUCT_LEVEL_DISPLAY = {
+    1: '一级产品库',
+    2: '二级产品库',
+    3: '三级产品库',
 }
 
 RESEARCH_ATTACHMENT_TITLE_PREFIX = {
@@ -1370,6 +1382,11 @@ class QCWorkpiece(db.Model):
         order_by='QCWorkpieceAttachment.sort_order'
     )
     work_orders: Mapped[list['QCWorkOrder']] = relationship(back_populates='workpiece')
+    stock_histories: Mapped[list['QCWorkpieceStockHistory']] = relationship(
+        back_populates='workpiece',
+        cascade='all, delete-orphan',
+        order_by='QCWorkpieceStockHistory.created_at.desc(), QCWorkpieceStockHistory.id.desc()'
+    )
 
     def __repr__(self):
         return f'<QCWorkpiece {self.workpiece_code}>'
@@ -1428,6 +1445,15 @@ class QCWorkpiece(db.Model):
         remarks = [attachment for attachment in self.attachments if attachment.attach_type == 'remark']
         return sorted(remarks, key=lambda attachment: (attachment.sort_order, attachment.id))
 
+    @property
+    def coa_template_attachments(self) -> list['QCWorkpieceAttachment']:
+        templates = [attachment for attachment in self.attachments if attachment.attach_type == 'coa_template']
+        return sorted(templates, key=lambda attachment: (attachment.sort_order, attachment.id))
+
+    @property
+    def coa_template_attachment(self) -> 'QCWorkpieceAttachment | None':
+        return self.coa_template_attachments[0] if self.coa_template_attachments else None
+
 
 class QCWorkOrder(db.Model):
     """QC 工件订单主表"""
@@ -1478,6 +1504,11 @@ class QCWorkOrder(db.Model):
         cascade='all, delete-orphan',
         order_by='QCInspectionRecord.id'
     )
+    acceptance_batches: Mapped[list['QCAcceptanceBatch']] = relationship(
+        back_populates='work_order',
+        cascade='all, delete-orphan',
+        order_by='QCAcceptanceBatch.id'
+    )
     signatures: Mapped[list['QCAcceptanceSignature']] = relationship(
         back_populates='work_order',
         cascade='all, delete-orphan',
@@ -1486,7 +1517,7 @@ class QCWorkOrder(db.Model):
     histories: Mapped[list['QCWorkOrderHistory']] = relationship(
         back_populates='work_order',
         cascade='all, delete-orphan',
-        order_by='QCWorkOrderHistory.created_at.asc(), QCWorkOrderHistory.id.asc()'
+        order_by='QCWorkOrderHistory.created_at.desc(), QCWorkOrderHistory.id.desc()'
     )
     
     def __repr__(self):
@@ -1508,6 +1539,32 @@ class QCWorkOrder(db.Model):
             return QC_STATUS_DISPLAY['inspection_completed']
 
         return self.get_status_display()
+
+    @property
+    def completed_acceptance_batches(self) -> list['QCAcceptanceBatch']:
+        return [
+            batch for batch in self.acceptance_batches
+            if batch.completed_at is not None
+        ]
+
+    @property
+    def active_acceptance_batch(self) -> 'QCAcceptanceBatch | None':
+        open_batches = [
+            batch for batch in self.acceptance_batches
+            if batch.completed_at is None
+        ]
+        return open_batches[-1] if open_batches else None
+
+    @property
+    def actual_delivered_quantity(self) -> float:
+        delivered = sum(float(batch.accepted_quantity or 0) for batch in self.completed_acceptance_batches)
+        if delivered <= 0 and self.status == 'accepted' and not self.acceptance_batches:
+            return float(self.quantity or 0)
+        return delivered
+
+    @property
+    def remaining_acceptance_quantity(self) -> float:
+        return max(0.0, float(self.quantity or 0) - self.actual_delivered_quantity)
 
     @property
     def normalized_type(self) -> str:
@@ -1700,6 +1757,60 @@ class QCWorkOrder(db.Model):
         return False
 
 
+class QCWorkpieceStockHistory(db.Model):
+    """Immutable stock movement history for one QC workpiece."""
+
+    __tablename__ = 'qc_workpiece_stock_histories'
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    workpiece_id: Mapped[int] = mapped_column(ForeignKey('qc_workpieces.id', ondelete='CASCADE'), nullable=False, index=True)
+    work_order_id: Mapped[int] = mapped_column(ForeignKey('qc_work_orders.id', ondelete='SET NULL'), nullable=True, index=True)
+    acceptance_batch_id: Mapped[int] = mapped_column(ForeignKey('qc_acceptance_batches.id', ondelete='SET NULL'), nullable=True, index=True)
+    assembly_order_id: Mapped[int] = mapped_column(ForeignKey('assembly_orders.id', ondelete='SET NULL'), nullable=True, index=True)
+    assembly_acceptance_batch_id: Mapped[int] = mapped_column(ForeignKey('assembly_acceptance_batches.id', ondelete='SET NULL'), nullable=True, index=True)
+    outbound_order_id: Mapped[int] = mapped_column(ForeignKey('assembly_outbound_orders.id', ondelete='SET NULL'), nullable=True, index=True)
+    outbound_batch_id: Mapped[int] = mapped_column(ForeignKey('assembly_outbound_batches.id', ondelete='SET NULL'), nullable=True, index=True)
+    operator_id: Mapped[int] = mapped_column(ForeignKey('users.id'), nullable=True, index=True)
+    change_type: Mapped[str] = mapped_column(String(50), nullable=False, default='acceptance_in')
+    batch_no: Mapped[str] = mapped_column(String(100), nullable=True, index=True)
+    production_quantity: Mapped[float] = mapped_column(Float, nullable=True)
+    accepted_quantity: Mapped[float] = mapped_column(Float, nullable=True)
+    quantity_delta: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    stock_before: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    stock_after: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    note: Mapped[str] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now, index=True)
+
+    workpiece: Mapped['QCWorkpiece'] = relationship(back_populates='stock_histories')
+    work_order: Mapped['QCWorkOrder'] = relationship(foreign_keys=[work_order_id])
+    acceptance_batch: Mapped['QCAcceptanceBatch'] = relationship(foreign_keys=[acceptance_batch_id])
+    assembly_order: Mapped['AssemblyOrder'] = relationship(foreign_keys=[assembly_order_id])
+    assembly_acceptance_batch: Mapped['AssemblyAcceptanceBatch'] = relationship(foreign_keys=[assembly_acceptance_batch_id])
+    outbound_order: Mapped['AssemblyOutboundOrder'] = relationship(foreign_keys=[outbound_order_id])
+    outbound_batch: Mapped['AssemblyOutboundBatch'] = relationship(foreign_keys=[outbound_batch_id])
+    operator: Mapped['User'] = relationship(foreign_keys=[operator_id])
+
+    @property
+    def change_type_display(self) -> str:
+        if self.change_type == 'acceptance_in':
+            return '验收入库'
+        if self.change_type == 'acceptance_reverse':
+            return '撤销入库'
+        if self.change_type == 'outbound_out':
+            return '出厂扣减'
+        if self.change_type == 'assembly_consumption':
+            return '装配扣减'
+        if self.change_type == 'assembly_reverse':
+            return '装配撤销'
+        return self.change_type
+
+    @property
+    def operator_name(self) -> str:
+        if self.operator:
+            return self.operator.real_name or self.operator.username
+        return '系统'
+
+
 class QCWorkpieceAttachment(db.Model):
     """QC 工件库附件表。"""
     __tablename__ = 'qc_workpiece_attachments'
@@ -1740,6 +1851,8 @@ class QCWorkpieceAttachment(db.Model):
             return self.title or f'质检材料{self.sort_order + 1}'
         if self.attach_type in QC_GUIDE_ATTACHMENT_TYPES:
             return normalize_qc_guide_title(self.title, self.sort_order + 1)
+        if self.attach_type == 'coa_template':
+            return self.title or 'COA报告模板'
         return self.title or '备注'
 
     def __repr__(self):
@@ -1875,17 +1988,51 @@ class QCInspectionRecord(db.Model):
         return f'/uploads/qc/{self.work_order_id}/{self.report_file_path}'
 
 
+class QCAcceptanceBatch(db.Model):
+    """One partial or final acceptance delivery batch for a QC work order."""
+    __tablename__ = 'qc_acceptance_batches'
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    work_order_id: Mapped[int] = mapped_column(ForeignKey('qc_work_orders.id', ondelete='CASCADE'), nullable=False, index=True)
+    production_quantity: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    accepted_quantity: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    completed_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
+    inventory_posted_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now, onupdate=datetime.now)
+
+    work_order: Mapped['QCWorkOrder'] = relationship(back_populates='acceptance_batches')
+    signatures: Mapped[list['QCAcceptanceSignature']] = relationship(
+        back_populates='acceptance_batch',
+        cascade='all, delete-orphan',
+        order_by='QCAcceptanceSignature.id'
+    )
+
+    @property
+    def is_completed(self) -> bool:
+        return self.completed_at is not None
+
+    @property
+    def signatures_by_role(self) -> dict[str, 'QCAcceptanceSignature']:
+        return {signature.signer_role: signature for signature in self.signatures}
+
+    def __repr__(self):
+        return f'<QCAcceptanceBatch {self.work_order_id}:{self.accepted_quantity}>'
+
+
 class QCAcceptanceSignature(db.Model):
     """QC 验收签字记录表"""
     __tablename__ = 'qc_acceptance_signatures'
     
     id: Mapped[int] = mapped_column(primary_key=True)
     work_order_id: Mapped[int] = mapped_column(ForeignKey('qc_work_orders.id', ondelete='CASCADE'), nullable=False)
+    acceptance_batch_id: Mapped[int] = mapped_column(ForeignKey('qc_acceptance_batches.id', ondelete='CASCADE'), nullable=True, index=True)
     signer_id: Mapped[int] = mapped_column(ForeignKey('users.id'), nullable=False)
     signer_role: Mapped[str] = mapped_column(String(50), nullable=False)
     signed_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
     
     work_order: Mapped['QCWorkOrder'] = relationship(back_populates='signatures')
+    acceptance_batch: Mapped['QCAcceptanceBatch'] = relationship(back_populates='signatures')
     signer: Mapped['User'] = relationship(foreign_keys=[signer_id])
     
     @property
@@ -2032,7 +2179,7 @@ class ResearchBatch(db.Model):
     histories: Mapped[list['ResearchBatchHistory']] = relationship(
         back_populates='batch',
         cascade='all, delete-orphan',
-        order_by='ResearchBatchHistory.created_at.asc(), ResearchBatchHistory.id.asc()'
+        order_by='ResearchBatchHistory.created_at.desc(), ResearchBatchHistory.id.desc()'
     )
 
     def __repr__(self):
@@ -2250,6 +2397,7 @@ class ResearchAcceptanceSignature(db.Model):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     batch_id: Mapped[int] = mapped_column(ForeignKey('research_batches.id', ondelete='CASCADE'), nullable=False, index=True)
+    acceptance_batch_id: Mapped[int] = mapped_column(ForeignKey('assembly_acceptance_batches.id', ondelete='CASCADE'), nullable=True, index=True)
     signer_id: Mapped[int] = mapped_column(ForeignKey('users.id'), nullable=False, index=True)
     signer_role: Mapped[str] = mapped_column(String(50), nullable=False)
     signed_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
@@ -2296,6 +2444,8 @@ class AssemblyProduct(db.Model):
     id: Mapped[int] = mapped_column(primary_key=True)
     product_code: Mapped[str] = mapped_column(String(100), unique=True, nullable=False, index=True)
     product_name: Mapped[str] = mapped_column(String(200), nullable=False, index=True)
+    product_level: Mapped[int] = mapped_column(Integer, default=1, nullable=False, index=True)
+    stock_quantity: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
     creator_id: Mapped[int] = mapped_column(ForeignKey('users.id'), nullable=False, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now, onupdate=datetime.now)
@@ -2304,17 +2454,27 @@ class AssemblyProduct(db.Model):
     components: Mapped[list['AssemblyProductComponent']] = relationship(
         back_populates='product',
         cascade='all, delete-orphan',
-        order_by='AssemblyProductComponent.sort_order'
+        order_by='AssemblyProductComponent.sort_order',
+        foreign_keys='AssemblyProductComponent.product_id'
     )
     attachments: Mapped[list['AssemblyProductAttachment']] = relationship(
         back_populates='product',
         cascade='all, delete-orphan',
         order_by='AssemblyProductAttachment.sort_order'
     )
-    orders: Mapped[list['AssemblyOrder']] = relationship(back_populates='product')
+    orders: Mapped[list['AssemblyOrder']] = relationship(back_populates='product', foreign_keys='AssemblyOrder.product_id')
+    stock_histories: Mapped[list['AssemblyProductStockHistory']] = relationship(
+        back_populates='product',
+        cascade='all, delete-orphan',
+        order_by='AssemblyProductStockHistory.created_at.desc(), AssemblyProductStockHistory.id.desc()'
+    )
 
     def __repr__(self):
         return f'<AssemblyProduct {self.product_code}>'
+
+    @property
+    def product_level_display(self) -> str:
+        return ASSEMBLY_PRODUCT_LEVEL_DISPLAY.get(int(self.product_level or 1), '一级产品库')
 
     @property
     def assembly_sheet_attachments(self) -> list['AssemblyProductAttachment']:
@@ -2330,6 +2490,17 @@ class AssemblyProduct(db.Model):
             if attachment.attach_type == 'remark'
         ]
 
+    @property
+    def coa_template_attachments(self) -> list['AssemblyProductAttachment']:
+        return [
+            attachment for attachment in self.attachments
+            if attachment.attach_type == 'coa_template'
+        ]
+
+    @property
+    def coa_template_attachment(self) -> 'AssemblyProductAttachment | None':
+        return self.coa_template_attachments[0] if self.coa_template_attachments else None
+
 
 class AssemblyProductComponent(db.Model):
     """BOM row for an assembly product."""
@@ -2338,18 +2509,33 @@ class AssemblyProductComponent(db.Model):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     product_id: Mapped[int] = mapped_column(ForeignKey('assembly_products.id', ondelete='CASCADE'), nullable=False, index=True)
-    workpiece_id: Mapped[int] = mapped_column(ForeignKey('qc_workpieces.id', ondelete='RESTRICT'), nullable=False, index=True)
+    component_type: Mapped[str] = mapped_column(String(20), default='workpiece', nullable=False, index=True)
+    workpiece_id: Mapped[int] = mapped_column(ForeignKey('qc_workpieces.id', ondelete='RESTRICT'), nullable=True, index=True)
+    component_product_id: Mapped[int] = mapped_column(ForeignKey('assembly_products.id', ondelete='RESTRICT'), nullable=True, index=True)
     workpiece_code_snapshot: Mapped[str] = mapped_column(String(100), nullable=False)
     workpiece_name_snapshot: Mapped[str] = mapped_column(String(200), nullable=False)
     quantity_per_unit: Mapped[float] = mapped_column(Float, nullable=False, default=1.0)
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
 
-    product: Mapped['AssemblyProduct'] = relationship(back_populates='components')
+    product: Mapped['AssemblyProduct'] = relationship(back_populates='components', foreign_keys=[product_id])
     workpiece: Mapped['QCWorkpiece'] = relationship(foreign_keys=[workpiece_id])
+    component_product: Mapped['AssemblyProduct'] = relationship(foreign_keys=[component_product_id])
 
     def __repr__(self):
         return f'<AssemblyProductComponent {self.product_id}:{self.workpiece_code_snapshot}>'
+
+    @property
+    def component_type_display(self) -> str:
+        if self.component_type == 'product':
+            return self.component_product.product_level_display if self.component_product else '产品库'
+        return '工件库'
+
+    @property
+    def component_stock_quantity(self) -> float:
+        if self.component_type == 'product':
+            return float(self.component_product.stock_quantity or 0) if self.component_product else 0.0
+        return float(self.workpiece.stock_quantity or 0) if self.workpiece else 0.0
 
     @property
     def total_required_for_one(self) -> float:
@@ -2387,7 +2573,59 @@ class AssemblyProductAttachment(db.Model):
     @property
     def display_title(self) -> str:
         prefix = ASSEMBLY_PRODUCT_ATTACHMENT_TITLE_PREFIX.get(self.attach_type, '产品附件')
+        if self.attach_type == 'coa_template':
+            return self.title or 'COA报告模板'
         return self.title or f'{prefix}{self.sort_order + 1}'
+
+
+class AssemblyProductStockHistory(db.Model):
+    """Immutable stock movement history for one assembly product."""
+
+    __tablename__ = 'assembly_product_stock_histories'
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    product_id: Mapped[int] = mapped_column(ForeignKey('assembly_products.id', ondelete='CASCADE'), nullable=False, index=True)
+    assembly_order_id: Mapped[int] = mapped_column(ForeignKey('assembly_orders.id', ondelete='SET NULL'), nullable=True, index=True)
+    assembly_acceptance_batch_id: Mapped[int] = mapped_column(ForeignKey('assembly_acceptance_batches.id', ondelete='SET NULL'), nullable=True, index=True)
+    outbound_order_id: Mapped[int] = mapped_column(ForeignKey('assembly_outbound_orders.id', ondelete='SET NULL'), nullable=True, index=True)
+    outbound_batch_id: Mapped[int] = mapped_column(ForeignKey('assembly_outbound_batches.id', ondelete='SET NULL'), nullable=True, index=True)
+    operator_id: Mapped[int] = mapped_column(ForeignKey('users.id'), nullable=True, index=True)
+    change_type: Mapped[str] = mapped_column(String(50), nullable=False, default='acceptance_in')
+    batch_no: Mapped[str] = mapped_column(String(100), nullable=True, index=True)
+    production_quantity: Mapped[float] = mapped_column(Float, nullable=True)
+    accepted_quantity: Mapped[float] = mapped_column(Float, nullable=True)
+    quantity_delta: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    stock_before: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    stock_after: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    note: Mapped[str] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now, index=True)
+
+    product: Mapped['AssemblyProduct'] = relationship(back_populates='stock_histories')
+    assembly_order: Mapped['AssemblyOrder'] = relationship(foreign_keys=[assembly_order_id])
+    assembly_acceptance_batch: Mapped['AssemblyAcceptanceBatch'] = relationship(foreign_keys=[assembly_acceptance_batch_id])
+    outbound_order: Mapped['AssemblyOutboundOrder'] = relationship(foreign_keys=[outbound_order_id])
+    outbound_batch: Mapped['AssemblyOutboundBatch'] = relationship(foreign_keys=[outbound_batch_id])
+    operator: Mapped['User'] = relationship(foreign_keys=[operator_id])
+
+    @property
+    def change_type_display(self) -> str:
+        if self.change_type == 'acceptance_in':
+            return '验收入库'
+        if self.change_type == 'acceptance_reverse':
+            return '撤销入库'
+        if self.change_type == 'assembly_consumption':
+            return '装配扣减'
+        if self.change_type == 'assembly_reverse':
+            return '装配撤销'
+        if self.change_type == 'outbound_out':
+            return '出厂扣减'
+        return self.change_type
+
+    @property
+    def operator_name(self) -> str:
+        if self.operator:
+            return self.operator.real_name or self.operator.username
+        return '系统'
 
 
 class AssemblyOrder(db.Model):
@@ -2421,7 +2659,7 @@ class AssemblyOrder(db.Model):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now, onupdate=datetime.now)
 
-    product: Mapped['AssemblyProduct'] = relationship(back_populates='orders')
+    product: Mapped['AssemblyProduct'] = relationship(back_populates='orders', foreign_keys=[product_id])
     controller: Mapped['User'] = relationship(foreign_keys=[controller_id])
     inspector: Mapped['User'] = relationship(foreign_keys=[inspector_id])
     components: Mapped[list['AssemblyOrderComponent']] = relationship(
@@ -2439,6 +2677,11 @@ class AssemblyOrder(db.Model):
         cascade='all, delete-orphan',
         order_by='AssemblyInspectionRecord.id'
     )
+    acceptance_batches: Mapped[list['AssemblyAcceptanceBatch']] = relationship(
+        back_populates='order',
+        cascade='all, delete-orphan',
+        order_by='AssemblyAcceptanceBatch.created_at.asc(), AssemblyAcceptanceBatch.id.asc()'
+    )
     signatures: Mapped[list['AssemblyAcceptanceSignature']] = relationship(
         back_populates='order',
         cascade='all, delete-orphan',
@@ -2447,7 +2690,7 @@ class AssemblyOrder(db.Model):
     histories: Mapped[list['AssemblyOrderHistory']] = relationship(
         back_populates='order',
         cascade='all, delete-orphan',
-        order_by='AssemblyOrderHistory.created_at.asc(), AssemblyOrderHistory.id.asc()'
+        order_by='AssemblyOrderHistory.created_at.desc(), AssemblyOrderHistory.id.desc()'
     )
 
     def __repr__(self):
@@ -2460,10 +2703,30 @@ class AssemblyOrder(db.Model):
         if self.status == 'accepted':
             return ASSEMBLY_STATUS_DISPLAY['accepted']
         if self.status == 'inspection_completed':
-            signed_roles = {signature.signer_role for signature in self.signatures}
-            if signed_roles:
+            active_batch = self.active_acceptance_batch
+            if active_batch and active_batch.signatures:
                 return {'text': '待另一方确认', 'badge': 'bg-warning text-dark'}
+            return {'text': '待验收确认', 'badge': 'bg-primary'}
         return self.get_status_display()
+
+    @property
+    def completed_acceptance_batches(self) -> list['AssemblyAcceptanceBatch']:
+        return [batch for batch in self.acceptance_batches if batch.completed_at]
+
+    @property
+    def active_acceptance_batch(self) -> 'AssemblyAcceptanceBatch | None':
+        for batch in reversed(self.acceptance_batches):
+            if not batch.completed_at:
+                return batch
+        return None
+
+    @property
+    def actual_delivered_quantity(self) -> float:
+        return sum(float(batch.accepted_quantity or 0) for batch in self.acceptance_batches if batch.completed_at)
+
+    @property
+    def remaining_acceptance_quantity(self) -> float:
+        return max(0.0, float(self.quantity or 0) - self.actual_delivered_quantity)
 
     @property
     def product_display_name(self) -> str:
@@ -2561,7 +2824,9 @@ class AssemblyOrderComponent(db.Model):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     order_id: Mapped[int] = mapped_column(ForeignKey('assembly_orders.id', ondelete='CASCADE'), nullable=False, index=True)
+    component_type: Mapped[str] = mapped_column(String(20), default='workpiece', nullable=False, index=True)
     workpiece_id: Mapped[int] = mapped_column(ForeignKey('qc_workpieces.id', ondelete='SET NULL'), nullable=True, index=True)
+    component_product_id: Mapped[int] = mapped_column(ForeignKey('assembly_products.id', ondelete='SET NULL'), nullable=True, index=True)
     workpiece_code_snapshot: Mapped[str] = mapped_column(String(100), nullable=False)
     workpiece_name_snapshot: Mapped[str] = mapped_column(String(200), nullable=False)
     quantity_per_unit: Mapped[float] = mapped_column(Float, nullable=False, default=1.0)
@@ -2571,12 +2836,21 @@ class AssemblyOrderComponent(db.Model):
 
     order: Mapped['AssemblyOrder'] = relationship(back_populates='components')
     workpiece: Mapped['QCWorkpiece'] = relationship(foreign_keys=[workpiece_id])
+    component_product: Mapped['AssemblyProduct'] = relationship(foreign_keys=[component_product_id])
 
     def __repr__(self):
         return f'<AssemblyOrderComponent {self.order_id}:{self.workpiece_code_snapshot}>'
 
     @property
+    def component_type_display(self) -> str:
+        if self.component_type == 'product':
+            return self.component_product.product_level_display if self.component_product else '产品库'
+        return '工件库'
+
+    @property
     def available_stock(self) -> float:
+        if self.component_type == 'product':
+            return float(self.component_product.stock_quantity or 0) if self.component_product else 0.0
         return float(self.workpiece.stock_quantity or 0) if self.workpiece else 0.0
 
 
@@ -2630,7 +2904,7 @@ class AssemblyOrderAttachment(db.Model):
     @property
     def report_label(self) -> str:
         if self.attach_type == 'assembly_record':
-            return '生产登记单确认件（可选）'
+            return '生产登记单确认件（必选）'
         if self.attach_type == 'certificate':
             return '合格报告'
         return '附加文件'
@@ -2670,6 +2944,39 @@ class AssemblyInspectionRecord(db.Model):
         )
 
 
+class AssemblyAcceptanceBatch(db.Model):
+    """One partial or final acceptance batch for an assembly order."""
+
+    __tablename__ = 'assembly_acceptance_batches'
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    order_id: Mapped[int] = mapped_column(ForeignKey('assembly_orders.id', ondelete='CASCADE'), nullable=False, index=True)
+    production_quantity: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    accepted_quantity: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    completed_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
+    inventory_posted_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now, onupdate=datetime.now)
+
+    order: Mapped['AssemblyOrder'] = relationship(back_populates='acceptance_batches')
+    signatures: Mapped[list['AssemblyAcceptanceSignature']] = relationship(
+        back_populates='acceptance_batch',
+        cascade='all, delete-orphan',
+        order_by='AssemblyAcceptanceSignature.id'
+    )
+
+    @property
+    def is_completed(self) -> bool:
+        return self.completed_at is not None
+
+    @property
+    def signatures_by_role(self) -> dict[str, 'AssemblyAcceptanceSignature']:
+        return {signature.signer_role: signature for signature in self.signatures}
+
+    def __repr__(self):
+        return f'<AssemblyAcceptanceBatch {self.order_id}:{self.accepted_quantity}>'
+
+
 class AssemblyAcceptanceSignature(db.Model):
     """Acceptance signature for one assembly order."""
 
@@ -2677,11 +2984,13 @@ class AssemblyAcceptanceSignature(db.Model):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     order_id: Mapped[int] = mapped_column(ForeignKey('assembly_orders.id', ondelete='CASCADE'), nullable=False, index=True)
+    acceptance_batch_id: Mapped[int] = mapped_column(ForeignKey('assembly_acceptance_batches.id', ondelete='CASCADE'), nullable=True, index=True)
     signer_id: Mapped[int] = mapped_column(ForeignKey('users.id'), nullable=False, index=True)
     signer_role: Mapped[str] = mapped_column(String(50), nullable=False)
     signed_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
 
     order: Mapped['AssemblyOrder'] = relationship(back_populates='signatures')
+    acceptance_batch: Mapped['AssemblyAcceptanceBatch'] = relationship(back_populates='signatures')
     signer: Mapped['User'] = relationship(foreign_keys=[signer_id])
 
     @property
@@ -2706,6 +3015,175 @@ class AssemblyOrderHistory(db.Model):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now, index=True)
 
     order: Mapped['AssemblyOrder'] = relationship(back_populates='histories')
+    operator: Mapped['User'] = relationship(foreign_keys=[operator_id])
+
+    @property
+    def operator_name(self) -> str:
+        if not self.operator:
+            return '系统'
+        return self.operator.real_name or self.operator.username
+
+
+class AssemblyOutboundOrder(db.Model):
+    """Outbound order for shipping any workpiece or assembly product."""
+
+    __tablename__ = 'assembly_outbound_orders'
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    outbound_no: Mapped[str] = mapped_column(String(100), unique=True, nullable=False, index=True)
+    item_type: Mapped[str] = mapped_column(String(20), nullable=False, default='workpiece', index=True)
+    workpiece_id: Mapped[int] = mapped_column(ForeignKey('qc_workpieces.id', ondelete='SET NULL'), nullable=True, index=True)
+    product_id: Mapped[int] = mapped_column(ForeignKey('assembly_products.id', ondelete='SET NULL'), nullable=True, index=True)
+    item_code_snapshot: Mapped[str] = mapped_column(String(100), nullable=False)
+    item_name_snapshot: Mapped[str] = mapped_column(String(200), nullable=False)
+    planned_quantity: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    outbound_date: Mapped[datetime] = mapped_column(Date, nullable=True)
+    initiator_id: Mapped[int] = mapped_column(ForeignKey('users.id'), nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(50), nullable=False, default='confirming', index=True)
+    completed_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now, onupdate=datetime.now)
+
+    workpiece: Mapped['QCWorkpiece'] = relationship(foreign_keys=[workpiece_id])
+    product: Mapped['AssemblyProduct'] = relationship(foreign_keys=[product_id])
+    initiator: Mapped['User'] = relationship(foreign_keys=[initiator_id])
+    batches: Mapped[list['AssemblyOutboundBatch']] = relationship(
+        back_populates='order',
+        cascade='all, delete-orphan',
+        order_by='AssemblyOutboundBatch.created_at.asc(), AssemblyOutboundBatch.id.asc()'
+    )
+    signatures: Mapped[list['AssemblyOutboundSignature']] = relationship(
+        back_populates='order',
+        cascade='all, delete-orphan',
+        order_by='AssemblyOutboundSignature.id'
+    )
+    histories: Mapped[list['AssemblyOutboundHistory']] = relationship(
+        back_populates='order',
+        cascade='all, delete-orphan',
+        order_by='AssemblyOutboundHistory.created_at.desc(), AssemblyOutboundHistory.id.desc()'
+    )
+
+    def __repr__(self):
+        return f'<AssemblyOutboundOrder {self.outbound_no}>'
+
+    def get_status_display(self) -> dict:
+        return ASSEMBLY_OUTBOUND_STATUS_DISPLAY.get(self.status, ASSEMBLY_OUTBOUND_STATUS_DISPLAY['confirming'])
+
+    @property
+    def completed_batches(self) -> list['AssemblyOutboundBatch']:
+        return [batch for batch in self.batches if batch.completed_at]
+
+    @property
+    def active_batch(self) -> 'AssemblyOutboundBatch | None':
+        for batch in reversed(self.batches):
+            if not batch.completed_at:
+                return batch
+        return None
+
+    @property
+    def shipped_quantity(self) -> float:
+        return sum(float(batch.outbound_quantity or 0) for batch in self.completed_batches)
+
+    @property
+    def remaining_quantity(self) -> float:
+        return max(0.0, float(self.planned_quantity or 0) - self.shipped_quantity)
+
+    @property
+    def item_display_name(self) -> str:
+        code = (self.item_code_snapshot or '').strip()
+        name = (self.item_name_snapshot or '').strip()
+        if code and name:
+            return f'{code} / {name}'
+        return code or name or '-'
+
+    @property
+    def item_type_display(self) -> str:
+        if self.item_type == 'product' and self.product:
+            return self.product.product_level_display
+        if self.item_type == 'product':
+            return '产品库'
+        return '工件库'
+
+    @property
+    def inventory_item(self):
+        return self.product if self.item_type == 'product' else self.workpiece
+
+    @property
+    def coa_template_attachment(self):
+        item = self.inventory_item
+        return item.coa_template_attachment if item else None
+
+
+class AssemblyOutboundBatch(db.Model):
+    """One confirmed or pending outbound shipment batch."""
+
+    __tablename__ = 'assembly_outbound_batches'
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    order_id: Mapped[int] = mapped_column(ForeignKey('assembly_outbound_orders.id', ondelete='CASCADE'), nullable=False, index=True)
+    outbound_quantity: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    completed_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
+    inventory_posted_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now, onupdate=datetime.now)
+
+    order: Mapped['AssemblyOutboundOrder'] = relationship(back_populates='batches')
+    signatures: Mapped[list['AssemblyOutboundSignature']] = relationship(
+        back_populates='batch',
+        cascade='all, delete-orphan',
+        order_by='AssemblyOutboundSignature.id'
+    )
+
+    @property
+    def is_completed(self) -> bool:
+        return self.completed_at is not None
+
+    @property
+    def signatures_by_role(self) -> dict[str, 'AssemblyOutboundSignature']:
+        return {signature.signer_role: signature for signature in self.signatures}
+
+    def __repr__(self):
+        return f'<AssemblyOutboundBatch {self.order_id}:{self.outbound_quantity}>'
+
+
+class AssemblyOutboundSignature(db.Model):
+    """Signature for one outbound batch."""
+
+    __tablename__ = 'assembly_outbound_signatures'
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    outbound_order_id: Mapped[int] = mapped_column(ForeignKey('assembly_outbound_orders.id', ondelete='CASCADE'), nullable=False, index=True)
+    outbound_batch_id: Mapped[int] = mapped_column(ForeignKey('assembly_outbound_batches.id', ondelete='CASCADE'), nullable=False, index=True)
+    signer_id: Mapped[int] = mapped_column(ForeignKey('users.id'), nullable=False, index=True)
+    signer_role: Mapped[str] = mapped_column(String(50), nullable=False)
+    signed_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+
+    order: Mapped['AssemblyOutboundOrder'] = relationship(back_populates='signatures')
+    batch: Mapped['AssemblyOutboundBatch'] = relationship(back_populates='signatures')
+    signer: Mapped['User'] = relationship(foreign_keys=[signer_id])
+
+    @property
+    def signer_role_display(self) -> str:
+        if self.signer_role == 'initiator':
+            return '出厂发起人'
+        if self.signer_role == 'approver':
+            return '出厂验收人'
+        return self.signer_role
+
+
+class AssemblyOutboundHistory(db.Model):
+    """Immutable history log for outbound orders."""
+
+    __tablename__ = 'assembly_outbound_histories'
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    outbound_order_id: Mapped[int] = mapped_column(ForeignKey('assembly_outbound_orders.id', ondelete='CASCADE'), nullable=False, index=True)
+    operator_id: Mapped[int] = mapped_column(ForeignKey('users.id'), nullable=True, index=True)
+    action: Mapped[str] = mapped_column(String(100), nullable=False)
+    detail: Mapped[str] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now, index=True)
+
+    order: Mapped['AssemblyOutboundOrder'] = relationship(back_populates='histories')
     operator: Mapped['User'] = relationship(foreign_keys=[operator_id])
 
     @property

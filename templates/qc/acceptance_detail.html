@@ -1,4 +1,4 @@
-﻿{% extends 'qc/base.html' %}
+{% extends 'qc/base.html' %}
 
 {% block title %}验收确认 - ALCOEN AI CATS{% endblock %}
 
@@ -6,6 +6,43 @@
 <style>
     .truncate-name {
         max-width: 220px;
+    }
+    .acceptance-metric {
+        border-radius: 1rem;
+        background: rgba(32, 201, 151, 0.08);
+        padding: 1rem;
+        height: 100%;
+    }
+    .acceptance-sign-card {
+        border-radius: 0.85rem;
+    }
+    .acceptance-role-card {
+        border-radius: 0.75rem;
+        padding: 0.85rem;
+        height: 100%;
+        background: rgba(255, 255, 255, 0.92);
+        border: 1px solid rgba(0, 0, 0, 0.08);
+    }
+    .acceptance-role-icon {
+        width: 2rem;
+        height: 2rem;
+        border-radius: 999px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        margin-right: 0.5rem;
+    }
+    .acceptance-batch-toggle {
+        text-decoration: none;
+    }
+    .acceptance-plus-btn {
+        width: 3rem;
+        height: 3rem;
+        border-radius: 999px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.4rem;
     }
 </style>
 {% endblock %}
@@ -95,8 +132,12 @@
                 </div>
             </div>
             <div class="col-md-3 mb-3">
-                <label class="text-muted small">生产数量</label>
-                <div class="fw-medium fs-5">{{ order.quantity }}</div>
+                <label class="text-muted small">计划生产数量</label>
+                <div class="fw-medium fs-5">{{ '{:g}'.format(order.quantity or 0) }}</div>
+            </div>
+            <div class="col-md-3 mb-3">
+                <label class="text-muted small">实际交付数量</label>
+                <div class="fw-medium fs-5 text-success">{{ '{:g}'.format(order.actual_delivered_quantity or 0) }}</div>
             </div>
             <div class="col-md-3 mb-3">
                 <label class="text-muted small">质控人</label>
@@ -181,82 +222,148 @@
 
 {% if order.status in ['inspection_completed', 'accepted'] %}
 <div class="card mb-4 border-success">
-    <div class="card-header bg-success text-white">
+    <div class="card-header bg-success text-white d-flex justify-content-between align-items-center">
         <h5 class="mb-0"><i class="bi bi-pen"></i> 验收签字</h5>
+        <span class="badge bg-light text-success">实际交付 {{ '{:g}'.format(order.actual_delivered_quantity or 0) }} / 计划 {{ '{:g}'.format(order.quantity or 0) }}</span>
     </div>
     <div class="card-body">
-        <div class="row">
-            <div class="col-md-6 mb-3">
-                <div class="card h-100 {{ 'border-success' if 'qc_controller' in signatures else 'border-secondary' }}">
-                    <div class="card-body text-center">
-                        <h6 class="card-title">质控人确认</h6>
-                        {% if 'qc_controller' in signatures %}
-                            <div class="text-success mb-2">
-                                <i class="bi bi-check-circle-fill" style="font-size: 2rem;"></i>
-                            </div>
-                            <p class="mb-0">已确认</p>
-                            <small class="text-muted d-block mb-2">{{ signatures['qc_controller'].signed_at.strftime('%Y-%m-%d %H:%M') }}</small>
-                            {% if can_cancel_signatures.get('qc_controller') %}
-                            <form method="POST" action="{{ url_for('qc.acceptance_cancel_signature', order_id=order.id, signer_role='qc_controller') }}" onsubmit="return confirm('确认取消质控人验收确认？');">
-                                <button type="submit" class="btn btn-outline-warning btn-sm">
-                                    <i class="bi bi-arrow-counterclockwise"></i> 取消确认
-                                </button>
-                            </form>
-                            {% endif %}
-                        {% else %}
-                            <div class="text-muted mb-2">
-                                <i class="bi bi-circle" style="font-size: 2rem;"></i>
-                            </div>
-                            <p class="text-muted">待确认</p>
-                            {% if order.status == 'inspection_completed' and ((current_user.role.code == 'qc_controller' and order.controller_id == current_user.id and current_user.has_qc_permission('qc_acceptance_perform')) or current_user.is_superadmin or (current_user.role.code in ['general_manager', 'gm_assistant'] and current_user.has_qc_permission('qc_acceptance_perform'))) %}
-                            <form method="POST" action="{{ url_for('qc.acceptance_sign', order_id=order.id) }}">
-                                <input type="hidden" name="signer_role" value="qc_controller">
-                                <button type="submit" class="btn btn-success">
-                                    <i class="bi bi-check-lg"></i> 点击确认
-                                </button>
-                            </form>
-                            {% endif %}
-                        {% endif %}
-                    </div>
+        <div class="row g-3 mb-3">
+            <div class="col-md-4">
+                <div class="acceptance-metric">
+                    <label class="text-muted small">计划生产数量</label>
+                    <div class="fw-bold fs-4">{{ '{:g}'.format(order.quantity or 0) }}</div>
                 </div>
             </div>
-            <div class="col-md-6 mb-3">
-                <div class="card h-100 {{ 'border-success' if 'qc_inspector' in signatures else 'border-secondary' }}">
-                    <div class="card-body text-center">
-                        <h6 class="card-title">供应商确认</h6>
-                        {% if 'qc_inspector' in signatures %}
-                            <div class="text-success mb-2">
-                                <i class="bi bi-check-circle-fill" style="font-size: 2rem;"></i>
-                            </div>
-                            <p class="mb-0">已确认</p>
-                            <small class="text-muted d-block mb-2">{{ signatures['qc_inspector'].signed_at.strftime('%Y-%m-%d %H:%M') }}</small>
-                            {% if can_cancel_signatures.get('qc_inspector') %}
-                            <form method="POST" action="{{ url_for('qc.acceptance_cancel_signature', order_id=order.id, signer_role='qc_inspector') }}" onsubmit="return confirm('确认取消供应商验收确认？');">
-                                <button type="submit" class="btn btn-outline-warning btn-sm">
-                                    <i class="bi bi-arrow-counterclockwise"></i> 取消确认
-                                </button>
-                            </form>
-                            {% endif %}
-                        {% else %}
-                            <div class="text-muted mb-2">
-                                <i class="bi bi-circle" style="font-size: 2rem;"></i>
-                            </div>
-                            <p class="text-muted">待确认</p>
-                            {% if order.status == 'inspection_completed' and ((current_user.role.code == 'qc_inspector' and order.inspector_id == current_user.id and current_user.has_qc_permission('qc_acceptance_perform')) or current_user.is_superadmin or (current_user.role.code in ['general_manager', 'gm_assistant'] and current_user.has_qc_permission('qc_acceptance_perform'))) %}
-                            <form method="POST" action="{{ url_for('qc.acceptance_sign', order_id=order.id) }}">
-                                <input type="hidden" name="signer_role" value="qc_inspector">
-                                <button type="submit" class="btn btn-success">
-                                    <i class="bi bi-check-lg"></i> 点击确认
-                                </button>
-                            </form>
-                            {% endif %}
-                        {% endif %}
-                    </div>
+            <div class="col-md-4">
+                <div class="acceptance-metric">
+                    <label class="text-muted small">实际交付数量</label>
+                    <div class="fw-bold fs-4 text-success">{{ '{:g}'.format(order.actual_delivered_quantity or 0) }}</div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="acceptance-metric">
+                    <label class="text-muted small">剩余待交付数量</label>
+                    <div class="fw-bold fs-4 text-warning">{{ '{:g}'.format(order.remaining_acceptance_quantity or 0) }}</div>
                 </div>
             </div>
         </div>
+
+        {% if acceptance_batches %}
+        <div class="accordion" id="acceptanceBatchAccordion">
+            {% for batch in acceptance_batches %}
+            {% set batch_signatures = batch.signatures_by_role %}
+            {% set is_active_batch = active_acceptance_batch and active_acceptance_batch.id == batch.id %}
+            {% set collapse_id = 'acceptanceBatch' ~ batch.id %}
+            <div class="accordion-item mb-2 border rounded-3 overflow-hidden">
+                <h2 class="accordion-header" id="heading{{ batch.id }}">
+                    <button class="accordion-button acceptance-batch-toggle {{ '' if is_active_batch else 'collapsed' }}" type="button" data-bs-toggle="collapse" data-bs-target="#{{ collapse_id }}" aria-expanded="{{ 'true' if is_active_batch else 'false' }}" aria-controls="{{ collapse_id }}">
+                        <div class="d-flex flex-wrap align-items-center gap-2 w-100 pe-3">
+                            <span class="fw-bold">验收批次 #{{ loop.index }}</span>
+                            <span class="badge {{ 'bg-success' if batch.completed_at else 'bg-warning text-dark' }}">
+                                质控人：{{ '已确认' if 'qc_controller' in batch_signatures else '未确认' }} / 供应商：{{ '已确认' if 'qc_inspector' in batch_signatures else '未确认' }}
+                            </span>
+                            <span class="small text-muted ms-auto">合格 {{ '{:g}'.format(batch.accepted_quantity or 0) }} / 生产 {{ '{:g}'.format(batch.production_quantity or 0) }}</span>
+                        </div>
+                    </button>
+                </h2>
+                <div id="{{ collapse_id }}" class="accordion-collapse collapse {{ 'show' if is_active_batch else '' }}" aria-labelledby="heading{{ batch.id }}" data-bs-parent="#acceptanceBatchAccordion">
+                    <div class="accordion-body">
+                        <form method="POST" action="{{ url_for('qc.acceptance_sign', order_id=order.id) }}" id="acceptanceRoleForm{{ batch.id }}"></form>
+                        <div class="row g-3 align-items-end mb-3">
+                            <div class="col-md-4">
+                                <label class="form-label">本次生产总数 <span class="text-danger">*</span></label>
+                                <input type="number" step="0.01" min="0.01" class="form-control form-control-sm" name="production_quantity" form="acceptanceRoleForm{{ batch.id }}" value="{{ '{:g}'.format(batch.production_quantity) if batch.production_quantity else '' }}" {% if not is_active_batch or batch_signatures %}readonly{% endif %} required>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">质检合格件数 <span class="text-danger">*</span></label>
+                                <input type="number" step="0.01" min="0" class="form-control form-control-sm" name="accepted_quantity" form="acceptanceRoleForm{{ batch.id }}" value="{{ '{:g}'.format(batch.accepted_quantity) if batch.accepted_quantity else '' }}" {% if not is_active_batch or batch_signatures %}readonly{% endif %} required>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="small text-muted">
+                                    {% if batch.completed_at %}
+                                    完成时间：{{ batch.completed_at.strftime('%Y-%m-%d %H:%M') }}
+                                    {% elif batch_signatures %}
+                                    数量已锁定，等待另一方确认。
+                                    {% else %}
+                                    填写数量后，由双方分别点击确认。
+                                    {% endif %}
+                                </div>
+                            </div>
+                        </div>
+                        <div class="row g-2">
+                            {% for role, title in [('qc_controller', '质控人确认'), ('qc_inspector', '供应商确认')] %}
+                            <div class="col-md-6">
+                                <div class="acceptance-role-card {{ 'border-success' if role in batch_signatures else '' }}">
+                                    <div class="d-flex align-items-center justify-content-between gap-2">
+                                        <div class="d-flex align-items-center">
+                                            <span class="acceptance-role-icon {{ 'bg-success text-white' if role in batch_signatures else 'bg-light text-muted' }}">
+                                                <i class="bi {{ 'bi-check-lg' if role in batch_signatures else 'bi-circle' }}"></i>
+                                            </span>
+                                            <div>
+                                                <div class="fw-semibold">{{ title }}</div>
+                                                {% if role in batch_signatures %}
+                                                <small class="text-muted">{{ batch_signatures[role].signed_at.strftime('%Y-%m-%d %H:%M') }}</small>
+                                                {% else %}
+                                                <small class="text-muted">未确认</small>
+                                                {% endif %}
+                                            </div>
+                                        </div>
+                                        <div>
+                                            {% if role in batch_signatures %}
+                                                {% if is_active_batch and can_cancel_signatures.get(role) %}
+                                                <form method="POST" action="{{ url_for('qc.acceptance_cancel_signature', order_id=order.id, signer_role=role) }}" onsubmit="return confirm('确认取消本次验收确认？');">
+                                                    <button type="submit" class="btn btn-outline-warning btn-sm">取消</button>
+                                                </form>
+                                                {% else %}
+                                                <span class="badge bg-success">已确认</span>
+                                                {% endif %}
+                                            {% elif is_active_batch and role in eligible_signer_roles %}
+                                            <button type="submit" name="signer_role" value="{{ role }}" form="acceptanceRoleForm{{ batch.id }}" class="btn btn-success btn-sm">
+                                                点击确认
+                                            </button>
+                                            {% else %}
+                                            <span class="badge bg-secondary">待确认</span>
+                                            {% endif %}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <div class="text-center text-muted py-4 border rounded-3 mb-3">
+            <i class="bi bi-inboxes" style="font-size: 2rem;"></i>
+            <p class="mb-0 mt-2">尚未发起验收批次。</p>
+        </div>
+        {% endif %}
+
+        <div class="text-center pt-3">
+            {% if order.remaining_acceptance_quantity <= 0 %}
+            <div class="alert alert-success mb-0">
+                <i class="bi bi-lock-fill"></i> 交付数量已等于计划生产数量，本订单已锁定完成。
+            </div>
+            {% elif active_acceptance_batch %}
+            <button type="button" class="btn btn-outline-secondary acceptance-plus-btn" disabled title="请先完成当前验收批次">
+                <i class="bi bi-plus-lg"></i>
+            </button>
+            <div class="small text-muted mt-2">请先完成当前验收批次，再发起下一批。</div>
+            {% elif eligible_signer_roles %}
+            <form method="POST" action="{{ url_for('qc.acceptance_start_batch', order_id=order.id) }}" class="d-inline-block">
+                <button type="submit" class="btn btn-outline-success acceptance-plus-btn" title="发起新的验收批次">
+                    <i class="bi bi-plus-lg"></i>
+                </button>
+            </form>
+            <div class="small text-muted mt-2">发起新的验收批次</div>
+            {% endif %}
+        </div>
+
         {% if current_user.is_superadmin or current_user.role.code in ['general_manager', 'gm_assistant'] %}
-        <div class="alert alert-info mb-0">
+        <div class="alert alert-info mt-3 mb-0">
             <i class="bi bi-info-circle"></i> 管理员、总经理、总经理助理可分别代两方确认，但需要逐项点击。
         </div>
         {% endif %}

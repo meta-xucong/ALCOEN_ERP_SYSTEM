@@ -42,6 +42,7 @@
 {% set material_attachments = workpiece.quality_material_attachments if workpiece else [] %}
 {% set guide_attachments = workpiece.guide_attachments if workpiece else [] %}
 {% set remark_attachments = workpiece.remark_attachments if workpiece else [] %}
+{% set coa_template = workpiece.coa_template_attachment if workpiece else none %}
 {% set creator_name = (workpiece.creator.real_name or workpiece.creator.username) if workpiece else (current_user.real_name or current_user.username) %}
 
 <div class="d-flex justify-content-between align-items-center mb-4">
@@ -312,6 +313,30 @@
                     </div>
                 </div>
                 {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <div class="card mb-4">
+        <div class="card-header bg-success text-white">
+            <h5 class="mb-0"><i class="bi bi-file-earmark-word"></i> COA报告模板</h5>
+        </div>
+        <div class="card-body">
+            <div class="row align-items-end">
+                <div class="col-md-8 mb-3">
+                    <label class="form-label">上传 Word 模板（.docx）</label>
+                    <input type="file" class="form-control" name="coa_template_file" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document">
+                    <div class="help-copy mt-1">用于后续出厂模块打印 COA 报告，仅支持可拼接的 .docx 模板。可使用 {{ '{{出厂批次}}' }}、{{ '{{产品编号}}' }}、{{ '{{产品名称}}' }}、{{ '{{出厂数量}}' }}、{{ '{{出厂日期}}' }} 等占位符。</div>
+                </div>
+                <div class="col-md-4 mb-3">
+                    {% if coa_template %}
+                    <a href="{{ coa_template.file_url }}" target="_blank" class="btn btn-outline-success w-100 text-truncate current-file" title="{{ coa_template.file_path.split('/')[-1] }}">
+                        <i class="bi bi-file-earmark-word"></i> {{ coa_template.file_path.split('/')[-1] }}
+                    </a>
+                    {% else %}
+                    <div class="text-muted small border rounded p-2">暂未上传 COA 模板；出厂打印时会使用基础默认模板。</div>
+                    {% endif %}
+                </div>
             </div>
         </div>
     </div>

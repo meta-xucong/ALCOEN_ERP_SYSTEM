@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
@@ -65,9 +65,12 @@
         <button class="btn btn-primary" onclick="window.print()">
             <i class="bi bi-printer"></i> 打印
         </button>
-        <button class="btn btn-secondary" onclick="window.close()">
+        <a class="btn btn-outline-primary" href="{{ download_url }}">
+            <i class="bi bi-file-earmark-word"></i> 下载
+        </a>
+        <a class="btn btn-secondary" href="{{ url_for('qc.acceptance_detail', order_id=order.id) }}">
             <i class="bi bi-x-lg"></i> 关闭
-        </button>
+        </a>
     </div>
 
     <div class="print-header">

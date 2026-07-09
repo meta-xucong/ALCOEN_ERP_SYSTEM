@@ -45,6 +45,14 @@
     .attachment-preview-name {
         min-height: 1.5rem;
     }
+    .inspection-submit-btn {
+        min-width: 18rem;
+    }
+    @media (max-width: 768px) {
+        .inspection-submit-btn {
+            min-width: 100%;
+        }
+    }
 </style>
 {% endblock %}
 
@@ -84,7 +92,7 @@
                 </div>
             </div>
             <div class="col-md-3 mb-3">
-                <label class="text-muted small">生产数量</label>
+                <label class="text-muted small">计划生产数量</label>
                 <div class="fw-medium fs-5">{{ order.quantity }}</div>
             </div>
             <div class="col-md-3 mb-3">
@@ -155,7 +163,8 @@
         <div class="card mb-3 attachment-row {{ 'bg-pass' if record and record.result == 'pass' else ('bg-fail' if record and record.result == 'fail' else '') }}"
              id="attachment-row-{{ attachment.id }}"
              data-requires-report="{{ '1' if attachment.requires_report else '0' }}"
-             data-has-report="{{ '1' if record and record.report_file_path else '0' }}">
+             data-has-report="{{ '1' if record and record.report_file_path else '0' }}"
+             data-report-label="{{ (attachment.report_label or '合格报告')|replace('（必选）', '') }}">
             <div class="card-body">
                 <div class="row attachment-title-row">
                     <div class="col-12">
@@ -232,7 +241,7 @@
                                   {% if not can_inspect %}readonly{% endif %}>{{ record.remark or '' }}</textarea>
                     </div>
                     <div class="col-lg-3 attachment-subsection">
-                        <label class="attachment-subsection-title">质检审核</label>
+                        <label class="attachment-subsection-title">供应商确认</label>
                         <div class="d-flex gap-2">
                             <button type="button"
                                     class="inspection-btn btn {{ 'btn-success' if record and record.result == 'pass' else 'btn-outline-success' }}"
@@ -251,7 +260,7 @@
                             <input type="hidden" name="result_{{ attachment.id }}" id="result-{{ attachment.id }}" class="result-input" value="{{ record.result if record and record.result in ['pass', 'fail'] else '' }}">
                         </div>
                         {% if attachment.requires_report %}
-                        <small class="text-muted d-block">未上传合格报告前不可勾选。</small>
+                        <small class="text-muted d-block">未上传{{ (attachment.report_label or '合格报告')|replace('（必选）', '') }}前不可勾选。</small>
                         {% elif attachment.attach_type in ['drawing', 'qc_material'] %}
                         <small class="text-muted d-block">附加文件，可选上传。</small>
                         {% endif %}
@@ -264,11 +273,11 @@
     {% if can_inspect %}
     <input type="hidden" name="submit_action" id="submitAction" value="submit">
     <div class="d-flex gap-3 mt-4 flex-wrap">
-        <button type="button" class="btn btn-success btn-lg flex-fill" id="btn-submit-pass" disabled onclick="submitInspection('submit')">
-            <i class="bi bi-check-circle"></i> 质检合格，进入交付页面
+        <button type="button" class="btn btn-success btn-lg flex-fill inspection-submit-btn" id="btn-submit-pass" disabled onclick="submitInspection('submit')">
+            <i class="bi bi-check-circle"></i> 供应商已确认，进入交付页面
         </button>
-        <button type="button" class="btn btn-danger btn-lg flex-fill" id="btn-submit-fail" disabled onclick="submitInspection('submit')">
-            <i class="bi bi-x-circle"></i> 质检不合格，退回质量控制流程
+        <button type="button" class="btn btn-danger btn-lg flex-fill inspection-submit-btn" id="btn-submit-fail" disabled onclick="submitInspection('submit')">
+            <i class="bi bi-x-circle"></i> 有异议，退回质量控制流程
         </button>
         <button type="button" class="btn btn-outline-primary btn-lg" onclick="submitInspection('draft')">
             <i class="bi bi-save2"></i> 保存草稿
@@ -307,7 +316,8 @@ function setResult(attachmentId, result) {
     const requiresReport = row.dataset.requiresReport === '1';
 
     if (requiresReport && !hasReport(attachmentId)) {
-        alert('请先上传合格报告，再进行勾选。');
+        const reportLabel = row.dataset.reportLabel || '合格报告';
+        alert('请先上传' + reportLabel + '，再进行勾选。');
         return;
     }
 

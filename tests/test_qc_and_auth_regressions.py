@@ -25,6 +25,7 @@ from app.models import (
     QCWorkOrderAttachment,
     QCWorkpiece,
     QCWorkpieceAttachment,
+    QCWorkpieceStockHistory,
     Role,
     User,
 )
@@ -540,7 +541,12 @@ def test_outsourced_workpiece_materials_flow_updates_inventory_and_history(app, 
                 }
             )
         QCService.submit_inspection(order.id, results, inspector)
-        QCService.sign_acceptance(order.id, controller)
+        QCService.sign_acceptance(
+            order.id,
+            controller,
+            production_quantity=12,
+            accepted_quantity=12,
+        )
         QCService.sign_acceptance(order.id, inspector)
 
         accepted_order = QCWorkOrder.query.get(order.id)
@@ -548,6 +554,17 @@ def test_outsourced_workpiece_materials_flow_updates_inventory_and_history(app, 
         assert accepted_order.status == "accepted"
         assert accepted_order.inventory_posted_at is not None
         assert accepted_workpiece.stock_quantity == 12.0
+        stock_histories = QCWorkpieceStockHistory.query.filter_by(
+            workpiece_id=workpiece.id
+        ).order_by(QCWorkpieceStockHistory.id.asc()).all()
+        assert len(stock_histories) == 1
+        assert stock_histories[0].batch_no == "OUT-MAT-BATCH-001"
+        assert stock_histories[0].production_quantity == 12.0
+        assert stock_histories[0].accepted_quantity == 12.0
+        assert stock_histories[0].quantity_delta == 12.0
+        assert stock_histories[0].stock_before == 0.0
+        assert stock_histories[0].stock_after == 12.0
+        assert stock_histories[0].operator_id == inspector.id
         history_actions = [history.action for history in accepted_order.histories]
         assert "创建工件订单" in history_actions
         assert "应用工件库快照" in history_actions
@@ -558,6 +575,14 @@ def test_outsourced_workpiece_materials_flow_updates_inventory_and_history(app, 
         rolled_back_workpiece = QCWorkpiece.query.get(workpiece.id)
         assert rolled_back_order.inventory_posted_at is None
         assert rolled_back_workpiece.stock_quantity == 0.0
+        rollback_histories = QCWorkpieceStockHistory.query.filter_by(
+            workpiece_id=workpiece.id
+        ).order_by(QCWorkpieceStockHistory.id.asc()).all()
+        assert len(rollback_histories) == 2
+        assert rollback_histories[-1].change_type == "acceptance_reverse"
+        assert rollback_histories[-1].quantity_delta == -12.0
+        assert rollback_histories[-1].stock_before == 12.0
+        assert rollback_histories[-1].stock_after == 0.0
         history_actions = [history.action for history in rolled_back_order.histories]
         assert "撤销入库" in history_actions
         assert "验收回退" in history_actions
@@ -663,22 +688,29 @@ def test_cancel_acceptance_signature_reopens_accepted_order_and_reverses_invento
         db.session.add(order)
         db.session.commit()
 
-        QCService.sign_acceptance(order.id, controller)
+        QCService.sign_acceptance(
+            order.id,
+            controller,
+            production_quantity=4,
+            accepted_quantity=4,
+        )
         QCService.sign_acceptance(order.id, inspector)
         accepted = QCWorkOrder.query.get(order.id)
         assert accepted.status == "accepted"
         assert workpiece.stock_quantity == 4
 
-        QCService.cancel_acceptance_signature(order.id, "qc_inspector", inspector)
+        with pytest.raises(ValueError):
+            QCService.cancel_acceptance_signature(order.id, "qc_inspector", inspector)
+
+        QCService.rollback_acceptance(order.id, "inspection", "误操作", controller)
         reopened = QCWorkOrder.query.get(order.id)
-        assert reopened.status == "inspection_completed"
+        assert reopened.status == "inspection_pending"
         assert reopened.accepted_at is None
         assert reopened.inventory_posted_at is None
         assert workpiece.stock_quantity == 0
-        roles = {signature.signer_role for signature in reopened.signatures}
-        assert "qc_inspector" not in roles
-        assert "qc_controller" in roles
-        assert "取消验收确认" in [history.action for history in reopened.histories]
+        assert not reopened.signatures
+        assert not reopened.acceptance_batches
+        assert "验收回退" in [history.action for history in reopened.histories]
 
 
 def test_qc_inspector_cannot_open_quality_control_module(app, client, login):
@@ -3502,13 +3534,24 @@ def test_quality_control_manager_acceptance_requires_one_role_per_click(app, cli
     page = client.get(f"/qc/acceptance/{order_id}", follow_redirects=False)
     text = page.get_data(as_text=True)
     assert page.status_code == 200
-    assert text.count("点击确认") == 2
-    assert 'name="signer_role" value="qc_controller"' in text
-    assert 'name="signer_role" value="qc_inspector"' in text
+    assert "发起新的验收批次" in text
+    assert text.count("点击确认") == 0
+
+    start_batch = client.post(f"/qc/acceptance/{order_id}/batch/new", follow_redirects=True)
+    start_text = start_batch.get_data(as_text=True)
+    assert start_batch.status_code == 200
+    assert "已发起新的验收批次" in start_text
+    assert start_text.count('name="signer_role" value="qc_controller"') == 1
+    assert start_text.count('name="signer_role" value="qc_inspector"') == 1
+    assert "质控人：未确认 / 供应商：未确认" in start_text
 
     first_sign = client.post(
         f"/qc/acceptance/{order_id}/sign",
-        data={"signer_role": "qc_controller"},
+        data={
+            "signer_role": "qc_controller",
+            "production_quantity": "1",
+            "accepted_quantity": "1",
+        },
         follow_redirects=True,
     )
     first_text = first_sign.get_data(as_text=True)
@@ -3529,7 +3572,7 @@ def test_quality_control_manager_acceptance_requires_one_role_per_click(app, cli
     )
     second_text = second_sign.get_data(as_text=True)
     assert second_sign.status_code == 200
-    assert "双方已确认，验收完成" in second_text
+    assert "双方已确认，质检已完成" in second_text
 
     with app.app_context():
         order = QCWorkOrder.query.get(order_id)
@@ -3538,3 +3581,121 @@ def test_quality_control_manager_acceptance_requires_one_role_per_click(app, cli
         assert len(signatures) == 2
         assert {signature.signer_role for signature in signatures} == {"qc_controller", "qc_inspector"}
         assert {signature.signer_id for signature in signatures} == {manager_id}
+
+
+def test_quality_control_partial_acceptance_batches_increment_stock(app, client, login):
+    """Production acceptance can be split into multiple deliveries and stock follows qualified quantity."""
+    with app.app_context():
+        controller_id, inspector_id, _ = _seed_qc_users()
+        workpiece = QCWorkpiece(
+            workpiece_code="PARTIAL-WP",
+            workpiece_name="Partial Acceptance Workpiece",
+            workpiece_type="self_produced",
+            stock_quantity=0,
+            creator_id=controller_id,
+        )
+        db.session.add(workpiece)
+        db.session.flush()
+        order = QCWorkOrder(
+            batch_no="QC-PARTIAL-001",
+            workpiece_id=workpiece.id,
+            workpiece_name=workpiece.workpiece_name,
+            quantity=10,
+            controller_id=controller_id,
+            inspector_id=inspector_id,
+            status="inspection_completed",
+        )
+        db.session.add(order)
+        db.session.commit()
+        order_id = order.id
+        workpiece_id = workpiece.id
+
+    login(controller_id)
+    start_first_batch = client.post(f"/qc/acceptance/{order_id}/batch/new", follow_redirects=True)
+    assert start_first_batch.status_code == 200
+
+    first_controller = client.post(
+        f"/qc/acceptance/{order_id}/sign",
+        data={
+            "signer_role": "qc_controller",
+            "production_quantity": "6",
+            "accepted_quantity": "4",
+        },
+        follow_redirects=True,
+    )
+    assert first_controller.status_code == 200
+
+    login(inspector_id)
+    first_supplier = client.post(
+        f"/qc/acceptance/{order_id}/sign",
+        data={"signer_role": "qc_inspector"},
+        follow_redirects=True,
+    )
+    assert first_supplier.status_code == 200
+
+    with app.app_context():
+        order = QCWorkOrder.query.get(order_id)
+        workpiece = QCWorkpiece.query.get(workpiece_id)
+        assert order.status == "inspection_completed"
+        assert order.actual_delivered_quantity == 4
+        assert order.remaining_acceptance_quantity == 6
+        assert workpiece.stock_quantity == 4
+        assert len(order.acceptance_batches) == 1
+        assert order.acceptance_batches[0].inventory_posted_at is not None
+        first_history = QCWorkpieceStockHistory.query.filter_by(workpiece_id=workpiece_id).first()
+        assert first_history is not None
+        assert first_history.batch_no == "QC-PARTIAL-001"
+        assert first_history.production_quantity == 6
+        assert first_history.accepted_quantity == 4
+        assert first_history.quantity_delta == 4
+        assert first_history.stock_before == 0
+        assert first_history.stock_after == 4
+        first_order_history_details = [history.detail or "" for history in order.histories]
+        assert any("发起第 1 个验收批次" in detail for detail in first_order_history_details)
+        assert any("验收批次 #1" in detail for detail in first_order_history_details)
+
+    login(controller_id)
+    start_second_batch = client.post(f"/qc/acceptance/{order_id}/batch/new", follow_redirects=True)
+    assert start_second_batch.status_code == 200
+
+    second_controller = client.post(
+        f"/qc/acceptance/{order_id}/sign",
+        data={
+            "signer_role": "qc_controller",
+            "production_quantity": "6",
+            "accepted_quantity": "6",
+        },
+        follow_redirects=True,
+    )
+    assert second_controller.status_code == 200
+
+    login(inspector_id)
+    second_supplier = client.post(
+        f"/qc/acceptance/{order_id}/sign",
+        data={"signer_role": "qc_inspector"},
+        follow_redirects=True,
+    )
+    assert second_supplier.status_code == 200
+
+    with app.app_context():
+        order = QCWorkOrder.query.get(order_id)
+        workpiece = QCWorkpiece.query.get(workpiece_id)
+        signatures = QCAcceptanceSignature.query.filter_by(work_order_id=order_id).all()
+        assert order.status == "accepted"
+        assert order.actual_delivered_quantity == 10
+        assert order.remaining_acceptance_quantity == 0
+        assert workpiece.stock_quantity == 10
+        assert len(order.acceptance_batches) == 2
+        assert len(signatures) == 4
+        stock_histories = QCWorkpieceStockHistory.query.filter_by(
+            workpiece_id=workpiece_id
+        ).order_by(QCWorkpieceStockHistory.id.asc()).all()
+        assert len(stock_histories) == 2
+        assert stock_histories[1].production_quantity == 6
+        assert stock_histories[1].accepted_quantity == 6
+        assert stock_histories[1].quantity_delta == 6
+        assert stock_histories[1].stock_before == 4
+        assert stock_histories[1].stock_after == 10
+        order_history_details = [history.detail or "" for history in order.histories]
+        assert any("发起第 2 个验收批次" in detail for detail in order_history_details)
+        assert any("验收批次 #2" in detail for detail in order_history_details)

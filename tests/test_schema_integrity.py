@@ -41,9 +41,16 @@ def test_qc_production_tables_have_type_stock_and_history_columns(db_session):
     workpiece_cols = _columns(db_session, "qc_workpieces")
     order_cols = _columns(db_session, "qc_work_orders")
     history_cols = _columns(db_session, "qc_work_order_histories")
+    stock_history_cols = _columns(db_session, "qc_workpiece_stock_histories")
 
     assert {"workpiece_type", "stock_quantity"} <= workpiece_cols
     assert {"workpiece_type", "inventory_posted_at"} <= order_cols
+    assert {
+        "assembly_order_id",
+        "assembly_acceptance_batch_id",
+        "outbound_order_id",
+        "outbound_batch_id",
+    } <= stock_history_cols
     assert {"work_order_id", "operator_id", "action", "detail", "created_at"} <= history_cols
 
 
@@ -71,6 +78,7 @@ def test_assembly_module_tables_have_required_columns(db_session):
     product_cols = _columns(db_session, "assembly_products")
     component_cols = _columns(db_session, "assembly_product_components")
     product_attachment_cols = _columns(db_session, "assembly_product_attachments")
+    product_stock_history_cols = _columns(db_session, "assembly_product_stock_histories")
     order_cols = _columns(db_session, "assembly_orders")
     order_component_cols = _columns(db_session, "assembly_order_components")
     order_attachment_cols = _columns(db_session, "assembly_order_attachments")
@@ -81,6 +89,17 @@ def test_assembly_module_tables_have_required_columns(db_session):
     assert {"product_code", "product_name", "creator_id"} <= product_cols
     assert {"product_id", "workpiece_id", "workpiece_code_snapshot", "quantity_per_unit"} <= component_cols
     assert {"product_id", "attach_type", "file_path", "sort_order"} <= product_attachment_cols
+    assert {
+        "product_id",
+        "assembly_order_id",
+        "assembly_acceptance_batch_id",
+        "outbound_order_id",
+        "outbound_batch_id",
+        "change_type",
+        "quantity_delta",
+        "stock_before",
+        "stock_after",
+    } <= product_stock_history_cols
     assert {"batch_no", "product_id", "controller_id", "status", "inventory_posted_at"} <= order_cols
     assert {"order_id", "workpiece_id", "quantity_per_unit", "total_required_quantity"} <= order_component_cols
     assert {"order_id", "attach_type", "source_type", "file_path"} <= order_attachment_cols

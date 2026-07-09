@@ -1,0 +1,114 @@
+{% extends 'qc/base.html' %}
+
+{% block title %}出厂 - ALCOEN AI CATS{% endblock %}
+
+{% block extra_css %}
+<style>
+    .outbound-item-name {
+        display: inline-block;
+        max-width: 280px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        vertical-align: bottom;
+        white-space: nowrap;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center flex-wrap gap-3 mb-4">
+    <div>
+        <h1 class="mb-1"><i class="bi bi-truck text-success"></i> 出厂</h1>
+        <p class="text-muted mb-0">选择任意工件库 / 产品库项目，分批完成出厂确认并扣减库存。</p>
+    </div>
+    <div class="d-flex gap-2 flex-wrap">
+        {% if can_create_new %}
+        <a href="{{ url_for('qc.assembly_outbound_new') }}" class="btn btn-primary">
+            <i class="bi bi-plus-circle"></i> 新增出厂单
+        </a>
+        {% endif %}
+        <a href="{{ url_for('qc.assembly_home') }}" class="btn btn-outline-secondary">
+            <i class="bi bi-arrow-left"></i> 返回装配/出厂
+        </a>
+    </div>
+</div>
+
+<div class="card border-0 shadow-sm mb-4">
+    <div class="card-body">
+        <form method="GET" class="row g-3 align-items-end">
+            <div class="col-md-6">
+                <label class="form-label">关键词</label>
+                <input type="text" name="keyword" class="form-control" value="{{ keyword }}" placeholder="出厂批次 / 编号 / 名称">
+            </div>
+            <div class="col-auto">
+                <button type="submit" class="btn btn-primary"><i class="bi bi-search"></i> 查询</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="card border-0 shadow-sm">
+    <div class="card-body">
+        {% if orders %}
+        <div class="table-responsive">
+            <table class="table align-middle mb-0">
+                <thead>
+                    <tr>
+                        <th>出厂批次</th>
+                        <th>对象</th>
+                        <th>来源</th>
+                        <th>计划 / 已出厂 / 剩余</th>
+                        <th>发起人</th>
+                        <th>状态</th>
+                        <th>日期</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for order in orders %}
+                    {% set status_info = order.get_status_display() %}
+                    <tr>
+                        <td class="fw-semibold"><a href="{{ url_for('qc.assembly_outbound_detail', order_id=order.id) }}">{{ order.outbound_no }}</a></td>
+                        <td><span class="outbound-item-name" title="{{ order.item_display_name }}">{{ order.item_display_name }}</span></td>
+                        <td><span class="badge bg-light text-dark">{{ order.item_type_display }}</span></td>
+                        <td>{{ '{:g}'.format(order.planned_quantity or 0) }} / {{ '{:g}'.format(order.shipped_quantity or 0) }} / {{ '{:g}'.format(order.remaining_quantity or 0) }}</td>
+                        <td>{{ order.initiator.real_name or order.initiator.username }}</td>
+                        <td><span class="badge {{ status_info.badge }}">{{ status_info.text }}</span></td>
+                        <td>{{ order.outbound_date.strftime('%Y-%m-%d') if order.outbound_date else '-' }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="text-center text-muted py-5">暂无出厂单。</div>
+        {% endif %}
+    </div>
+    {% if pagination and pagination.pages > 1 %}
+    <div class="card-footer bg-white">
+        <nav>
+            <ul class="pagination mb-0 justify-content-center">
+                {% if pagination.has_prev %}
+                <li class="page-item"><a class="page-link" href="{{ url_for(request.endpoint, page=pagination.prev_num, keyword=keyword) }}">上一页</a></li>
+                {% else %}
+                <li class="page-item disabled"><span class="page-link">上一页</span></li>
+                {% endif %}
+                {% for page_num in pagination.iter_pages(left_edge=1, right_edge=1, left_current=1, right_current=1) %}
+                    {% if page_num %}
+                    <li class="page-item {% if page_num == pagination.page %}active{% endif %}">
+                        <a class="page-link" href="{{ url_for(request.endpoint, page=page_num, keyword=keyword) }}">{{ page_num }}</a>
+                    </li>
+                    {% else %}
+                    <li class="page-item disabled"><span class="page-link">…</span></li>
+                    {% endif %}
+                {% endfor %}
+                {% if pagination.has_next %}
+                <li class="page-item"><a class="page-link" href="{{ url_for(request.endpoint, page=pagination.next_num, keyword=keyword) }}">下一页</a></li>
+                {% else %}
+                <li class="page-item disabled"><span class="page-link">下一页</span></li>
+                {% endif %}
+            </ul>
+        </nav>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

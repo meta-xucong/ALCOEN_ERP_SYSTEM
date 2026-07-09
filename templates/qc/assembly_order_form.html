@@ -78,19 +78,19 @@
                     <input type="text" class="form-control" name="batch_no" value="{{ order.batch_no if order else '' }}">
                 </div>
                 <div class="col-md-3 mb-3">
-                    <label class="form-label">产品名称 <span class="text-danger">*</span></label>
+                    <label class="form-label">装配产品 <span class="text-danger">*</span></label>
                     <select class="form-select" name="product_id" id="productSelect">
                         <option value="">-- 请选择产品 --</option>
                         {% for product in products %}
                         <option value="{{ product.id }}" {% if order and order.product_id == product.id %}selected{% endif %}>
-                            {{ product.product_code }} / {{ product.product_name }}
+                            {{ product.product_code }} / {{ product.product_name }}（{{ product.product_level_display }}）
                         </option>
                         {% endfor %}
                     </select>
                     <input type="hidden" name="product_name_snapshot" id="productNameSnapshotInput" value="{{ order.product_name_snapshot if order else '' }}">
                 </div>
                 <div class="col-md-3 mb-3">
-                    <label class="form-label">装配数量 <span class="text-danger">*</span></label>
+                    <label class="form-label">计划装配数量 <span class="text-danger">*</span></label>
                     <input type="number" step="0.01" min="0.01" class="form-control" name="quantity" id="quantityInput" value="{{ order.quantity if order else '' }}">
                 </div>
                 <div class="col-md-3 mb-3">
@@ -129,7 +129,7 @@
                     {% for component in order.components %}
                     <div class="col-md-6">
                         <div class="component-chip">
-                            <div class="fw-semibold">{{ component.workpiece_code_snapshot }} / {{ component.workpiece_name_snapshot }}</div>
+                            <div class="fw-semibold"><span class="badge bg-light text-dark me-1">{{ component.component_type_display }}</span>{{ component.workpiece_code_snapshot }} / {{ component.workpiece_name_snapshot }}</div>
                             <div class="small text-muted mt-1">单件用量：{{ '{:g}'.format(component.quantity_per_unit or 0) }}，本单需消耗：{{ '{:g}'.format(component.total_required_quantity or 0) }}</div>
                         </div>
                     </div>
@@ -144,7 +144,7 @@
     </div>
 
     <div class="row g-4">
-        <div class="col-lg-6">
+        <div class="col-12">
             <div class="card preview-card h-100">
                 <div class="card-header bg-warning text-dark">
                     <h5 class="mb-0"><i class="bi bi-list-check"></i> 生产登记单</h5>
@@ -171,26 +171,6 @@
                         </div>
                         {% endif %}
                         <input type="file" class="form-control" name="registration_note_file" accept="image/*,application/pdf">
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <div class="col-lg-6">
-            <div class="card preview-card h-100">
-                <div class="card-header bg-primary text-white">
-                    <h5 class="mb-0"><i class="bi bi-patch-check"></i> 生产合格证</h5>
-                </div>
-                <div class="card-body">
-                    <div class="preview-empty">本批次可上传额外的生产合格证或证明文件。</div>
-                    <div class="section-upload-block">
-                        <label class="form-label">文件上传</label>
-                        {% if order and order.certificate_note_file_path %}
-                        <div class="mb-2">
-                            {{ preview_file(order.certificate_note_file_url, order.certificate_note_filename, order.certificate_note_file_type in ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'], order.certificate_note_filename, 'btn-outline-secondary') }}
-                        </div>
-                        {% endif %}
-                        <input type="file" class="form-control" name="certificate_note_file" accept="image/*,application/pdf">
                     </div>
                 </div>
             </div>
@@ -296,8 +276,8 @@ function renderComponentPreview(components, quantity) {
         return `
             <div class="col-md-6">
                 <div class="component-chip">
-                    <div class="fw-semibold">${escapeHtml(component.workpiece_code)} / ${escapeHtml(component.workpiece_name)}</div>
-                    <div class="small text-muted mt-1">单件用量：${component.quantity_per_unit}，本单需消耗：${totalRequired}</div>
+                    <div class="fw-semibold"><span class="badge bg-light text-dark me-1">${escapeHtml(component.type_display || "工件库")}</span>${escapeHtml(component.workpiece_code)} / ${escapeHtml(component.workpiece_name)}</div>
+                    <div class="small text-muted mt-1">单件用量：${component.quantity_per_unit}，本单计划消耗：${totalRequired}</div>
                 </div>
             </div>
         `;

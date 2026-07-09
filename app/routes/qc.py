@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import re
+from io import BytesIO
 from datetime import datetime
 
-from flask import Blueprint, flash, g, jsonify, redirect, render_template, request, url_for
+from flask import Blueprint, flash, g, jsonify, redirect, render_template, request, send_file, url_for
 from sqlalchemy import or_
 
 from app import db
@@ -16,6 +17,7 @@ from app.models import (
     QC_ROLE_EDITABLE_PERMISSIONS,
     QC_WORKPIECE_TYPE_DISPLAY,
     QCAcceptanceSignature,
+    AssemblyOrder,
     QCUserBinding,
     QCWorkOrder,
     QCWorkOrderAttachment,
@@ -112,6 +114,7 @@ def _build_qc_nav_context(user) -> dict:
                 'launch': False,
                 'inspection': False,
                 'acceptance': False,
+                'outbound': False,
             },
             'research': {
                 'projects': False,
@@ -135,6 +138,7 @@ def _build_qc_nav_context(user) -> dict:
             'launch': AssemblyService.can_access_assembly_launch(user),
             'inspection': AssemblyService.can_access_inspection(user),
             'acceptance': AssemblyService.can_access_acceptance(user),
+            'outbound': AssemblyService.can_access_outbound(user),
         },
         'research': {
             'projects': ResearchService.can_access_project_library(user),
@@ -270,17 +274,27 @@ def _build_research_attachment_map(form_data, files) -> dict[str, list[dict]]:
 def _build_assembly_component_items(form_data) -> list[dict]:
     """Build BOM component rows for the assembly product form."""
     items = []
-    for idx in _extract_dynamic_indexes(form_data, 'component_workpiece_id_'):
+    indexes = set(_extract_dynamic_indexes(form_data, 'component_item_id_'))
+    indexes.update(_extract_dynamic_indexes(form_data, 'component_workpiece_id_'))
+    for idx in sorted(indexes):
+        component_type = form_data.get(f'component_item_type_{idx}', '').strip() or 'workpiece'
+        item_id = form_data.get(f'component_item_id_{idx}', '').strip()
         workpiece_id = form_data.get(f'component_workpiece_id_{idx}', '').strip()
-        workpiece_code = form_data.get(f'component_workpiece_code_{idx}', '').strip()
-        workpiece_name = form_data.get(f'component_workpiece_name_{idx}', '').strip()
+        product_id = form_data.get(f'component_product_id_{idx}', '').strip()
+        if not item_id:
+            item_id = product_id if component_type == 'product' else workpiece_id
         quantity_per_unit = form_data.get(f'component_quantity_{idx}', '').strip()
-        if workpiece_id or workpiece_code or workpiece_name or quantity_per_unit:
+        code = form_data.get(f'component_code_{idx}', '').strip() or form_data.get(f'component_workpiece_code_{idx}', '').strip()
+        name = form_data.get(f'component_name_{idx}', '').strip() or form_data.get(f'component_workpiece_name_{idx}', '').strip()
+        if item_id or code or name or quantity_per_unit:
             items.append(
                 {
-                    'workpiece_id': workpiece_id,
-                    'workpiece_code': workpiece_code,
-                    'workpiece_name': workpiece_name,
+                    'component_type': component_type,
+                    'item_id': item_id,
+                    'workpiece_id': item_id if component_type == 'workpiece' else workpiece_id,
+                    'component_product_id': item_id if component_type == 'product' else product_id,
+                    'workpiece_code': code,
+                    'workpiece_name': name,
                     'quantity_per_unit': quantity_per_unit,
                 }
             )
@@ -324,6 +338,17 @@ def _build_research_review_results(batch, form_data, files) -> list[dict]:
 def _build_inspection_record_map(work_order: QCWorkOrder) -> dict[int, object]:
     """Build an attachment-to-record mapping for templates."""
     return {record.attachment_id: record for record in work_order.inspection_records}
+
+
+def _send_docx_text_report(lines: list[str], filename: str):
+    """Send a simple Word-compatible .docx report built from text lines."""
+    document_bytes = AssemblyService._minimal_docx_bytes('\n'.join(lines))
+    return send_file(
+        BytesIO(document_bytes),
+        as_attachment=True,
+        download_name=filename,
+        mimetype='application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    )
 
 
 def _is_qc_admin(user) -> bool:
@@ -518,7 +543,24 @@ def _block_assembly_acceptance_access(user):
     if AssemblyService.can_access_acceptance(user):
         return None
 
-    flash('您没有权限访问验收/出厂模块', 'warning')
+    flash('您没有权限访问验收模块', 'warning')
+    if AssemblyService.can_access_inspection(user):
+        return redirect(url_for('qc.assembly_inspection_list'))
+    if AssemblyService.can_access_assembly_launch(user):
+        return redirect(url_for('qc.assembly_launch_list'))
+    if AssemblyService.can_access_product_library(user):
+        return redirect(url_for('qc.assembly_product_list'))
+    return redirect(url_for('qc.assembly_home'))
+
+
+def _block_assembly_outbound_access(user):
+    """Redirect users without assembly outbound access."""
+    if AssemblyService.can_access_outbound(user):
+        return None
+
+    flash('您没有权限访问出厂模块', 'warning')
+    if AssemblyService.can_access_acceptance(user):
+        return redirect(url_for('qc.assembly_acceptance_list'))
     if AssemblyService.can_access_inspection(user):
         return redirect(url_for('qc.assembly_inspection_list'))
     if AssemblyService.can_access_assembly_launch(user):
@@ -646,12 +688,16 @@ def assembly_product_list():
 
     page = request.args.get('page', 1, type=int)
     keyword = request.args.get('keyword', '').strip()
-    pagination = AssemblyService.get_product_list(user=user, keyword=keyword or None, page=page)
+    product_level = AssemblyService.normalize_product_level(request.args.get('level', 1))
+    pagination = AssemblyService.get_product_list(user=user, keyword=keyword or None, page=page, product_level=product_level)
     return render_template(
         'qc/assembly_product_list.html',
         products=pagination.items,
         pagination=pagination,
         keyword=keyword,
+        product_level=product_level,
+        product_level_display=AssemblyService.product_level_display(product_level),
+        product_level_options=[(level, AssemblyService.product_level_display(level)) for level in AssemblyService.PRODUCT_LEVEL_CHOICES],
         can_create_product=AssemblyService.can_create_product(user),
     )
 
@@ -736,12 +782,12 @@ def assembly_acceptance_list():
         pagination=pagination,
         keyword=keyword,
         status='',
-        page_title='验收/出厂',
+        page_title='验收',
         page_icon='bi-patch-check',
         detail_endpoint='qc.assembly_acceptance_detail',
         new_endpoint=None,
         back_endpoint='qc.assembly_home',
-        empty_text='暂无待验收/出厂的装配单。',
+        empty_text='暂无待验收的装配单。',
         can_create_new=False,
     )
 
@@ -775,6 +821,20 @@ def assembly_workpiece_search():
     )
 
 
+@qc_bp.route('/assembly/components/search')
+@login_required
+def assembly_component_search():
+    """Fuzzy-search selectable workpieces or lower-level products for assembly BOM editing."""
+    user = g.current_user
+    blocked = _block_assembly_product_access(user)
+    if blocked:
+        return jsonify({'success': False, 'message': '没有权限访问当前内容'}), 403
+
+    keyword = request.args.get('keyword', '').strip()
+    product_level = AssemblyService.normalize_product_level(request.args.get('level', 1))
+    return jsonify({'success': True, 'items': AssemblyService.search_components(user, keyword, product_level=product_level)})
+
+
 @qc_bp.route('/assembly/products/new', methods=['GET', 'POST'])
 @login_required
 def assembly_product_new():
@@ -784,7 +844,8 @@ def assembly_product_new():
     if blocked:
         return blocked
 
-    workpiece_choices = AssemblyService.get_workpiece_choices(user)
+    product_level = AssemblyService.normalize_product_level(request.args.get('level', 1))
+    component_choices = AssemblyService.get_component_choices(user, product_level=product_level)
     if not AssemblyService.can_create_product(user):
         flash('没有权限新增产品', 'error')
         return redirect(url_for('qc.assembly_product_list'))
@@ -793,17 +854,26 @@ def assembly_product_new():
         component_items = _build_assembly_component_items(request.form)
         assembly_sheet_items = _build_assembly_sheet_items(request.form, request.files)
         remark_items = _build_remark_items(request.form, request.files)
+        coa_template_file = request.files.get('coa_template_file')
         try:
             product = AssemblyService.create_product(
                 data={
                     'product_code': request.form.get('product_code', '').strip(),
                     'product_name': request.form.get('product_name', '').strip(),
+                    'product_level': product_level,
                 },
                 creator_id=user.id,
                 auto_commit=False,
             )
             AssemblyService.sync_product_components(product.id, component_items, user, auto_commit=False)
-            AssemblyService.sync_product_attachments(product.id, assembly_sheet_items, remark_items, user, auto_commit=False)
+            AssemblyService.sync_product_attachments(
+                product.id,
+                assembly_sheet_items,
+                remark_items,
+                user,
+                coa_template_file=coa_template_file,
+                auto_commit=False,
+            )
             db.session.commit()
             flash('操作成功', 'success')
             return redirect(url_for('qc.assembly_product_detail', product_id=product.id))
@@ -811,7 +881,15 @@ def assembly_product_new():
             db.session.rollback()
             flash(str(exc), 'error')
 
-    return render_template('qc/assembly_product_form.html', workpiece_choices=workpiece_choices)
+    return render_template(
+        'qc/assembly_product_form.html',
+        component_choices=component_choices,
+        workpiece_choices=component_choices['workpieces'],
+        component_product_choices=component_choices['products'],
+        product_level=product_level,
+        product_level_display=AssemblyService.product_level_display(product_level),
+        product_level_options=[(level, AssemblyService.product_level_display(level)) for level in AssemblyService.PRODUCT_LEVEL_CHOICES],
+    )
 
 
 @qc_bp.route('/assembly/products/<int:product_id>')
@@ -846,10 +924,11 @@ def assembly_product_edit(product_id: int):
         return blocked
 
     product = AssemblyService.get_product(product_id, user)
-    workpiece_choices = AssemblyService.get_workpiece_choices(user)
     if not product:
         flash('产品不存在或没有权限查看', 'error')
         return redirect(url_for('qc.assembly_product_list'))
+    product_level = AssemblyService.normalize_product_level(product.product_level)
+    component_choices = AssemblyService.get_component_choices(user, product_level=product_level, exclude_product_id=product_id)
     if not AssemblyService.can_edit_product(user, product):
         flash('操作失败，请检查后重试', 'error')
         return redirect(url_for('qc.assembly_product_detail', product_id=product_id))
@@ -858,18 +937,27 @@ def assembly_product_edit(product_id: int):
         component_items = _build_assembly_component_items(request.form)
         assembly_sheet_items = _build_assembly_sheet_items(request.form, request.files)
         remark_items = _build_remark_items(request.form, request.files)
+        coa_template_file = request.files.get('coa_template_file')
         try:
             AssemblyService.update_product(
                 product_id=product_id,
                 data={
                     'product_code': request.form.get('product_code', '').strip(),
                     'product_name': request.form.get('product_name', '').strip(),
+                    'product_level': product_level,
                 },
                 user=user,
                 auto_commit=False,
             )
             AssemblyService.sync_product_components(product_id, component_items, user, auto_commit=False)
-            AssemblyService.sync_product_attachments(product_id, assembly_sheet_items, remark_items, user, auto_commit=False)
+            AssemblyService.sync_product_attachments(
+                product_id,
+                assembly_sheet_items,
+                remark_items,
+                user,
+                coa_template_file=coa_template_file,
+                auto_commit=False,
+            )
             db.session.commit()
             flash('产品更新成功', 'success')
             return redirect(url_for('qc.assembly_product_detail', product_id=product_id))
@@ -881,7 +969,12 @@ def assembly_product_edit(product_id: int):
         'qc/assembly_product_form.html',
         product=product,
         is_edit=True,
-        workpiece_choices=workpiece_choices,
+        component_choices=component_choices,
+        workpiece_choices=component_choices['workpieces'],
+        component_product_choices=component_choices['products'],
+        product_level=product_level,
+        product_level_display=AssemblyService.product_level_display(product_level),
+        product_level_options=[(level, AssemblyService.product_level_display(level)) for level in AssemblyService.PRODUCT_LEVEL_CHOICES],
     )
 
 
@@ -966,7 +1059,7 @@ def assembly_launch_new():
             AssemblyService.sync_order_section_files(
                 order.id,
                 request.files.get('registration_note_file'),
-                request.files.get('certificate_note_file'),
+                None,
                 request.files.get('remark_note_file'),
                 user,
                 auto_commit=False,
@@ -1061,7 +1154,7 @@ def assembly_launch_edit(order_id: int):
             AssemblyService.sync_order_section_files(
                 order_id,
                 request.files.get('registration_note_file'),
-                request.files.get('certificate_note_file'),
+                None,
                 request.files.get('remark_note_file'),
                 user,
                 auto_commit=False,
@@ -1167,7 +1260,7 @@ def assembly_inspection_detail(order_id: int):
                 return redirect(url_for('qc.assembly_inspection_detail', order_id=order_id))
 
             if updated_order.status == 'inspection_completed':
-                flash('质检合格，已进入验收/出厂模块', 'success')
+                flash('质检合格，已进入验收模块', 'success')
                 return redirect(url_for('qc.assembly_acceptance_detail', order_id=order_id))
 
             flash('当前无权限或条件未满足', 'warning')
@@ -1197,7 +1290,8 @@ def assembly_acceptance_detail(order_id: int):
         flash('操作失败，请检查后重试', 'error')
         return redirect(url_for('qc.assembly_acceptance_list'))
 
-    signatures = {signature.signer_role: signature for signature in order.signatures}
+    active_acceptance_batch = order.active_acceptance_batch
+    signatures = active_acceptance_batch.signatures_by_role if active_acceptance_batch else {}
     can_cancel_signatures = {
         role: AssemblyService.can_cancel_acceptance_signature(user, order, role)
         for role in ['qc_controller', 'qc_inspector']
@@ -1207,10 +1301,29 @@ def assembly_acceptance_detail(order_id: int):
         'qc/assembly_acceptance_detail.html',
         order=order,
         signatures=signatures,
+        acceptance_batches=order.acceptance_batches,
+        active_acceptance_batch=active_acceptance_batch,
         can_cancel_signatures=can_cancel_signatures,
         eligible_signer_roles=eligible_signer_roles,
         inspection_records_by_attachment=AssemblyService.inspection_record_map(order),
     )
+
+
+@qc_bp.route('/assembly/acceptance/<int:order_id>/batch/new', methods=['POST'])
+@login_required
+def assembly_acceptance_start_batch(order_id: int):
+    """Start a new partial assembly acceptance batch."""
+    user = g.current_user
+    blocked = _block_assembly_acceptance_access(user)
+    if blocked:
+        return blocked
+
+    try:
+        AssemblyService.start_acceptance_batch(order_id, user)
+        flash('已发起新的验收批次', 'success')
+    except ValueError as exc:
+        flash(str(exc), 'error')
+    return redirect(url_for('qc.assembly_acceptance_detail', order_id=order_id))
 
 
 @qc_bp.route('/assembly/acceptance/<int:order_id>/sign', methods=['POST'])
@@ -1227,6 +1340,8 @@ def assembly_acceptance_sign(order_id: int):
             order_id,
             user,
             signer_role=request.form.get('signer_role'),
+            production_quantity=request.form.get('production_quantity'),
+            accepted_quantity=request.form.get('accepted_quantity'),
         )
         flash(result['message'], 'success' if result['completed'] else 'info')
     except ValueError as exc:
@@ -1273,7 +1388,7 @@ def assembly_acceptance_rollback(order_id: int):
 @qc_bp.route('/assembly/acceptance/<int:order_id>/print')
 @login_required
 def assembly_acceptance_print(order_id: int):
-    """Printable assembly shipping report."""
+    """Printable assembly acceptance report."""
     user = g.current_user
     blocked = _block_assembly_acceptance_access(user)
     if blocked:
@@ -1284,20 +1399,22 @@ def assembly_acceptance_print(order_id: int):
         flash('装配单不存在或没有权限查看', 'error')
         return redirect(url_for('qc.assembly_acceptance_list'))
 
-    signatures = {signature.signer_role: signature for signature in order.signatures}
+    active_acceptance_batch = order.active_acceptance_batch
+    signatures = active_acceptance_batch.signatures_by_role if active_acceptance_batch else {}
     return render_template(
         'qc/assembly_acceptance_print.html',
         order=order,
         signatures=signatures,
         inspection_records_by_attachment=AssemblyService.inspection_record_map(order),
+        download_url=url_for('qc.assembly_acceptance_print_download', order_id=order.id),
         current_time=datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
     )
 
 
-@qc_bp.route('/assembly/acceptance/<int:order_id>/coa')
+@qc_bp.route('/assembly/acceptance/<int:order_id>/print/download')
 @login_required
-def assembly_acceptance_coa_print(order_id: int):
-    """Reserved printable COA report page for assembly shipping."""
+def assembly_acceptance_print_download(order_id: int):
+    """Download the assembly acceptance report as a Word document."""
     user = g.current_user
     blocked = _block_assembly_acceptance_access(user)
     if blocked:
@@ -1307,11 +1424,220 @@ def assembly_acceptance_coa_print(order_id: int):
     if not order:
         flash('装配单不存在或没有权限查看', 'error')
         return redirect(url_for('qc.assembly_acceptance_list'))
+    records = AssemblyService.inspection_record_map(order)
+    lines = [
+        '装配验收报告',
+        f'批次编号：{order.batch_no}',
+        f'产品名称：{order.product_name_snapshot}',
+        f'计划装配数量：{float(order.quantity or 0):g}',
+        f'实际合格数量：{float(order.actual_delivered_quantity or 0):g}',
+        f"验收日期：{order.accepted_at.strftime('%Y-%m-%d') if order.accepted_at else '-'}",
+        f'装配负责人：{order.controller.real_name or order.controller.username if order.controller else "-"}',
+        f'指导 / 验收人员：{order.inspector.real_name or order.inspector.username if order.inspector else "-"}',
+        '',
+        '装配结构',
+    ]
+    for component in order.components:
+        lines.append(
+            f'{component.workpiece_code_snapshot} / {component.workpiece_name_snapshot}：'
+            f'单件用量 {float(component.quantity_per_unit or 0):g}，本批消耗 {float(component.total_required_quantity or 0):g}'
+        )
+    lines.extend(['', '质检记录明细'])
+    for attachment in order.ordered_attachments:
+        record = records.get(attachment.id)
+        result_text = {'pass': '通过', 'fail': '不通过', 'draft': '草稿'}.get(record.result if record else '', '-')
+        lines.append(
+            f'{attachment.display_title}：{result_text}；'
+            f'报告：{record.report_filename if record and record.report_file_path else "-"}；'
+            f'备注：{record.remark or "" if record else ""}'
+        )
+    lines.extend(['', '签字确认区', '装配负责人签字：', '指导 / 验收人员签字：'])
+    return _send_docx_text_report(lines, f'装配验收报告_{order.batch_no}.docx')
+
+
+@qc_bp.route('/assembly/acceptance/<int:order_id>/coa')
+@login_required
+def assembly_acceptance_coa_print(order_id: int):
+    """Deprecated acceptance COA entry; COA is now printed from outbound batches."""
+    flash('COA 报告已移动到出厂模块，请在已完成的出厂批次中打印。', 'info')
+    return redirect(url_for('qc.assembly_outbound_list'))
+
+
+@qc_bp.route('/assembly/outbound/')
+@login_required
+def assembly_outbound_list():
+    """Assembly outbound list."""
+    user = g.current_user
+    blocked = _block_assembly_outbound_access(user)
+    if blocked:
+        return blocked
+
+    page = request.args.get('page', 1, type=int)
+    keyword = request.args.get('keyword', '').strip()
+    pagination = AssemblyService.get_outbound_list(user=user, keyword=keyword or None, page=page)
+    return render_template(
+        'qc/assembly_outbound_list.html',
+        orders=pagination.items,
+        pagination=pagination,
+        keyword=keyword,
+        can_create_new=AssemblyService.can_create_outbound(user),
+    )
+
+
+@qc_bp.route('/assembly/outbound/items/search')
+@login_required
+def assembly_outbound_item_search():
+    """Fuzzy-search outbound selectable items."""
+    user = g.current_user
+    blocked = _block_assembly_outbound_access(user)
+    if blocked:
+        return jsonify({'success': False, 'message': '没有权限访问当前内容'}), 403
+    keyword = request.args.get('keyword', '').strip()
+    return jsonify({'success': True, 'items': AssemblyService.search_outbound_items(user, keyword)})
+
+
+@qc_bp.route('/assembly/outbound/new', methods=['GET', 'POST'])
+@login_required
+def assembly_outbound_new():
+    """Create a new outbound order."""
+    user = g.current_user
+    blocked = _block_assembly_outbound_access(user)
+    if blocked:
+        return blocked
+    if request.method == 'POST':
+        try:
+            item_type = request.form.get('item_type', '').strip()
+            item_id = request.form.get('item_id', '').strip()
+            if not item_id and request.form.get('item_select'):
+                item_type, item_id = (request.form.get('item_select') or ':').split(':', 1)
+            order = AssemblyService.create_outbound_order(
+                {
+                    'outbound_no': request.form.get('outbound_no', '').strip(),
+                    'item_type': item_type,
+                    'item_id': item_id,
+                    'outbound_date': request.form.get('outbound_date', '').strip(),
+                    'planned_quantity': request.form.get('planned_quantity', '').strip(),
+                },
+                initiator=user,
+            )
+            flash('出厂订单已创建', 'success')
+            return redirect(url_for('qc.assembly_outbound_detail', order_id=order.id))
+        except ValueError as exc:
+            db.session.rollback()
+            flash(str(exc), 'error')
 
     return render_template(
-        'qc/assembly_coa_placeholder.html',
+        'qc/assembly_outbound_form.html',
+        item_choices=AssemblyService.get_outbound_item_choices(user),
+        today=datetime.now().strftime('%Y-%m-%d'),
+    )
+
+
+@qc_bp.route('/assembly/outbound/<int:order_id>')
+@login_required
+def assembly_outbound_detail(order_id: int):
+    """Outbound order detail."""
+    user = g.current_user
+    blocked = _block_assembly_outbound_access(user)
+    if blocked:
+        return blocked
+
+    order = AssemblyService.get_outbound_order(order_id, user)
+    if not order:
+        flash('出厂订单不存在或没有权限查看', 'error')
+        return redirect(url_for('qc.assembly_outbound_list'))
+    active_batch = order.active_batch
+    signatures = active_batch.signatures_by_role if active_batch else {}
+    return render_template(
+        'qc/assembly_outbound_detail.html',
         order=order,
+        batches=order.batches,
+        active_batch=active_batch,
+        signatures=signatures,
+        eligible_signer_roles=AssemblyService.eligible_outbound_signer_roles(user, order),
+    )
+
+
+@qc_bp.route('/assembly/outbound/<int:order_id>/batch/new', methods=['POST'])
+@login_required
+def assembly_outbound_start_batch(order_id: int):
+    """Start a new outbound batch."""
+    user = g.current_user
+    blocked = _block_assembly_outbound_access(user)
+    if blocked:
+        return blocked
+    try:
+        AssemblyService.start_outbound_batch(order_id, user)
+        flash('已发起新的出厂批次', 'success')
+    except ValueError as exc:
+        flash(str(exc), 'error')
+    return redirect(url_for('qc.assembly_outbound_detail', order_id=order_id))
+
+
+@qc_bp.route('/assembly/outbound/<int:order_id>/sign', methods=['POST'])
+@login_required
+def assembly_outbound_sign(order_id: int):
+    """Sign one outbound batch role."""
+    user = g.current_user
+    blocked = _block_assembly_outbound_access(user)
+    if blocked:
+        return blocked
+    try:
+        result = AssemblyService.sign_outbound_batch(
+            order_id,
+            user,
+            signer_role=request.form.get('signer_role'),
+            outbound_quantity=request.form.get('outbound_quantity'),
+        )
+        flash(result['message'], 'success' if result['completed'] else 'info')
+    except ValueError as exc:
+        flash(str(exc), 'error')
+    return redirect(url_for('qc.assembly_outbound_detail', order_id=order_id))
+
+
+@qc_bp.route('/assembly/outbound/<int:order_id>/batch/<int:batch_id>/coa')
+@login_required
+def assembly_outbound_coa(order_id: int, batch_id: int):
+    """Preview a generated COA report for one completed outbound batch."""
+    user = g.current_user
+    blocked = _block_assembly_outbound_access(user)
+    if blocked:
+        return blocked
+    try:
+        payload = AssemblyService.get_outbound_coa_preview(order_id, batch_id, user)
+    except ValueError as exc:
+        flash(str(exc), 'error')
+        return redirect(url_for('qc.assembly_outbound_detail', order_id=order_id))
+    return render_template(
+        'qc/assembly_outbound_coa_print.html',
+        order=payload['order'],
+        batch=payload['batch'],
+        batch_no=payload['batch_no'],
+        replacements=payload['replacements'],
+        template_lines=payload['template_lines'],
         current_time=datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+        download_url=url_for('qc.assembly_outbound_coa_download', order_id=order_id, batch_id=batch_id),
+    )
+
+
+@qc_bp.route('/assembly/outbound/<int:order_id>/batch/<int:batch_id>/coa/download')
+@login_required
+def assembly_outbound_coa_download(order_id: int, batch_id: int):
+    """Download a generated COA Word report for one completed outbound batch."""
+    user = g.current_user
+    blocked = _block_assembly_outbound_access(user)
+    if blocked:
+        return blocked
+    try:
+        document_bytes, filename = AssemblyService.generate_outbound_coa_docx(order_id, batch_id, user)
+    except ValueError as exc:
+        flash(str(exc), 'error')
+        return redirect(url_for('qc.assembly_outbound_detail', order_id=order_id))
+    return send_file(
+        BytesIO(document_bytes),
+        as_attachment=True,
+        download_name=filename,
+        mimetype='application/vnd.openxmlformats-officedocument.wordprocessingml.document',
     )
 
 
@@ -2231,6 +2557,7 @@ def workpiece_new():
         material_items = _build_material_items(request.form, request.files)
         remark_items = _build_remark_items(request.form, request.files)
         drawing_file = request.files.get('drawing')
+        coa_template_file = request.files.get('coa_template_file')
 
         try:
             workpiece = QCService.create_workpiece(
@@ -2250,6 +2577,7 @@ def workpiece_new():
                 user=user,
                 material_items=material_items,
                 drawing_items=drawing_items,
+                coa_template_file=coa_template_file,
             )
             flash('操作成功', 'success')
             return redirect(url_for('qc.workpiece_detail', workpiece_id=workpiece.id))
@@ -2300,6 +2628,7 @@ def workpiece_edit(workpiece_id: int):
         material_items = _build_material_items(request.form, request.files)
         remark_items = _build_remark_items(request.form, request.files)
         drawing_file = request.files.get('drawing')
+        coa_template_file = request.files.get('coa_template_file')
         try:
             QCService.update_workpiece(
                 workpiece_id=workpiece_id,
@@ -2318,6 +2647,7 @@ def workpiece_edit(workpiece_id: int):
                 user=user,
                 material_items=material_items,
                 drawing_items=drawing_items,
+                coa_template_file=coa_template_file,
             )
             flash('工件更新成功', 'success')
             return redirect(url_for('qc.workpiece_detail', workpiece_id=workpiece_id))
@@ -2791,7 +3121,12 @@ def acceptance_detail(order_id: int):
         flash('工件订单不存在或没有权限查看', 'error')
         return redirect(url_for('qc.acceptance_list'))
 
-    signatures = {signature.signer_role: signature for signature in work_order.signatures}
+    active_acceptance_batch = QCService.current_acceptance_batch(work_order)
+    signatures = (
+        active_acceptance_batch.signatures_by_role
+        if active_acceptance_batch
+        else {}
+    )
     can_cancel_signatures = {
         role: QCService.can_cancel_acceptance_signature(user, work_order, role)
         for role in ['qc_controller', 'qc_inspector']
@@ -2801,6 +3136,8 @@ def acceptance_detail(order_id: int):
         'qc/acceptance_detail.html',
         order=work_order,
         signatures=signatures,
+        active_acceptance_batch=active_acceptance_batch,
+        acceptance_batches=work_order.acceptance_batches,
         can_cancel_signatures=can_cancel_signatures,
         eligible_signer_roles=eligible_signer_roles,
         inspection_records_by_attachment=_build_inspection_record_map(work_order),
@@ -2821,8 +3158,27 @@ def acceptance_sign(order_id: int):
             order_id,
             user,
             signer_role=request.form.get('signer_role'),
+            production_quantity=request.form.get('production_quantity'),
+            accepted_quantity=request.form.get('accepted_quantity'),
         )
         flash(result['message'], 'success' if result['completed'] else 'info')
+    except ValueError as exc:
+        flash(str(exc), 'error')
+    return redirect(url_for('qc.acceptance_detail', order_id=order_id))
+
+
+@qc_bp.route('/acceptance/<int:order_id>/batch/new', methods=['POST'])
+@login_required
+def acceptance_start_batch(order_id: int):
+    """Start a new partial acceptance batch."""
+    user = g.current_user
+    blocked = _require_qc_acceptance_access(user)
+    if blocked:
+        return blocked
+
+    try:
+        QCService.start_acceptance_batch(order_id, user)
+        flash('已发起新的验收批次，请填写本次数量并完成双方确认', 'success')
     except ValueError as exc:
         flash(str(exc), 'error')
     return redirect(url_for('qc.acceptance_detail', order_id=order_id))
@@ -2886,5 +3242,44 @@ def acceptance_print(order_id: int):
         order=work_order,
         signatures=signatures,
         inspection_records_by_attachment=_build_inspection_record_map(work_order),
+        download_url=url_for('qc.acceptance_print_download', order_id=work_order.id),
         current_time=datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
     )
+
+
+@qc_bp.route('/acceptance/<int:order_id>/print/download')
+@login_required
+def acceptance_print_download(order_id: int):
+    """Download the workpiece acceptance sheet as a Word document."""
+    user = g.current_user
+    blocked = _require_qc_acceptance_access(user)
+    if blocked:
+        return blocked
+
+    work_order = QCService.get_work_order(order_id, user)
+    if not work_order:
+        flash('工件订单不存在或没有权限查看', 'error')
+        return redirect(url_for('qc.acceptance_list'))
+    records = _build_inspection_record_map(work_order)
+    lines = [
+        '工件验收确认单',
+        f'批次编号：{work_order.batch_no}',
+        f'工件名称：{work_order.workpiece_name}',
+        f'计划生产数量：{float(work_order.quantity or 0):g}',
+        f'实际交付数量：{float(work_order.actual_delivered_quantity or 0):g}',
+        f"验收日期：{work_order.accepted_at.strftime('%Y-%m-%d') if work_order.accepted_at else '-'}",
+        f'质控人：{work_order.controller.real_name or work_order.controller.username if work_order.controller else "-"}',
+        f'供应商：{work_order.inspector.real_name or work_order.inspector.username if work_order.inspector else "-"}',
+        '',
+        '质检记录明细',
+    ]
+    for attachment in work_order.ordered_attachments:
+        record = records.get(attachment.id)
+        result_text = {'pass': '通过', 'fail': '不通过', 'draft': '草稿'}.get(record.result if record else '', '-')
+        lines.append(
+            f'{attachment.display_title}：{result_text}；'
+            f'报告：{record.report_filename if record and record.report_file_path else "-"}；'
+            f'备注：{record.remark or "" if record else ""}'
+        )
+    lines.extend(['', '签字确认区', '质控人签字：', '供应商签字：'])
+    return _send_docx_text_report(lines, f'工件验收确认单_{work_order.batch_no}.docx')

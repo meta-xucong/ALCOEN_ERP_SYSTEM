@@ -1,0 +1,195 @@
+{% extends 'qc/base.html' %}
+
+{% block title %}新增出厂单 - ALCOEN AI CATS{% endblock %}
+
+{% block extra_css %}
+<style>
+    .outbound-search-wrap { position: relative; }
+    .outbound-search-wrap.is-open { z-index: 2050; }
+    .outbound-suggestions {
+        position: absolute;
+        left: 0;
+        right: 0;
+        top: calc(100% + 0.25rem);
+        z-index: 2060;
+        display: none;
+        max-height: 260px;
+        overflow-y: auto;
+        background: #fff;
+        border: 1px solid rgba(0, 0, 0, 0.12);
+        border-radius: 0.75rem;
+        box-shadow: 0 1rem 2.5rem rgba(15, 23, 42, 0.18);
+    }
+    .outbound-suggestion {
+        width: 100%;
+        padding: 0.75rem 0.9rem;
+        border: 0;
+        background: transparent;
+        text-align: left;
+    }
+    .outbound-suggestion:hover { background: rgba(25, 135, 84, 0.08); }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h1 class="d-flex align-items-center gap-3 mb-0">
+        <i class="bi bi-truck text-success" style="font-size: 2rem;"></i>
+        <span class="text-gradient" style="font-weight: 700; font-size: 2rem;">新增出厂单</span>
+    </h1>
+    <a href="{{ url_for('qc.assembly_outbound_list') }}" class="btn btn-outline-secondary">
+        <i class="bi bi-arrow-left"></i> 返回出厂
+    </a>
+</div>
+
+<form method="POST" id="outboundForm">
+    <div class="card mb-4">
+        <div class="card-header bg-primary text-white">
+            <h5 class="mb-0"><i class="bi bi-info-circle"></i> 基础信息</h5>
+        </div>
+        <div class="card-body">
+            <div class="row g-3">
+                <div class="col-md-4">
+                    <label class="form-label">出厂批次 <span class="text-danger">*</span></label>
+                    <input type="text" name="outbound_no" class="form-control" required>
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label">出厂日期</label>
+                    <input type="date" name="outbound_date" class="form-control" value="{{ today }}">
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label">计划出厂总数量 <span class="text-danger">*</span></label>
+                    <input type="number" name="planned_quantity" class="form-control" step="0.01" min="0.01" required>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card mb-4">
+        <div class="card-header bg-success text-white">
+            <h5 class="mb-0"><i class="bi bi-boxes"></i> 出厂对象</h5>
+        </div>
+        <div class="card-body">
+            <input type="hidden" name="item_type" id="itemType">
+            <input type="hidden" name="item_id" id="itemId">
+            <div class="row g-3">
+                <div class="col-lg-6">
+                    <label class="form-label">下拉选择 <span class="text-danger">*</span></label>
+                    <select class="form-select" name="item_select" id="itemSelect" required>
+                        <option value="">-- 请选择工件或产品 --</option>
+                        {% set groups = {'workpiece': '工件库', 'product': '产品库'} %}
+                        {% for group_type, group_label in groups.items() %}
+                        <optgroup label="{{ group_label }}">
+                            {% for item in item_choices if item.type == group_type %}
+                            <option value="{{ item.type }}:{{ item.id }}" data-type="{{ item.type }}" data-id="{{ item.id }}" data-code="{{ item.code }}" data-name="{{ item.name }}" data-type-label="{{ item.type_display }}" data-stock="{{ '{:g}'.format(item.stock_quantity or 0) }}">
+                                {{ item.code }} / {{ item.name }}（{{ item.type_display }}，库存 {{ '{:g}'.format(item.stock_quantity or 0) }}）
+                            </option>
+                            {% endfor %}
+                        </optgroup>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-lg-6">
+                    <label class="form-label">模糊搜索</label>
+                    <div class="outbound-search-wrap">
+                        <input type="text" class="form-control" id="itemSearch" placeholder="输入编号或名称联想" autocomplete="off">
+                        <div class="outbound-suggestions" id="itemSuggestions"></div>
+                    </div>
+                </div>
+            </div>
+            <div class="form-text mt-3" id="selectedHint">请选择需要出厂的工件或产品。</div>
+        </div>
+    </div>
+
+    <div class="d-flex gap-3 flex-wrap">
+        <button type="submit" class="btn btn-primary btn-lg">
+            <i class="bi bi-check-circle"></i> 保存出厂单
+        </button>
+        <a href="{{ url_for('qc.assembly_outbound_list') }}" class="btn btn-outline-secondary btn-lg">
+            <i class="bi bi-arrow-left"></i> 返回列表
+        </a>
+    </div>
+</form>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const itemSelect = document.getElementById('itemSelect');
+const itemType = document.getElementById('itemType');
+const itemId = document.getElementById('itemId');
+const itemSearch = document.getElementById('itemSearch');
+const suggestions = document.getElementById('itemSuggestions');
+const searchWrap = document.querySelector('.outbound-search-wrap');
+const selectedHint = document.getElementById('selectedHint');
+let searchTimer = null;
+
+function escapeHtml(value) {
+    return String(value ?? '').replace(/[&<>'"]/g, (char) => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;'
+    }[char]));
+}
+
+function syncSelected(choice) {
+    if (!choice || !choice.id) {
+        itemType.value = '';
+        itemId.value = '';
+        selectedHint.textContent = '请选择需要出厂的工件或产品。';
+        return;
+    }
+    itemType.value = choice.type;
+    itemId.value = choice.id;
+    itemSearch.value = `${choice.code} / ${choice.name}`;
+    itemSelect.value = `${choice.type}:${choice.id}`;
+    selectedHint.textContent = `${choice.typeDisplay}：${choice.code} / ${choice.name}，当前库存 ${choice.stock}`;
+}
+
+itemSelect.addEventListener('change', () => {
+    const option = itemSelect.selectedOptions[0];
+    if (!option || !option.value) return syncSelected(null);
+    syncSelected({
+        type: option.dataset.type,
+        id: option.dataset.id,
+        code: option.dataset.code,
+        name: option.dataset.name,
+        typeDisplay: option.dataset.typeLabel,
+        stock: option.dataset.stock,
+    });
+});
+
+itemSearch.addEventListener('input', () => {
+    const keyword = itemSearch.value.trim();
+    clearTimeout(searchTimer);
+    if (keyword.length < 1) {
+        suggestions.style.display = 'none';
+        searchWrap.classList.remove('is-open');
+        return;
+    }
+    searchTimer = setTimeout(async () => {
+        const response = await fetch(`{{ url_for('qc.assembly_outbound_item_search') }}?keyword=${encodeURIComponent(keyword)}`);
+        const payload = await response.json();
+        suggestions.innerHTML = '';
+        (payload.items || []).forEach((item) => {
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = 'outbound-suggestion';
+            button.innerHTML = `<div class="fw-semibold">${escapeHtml(item.code)} / ${escapeHtml(item.name)}</div><div class="small text-muted">${escapeHtml(item.type_display)}，库存 ${escapeHtml(item.stock_quantity)}</div>`;
+            button.addEventListener('click', () => {
+                syncSelected({ type: item.type, id: item.id, code: item.code, name: item.name, typeDisplay: item.type_display, stock: item.stock_quantity });
+                suggestions.style.display = 'none';
+                searchWrap.classList.remove('is-open');
+            });
+            suggestions.appendChild(button);
+        });
+        suggestions.style.display = suggestions.children.length ? 'block' : 'none';
+        searchWrap.classList.toggle('is-open', Boolean(suggestions.children.length));
+    }, 180);
+});
+
+document.addEventListener('click', (event) => {
+    if (!searchWrap.contains(event.target)) {
+        suggestions.style.display = 'none';
+        searchWrap.classList.remove('is-open');
+    }
+});
+</script>
+{% endblock %}

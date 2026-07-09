@@ -5,32 +5,41 @@
             <i class="bi bi-trash"></i> 删除
         </button>
     </div>
+    {% set selected_type = component.component_type if component else (selected_component_type|default('workpiece')) %}
+    {% set selected_item_id = component.component_product_id if component and component.component_type == 'product' else selected_workpiece_id %}
     <div class="row g-3">
         <div class="col-lg-5">
-            <label class="form-label">工件库下拉选择 <span class="text-danger">*</span></label>
-            <select class="form-select component-workpiece-select" name="component_workpiece_select_{{ row_index }}">
-                <option value="">-- 请选择工件 --</option>
-                {% for workpiece in workpiece_choices %}
-                <option
-                    value="{{ workpiece.id }}"
-                    data-code="{{ workpiece.workpiece_code }}"
-                    data-name="{{ workpiece.workpiece_name }}"
-                    data-type="{{ workpiece.workpiece_type_display }}"
-                    data-stock="{{ '{:g}'.format(workpiece.stock_quantity or 0) }}"
-                    {% if selected_workpiece_id == workpiece.id %}selected{% endif %}
-                >
-                    {{ workpiece.workpiece_code }} / {{ workpiece.workpiece_name }}（库存 {{ '{:g}'.format(workpiece.stock_quantity or 0) }}）
-                </option>
-                {% endfor %}
+            <label class="form-label">配件下拉选择 <span class="text-danger">*</span></label>
+            <select class="form-select component-item-select" name="component_item_select_{{ row_index }}">
+                <option value="">-- 请选择配件 --</option>
+                <optgroup label="工件库">
+                    {% for workpiece in workpiece_choices %}
+                    <option value="workpiece:{{ workpiece.id }}" data-type="workpiece" data-id="{{ workpiece.id }}" data-code="{{ workpiece.workpiece_code }}" data-name="{{ workpiece.workpiece_name }}" data-type-label="工件库" data-stock="{{ '{:g}'.format(workpiece.stock_quantity or 0) }}" {% if selected_type != 'product' and selected_item_id == workpiece.id %}selected{% endif %}>
+                        {{ workpiece.workpiece_code }} / {{ workpiece.workpiece_name }}（工件库，库存 {{ '{:g}'.format(workpiece.stock_quantity or 0) }}）
+                    </option>
+                    {% endfor %}
+                </optgroup>
+                {% if component_product_choices %}
+                <optgroup label="低层级产品库">
+                    {% for product_choice in component_product_choices %}
+                    <option value="product:{{ product_choice.id }}" data-type="product" data-id="{{ product_choice.id }}" data-code="{{ product_choice.product_code }}" data-name="{{ product_choice.product_name }}" data-type-label="{{ product_choice.product_level_display }}" data-stock="{{ '{:g}'.format(product_choice.stock_quantity or 0) }}" {% if selected_type == 'product' and selected_item_id == product_choice.id %}selected{% endif %}>
+                        {{ product_choice.product_code }} / {{ product_choice.product_name }}（{{ product_choice.product_level_display }}，库存 {{ '{:g}'.format(product_choice.stock_quantity or 0) }}）
+                    </option>
+                    {% endfor %}
+                </optgroup>
+                {% endif %}
             </select>
         </div>
         <div class="col-lg-4">
             <label class="form-label">模糊搜索</label>
             <div class="component-search-wrap">
-                <input type="hidden" name="component_workpiece_id_{{ row_index }}" value="{{ selected_workpiece_id }}">
-                <input type="text" class="form-control component-search-input" name="component_workpiece_display_{{ row_index }}" value="{{ selected_display }}" placeholder="输入工件编号或名称联想" autocomplete="off">
-                <input type="hidden" name="component_workpiece_code_{{ row_index }}" value="{{ component.workpiece_code_snapshot if component else '' }}">
-                <input type="hidden" name="component_workpiece_name_{{ row_index }}" value="{{ component.workpiece_name_snapshot if component else '' }}">
+                <input type="hidden" name="component_item_type_{{ row_index }}" value="{{ selected_type }}">
+                <input type="hidden" name="component_item_id_{{ row_index }}" value="{{ selected_item_id }}">
+                <input type="hidden" name="component_workpiece_id_{{ row_index }}" value="{{ selected_item_id if selected_type != 'product' else '' }}">
+                <input type="hidden" name="component_product_id_{{ row_index }}" value="{{ selected_item_id if selected_type == 'product' else '' }}">
+                <input type="text" class="form-control component-search-input" name="component_display_{{ row_index }}" value="{{ selected_display }}" placeholder="输入编号或名称联想" autocomplete="off">
+                <input type="hidden" name="component_code_{{ row_index }}" value="{{ component.workpiece_code_snapshot if component else '' }}">
+                <input type="hidden" name="component_name_{{ row_index }}" value="{{ component.workpiece_name_snapshot if component else '' }}">
                 <div class="component-suggestions"></div>
             </div>
         </div>

@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>COA 报告预留 - {{ order.batch_no }}</title>
+    <title>COA 报告已迁移 - {{ order.batch_no }}</title>
     <link href="{{ url_for('static', filename='vendor/bootstrap/css/bootstrap.min.css') }}" rel="stylesheet">
     <link href="{{ url_for('static', filename='vendor/bootstrap-icons/font/bootstrap-icons.css') }}" rel="stylesheet">
     <style>
@@ -24,15 +24,15 @@
 </head>
 <body>
     <div class="text-end mb-3">
-        <button class="btn btn-secondary" onclick="window.close()">
+        <a class="btn btn-secondary" href="{{ url_for('qc.assembly_outbound_list') }}">
             <i class="bi bi-x-lg"></i> 关闭
-        </button>
+        </a>
     </div>
     <div class="placeholder-card p-5 text-center">
         <div class="text-primary mb-3"><i class="bi bi-file-earmark-medical" style="font-size: 3rem;"></i></div>
-        <h1 class="h3 mb-3">COA 报告打印位已预留</h1>
+        <h1 class="h3 mb-3">COA 报告已迁移到出厂模块</h1>
         <p class="text-muted mb-4">批次编号：{{ order.batch_no }}，产品名称：{{ order.product_name_snapshot }}</p>
-        <p class="mb-0">正式 COA 报告字段和计算逻辑将在下一阶段补充。</p>
+        <p class="mb-0">请在出厂订单的已完成批次中点击“打印 COA 报告”。</p>
         <p class="text-muted small mt-4">生成时间：{{ current_time }}</p>
     </div>
 </body>

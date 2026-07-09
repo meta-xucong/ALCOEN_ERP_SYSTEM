@@ -58,11 +58,11 @@
     <h1 class="d-flex align-items-center gap-3 mb-0">
         <i class="bi bi-boxes text-gradient" style="font-size: 2rem; color: #198754;"></i>
         <span class="text-gradient" style="font-weight: 700; font-size: 2rem;">
-            {% if is_edit %}编辑产品{% else %}新增产品{% endif %}
+            {% if is_edit %}编辑{{ product_level_display }}产品{% else %}新增{{ product_level_display }}产品{% endif %}
         </span>
     </h1>
-    <a href="{{ url_for('qc.assembly_product_list') }}" class="btn btn-outline-secondary">
-        <i class="bi bi-arrow-left"></i> 返回产品库
+    <a href="{{ url_for('qc.assembly_product_list', level=product_level) }}" class="btn btn-outline-secondary">
+        <i class="bi bi-arrow-left"></i> 返回{{ product_level_display }}
     </a>
 </div>
 
@@ -73,15 +73,21 @@
         </div>
         <div class="card-body">
             <div class="row">
-                <div class="col-md-4 mb-3">
+                <div class="col-md-3 mb-3">
+                    <label class="form-label">产品层级 <span class="text-danger">*</span></label>
+                    <input type="text" class="form-control" value="{{ product_level_display }}" readonly>
+                    <input type="hidden" name="product_level" value="{{ product_level }}">
+                    <div class="form-text">层级由入口决定，保存前不可热切换，避免装配结构范围混乱。</div>
+                </div>
+                <div class="col-md-3 mb-3">
                     <label class="form-label">产品编号 <span class="text-danger">*</span></label>
                     <input type="text" class="form-control" name="product_code" value="{{ product.product_code if product else '' }}" required>
                 </div>
-                <div class="col-md-4 mb-3">
+                <div class="col-md-3 mb-3">
                     <label class="form-label">产品名称 <span class="text-danger">*</span></label>
                     <input type="text" class="form-control" name="product_name" value="{{ product.product_name if product else '' }}" required>
                 </div>
-                <div class="col-md-4 mb-3">
+                <div class="col-md-3 mb-3">
                     <label class="form-label">创建人</label>
                     <input type="text" class="form-control" value="{{ creator_name }}" readonly>
                 </div>
@@ -104,7 +110,7 @@
                 {% if component_rows %}
                     {% for component in component_rows %}
                     {% set row_index = loop.index0 %}
-                    {% set selected_workpiece_id = component.workpiece_id %}
+                    {% set selected_workpiece_id = component.component_product_id if component.component_type == 'product' else component.workpiece_id %}
                     {% set selected_display = component.workpiece_code_snapshot ~ ' / ' ~ component.workpiece_name_snapshot %}
                     {% include 'qc/_assembly_component_row.html' %}
                     {% endfor %}
@@ -117,7 +123,7 @@
                     {% endfor %}
                 {% endif %}
             </div>
-            <div class="help-copy mt-3">至少保留两个配件。可以直接从工件库下拉选择，也可以输入工件编号或名称的一部分进行模糊搜索。</div>
+            <div class="help-copy mt-3">至少保留两个配件。一级产品可选工件；二级产品可选工件和一级产品；三级产品可选工件、一级产品和二级产品。</div>
         </div>
     </div>
 
@@ -191,6 +197,31 @@
     </div>
 
     <div class="card mb-4">
+        <div class="card-header bg-success text-white">
+            <h5 class="mb-0"><i class="bi bi-file-earmark-word"></i> COA报告模板</h5>
+        </div>
+        <div class="card-body">
+            {% set coa_template = product.coa_template_attachment if product else none %}
+            <div class="row align-items-end">
+                <div class="col-md-8 mb-3">
+                    <label class="form-label">上传 Word 模板（.docx）</label>
+                    <input type="file" class="form-control" name="coa_template_file" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document">
+                    <div class="form-text">用于后续出厂模块打印 COA 报告，仅支持可拼接的 .docx 模板。模板内可使用 {{ '{{出厂批次}}' }}、{{ '{{产品编号}}' }}、{{ '{{产品名称}}' }}、{{ '{{出厂数量}}' }}、{{ '{{出厂日期}}' }}、{{ '{{发起人}}' }}、{{ '{{验收人}}' }} 等占位符。</div>
+                </div>
+                <div class="col-md-4 mb-3">
+                    {% if coa_template %}
+                    <a href="{{ coa_template.file_url }}" target="_blank" class="btn btn-outline-success w-100 text-truncate" title="{{ coa_template.file_path.split('/')[-1] }}">
+                        <i class="bi bi-file-earmark-word"></i> {{ coa_template.file_path.split('/')[-1] }}
+                    </a>
+                    {% else %}
+                    <div class="text-muted small border rounded p-2">暂未上传 COA 模板；出厂打印时会使用基础默认模板。</div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card mb-4">
         <div class="card-header bg-secondary text-white">
             <div class="attachment-toolbar">
                 <h5 class="mb-0"><i class="bi bi-sticky"></i> 备注</h5>
@@ -246,7 +277,7 @@
         <button type="submit" class="btn btn-primary btn-lg">
             <i class="bi bi-check-circle"></i> 保存产品
         </button>
-        <a href="{{ url_for('qc.assembly_product_list') }}" class="btn btn-outline-secondary btn-lg">
+        <a href="{{ url_for('qc.assembly_product_list', level=product_level) }}" class="btn btn-outline-secondary btn-lg">
             <i class="bi bi-arrow-left"></i> 返回列表
         </a>
     </div>
@@ -255,15 +286,13 @@
 
 {% block extra_js %}
 <script>
-const WORKPIECE_CHOICES = [
+const PRODUCT_LEVEL = Number({{ product_level|tojson }});
+const COMPONENT_CHOICES = [
 {% for workpiece in workpiece_choices %}
-    {
-        id: String({{ workpiece.id }}),
-        code: {{ workpiece.workpiece_code|tojson }},
-        name: {{ workpiece.workpiece_name|tojson }},
-        typeDisplay: {{ workpiece.workpiece_type_display|tojson }},
-        stock: {{ ('{:g}'.format(workpiece.stock_quantity or 0))|tojson }}
-    }{% if not loop.last %},{% endif %}
+    { type: 'workpiece', id: String({{ workpiece.id }}), code: {{ workpiece.workpiece_code|tojson }}, name: {{ workpiece.workpiece_name|tojson }}, typeDisplay: '工件库', stock: {{ ('{:g}'.format(workpiece.stock_quantity or 0))|tojson }} }{% if not loop.last or component_product_choices %},{% endif %}
+{% endfor %}
+{% for product_choice in component_product_choices %}
+    { type: 'product', id: String({{ product_choice.id }}), code: {{ product_choice.product_code|tojson }}, name: {{ product_choice.product_name|tojson }}, typeDisplay: {{ product_choice.product_level_display|tojson }}, stock: {{ ('{:g}'.format(product_choice.stock_quantity or 0))|tojson }} }{% if not loop.last %},{% endif %}
 {% endfor %}
 ];
 let componentIndex = {{ product.components|length if product and product.components else 2 }};
@@ -272,20 +301,30 @@ let remarkIndex = {{ product.remark_attachments|length if product and product.re
 
 function escapeHtml(value) {
     return String(value ?? '').replace(/[&<>'"]/g, (char) => ({
-        '&': '&amp;',
-        '<': '&lt;',
-        '>': '&gt;',
-        "'": '&#39;',
-        '"': '&quot;'
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;'
     }[char]));
 }
 
-function buildWorkpieceOptions(selectedId = '') {
-    const options = ['<option value="">-- 请选择工件 --</option>'];
-    WORKPIECE_CHOICES.forEach((item) => {
-        const selected = String(item.id) === String(selectedId) ? ' selected' : '';
-        options.push(`<option value="${escapeHtml(item.id)}" data-code="${escapeHtml(item.code)}" data-name="${escapeHtml(item.name)}" data-type="${escapeHtml(item.typeDisplay)}" data-stock="${escapeHtml(item.stock)}"${selected}>${escapeHtml(item.code)} / ${escapeHtml(item.name)}（库存 ${escapeHtml(item.stock)}）</option>`);
-    });
+function buildComponentOptions(selectedType = '', selectedId = '') {
+    const options = ['<option value="">-- 请选择配件 --</option>'];
+    const workpieces = COMPONENT_CHOICES.filter((item) => item.type === 'workpiece');
+    const products = COMPONENT_CHOICES.filter((item) => item.type === 'product');
+    if (workpieces.length) {
+        options.push('<optgroup label="工件库">');
+        workpieces.forEach((item) => {
+            const selected = item.type === selectedType && String(item.id) === String(selectedId) ? ' selected' : '';
+            options.push(`<option value="${item.type}:${escapeHtml(item.id)}" data-type="${item.type}" data-id="${escapeHtml(item.id)}" data-code="${escapeHtml(item.code)}" data-name="${escapeHtml(item.name)}" data-type-label="${escapeHtml(item.typeDisplay)}" data-stock="${escapeHtml(item.stock)}"${selected}>${escapeHtml(item.code)} / ${escapeHtml(item.name)}（${escapeHtml(item.typeDisplay)}，库存 ${escapeHtml(item.stock)}）</option>`);
+        });
+        options.push('</optgroup>');
+    }
+    if (products.length) {
+        options.push('<optgroup label="低层级产品库">');
+        products.forEach((item) => {
+            const selected = item.type === selectedType && String(item.id) === String(selectedId) ? ' selected' : '';
+            options.push(`<option value="${item.type}:${escapeHtml(item.id)}" data-type="${item.type}" data-id="${escapeHtml(item.id)}" data-code="${escapeHtml(item.code)}" data-name="${escapeHtml(item.name)}" data-type-label="${escapeHtml(item.typeDisplay)}" data-stock="${escapeHtml(item.stock)}"${selected}>${escapeHtml(item.code)} / ${escapeHtml(item.name)}（${escapeHtml(item.typeDisplay)}，库存 ${escapeHtml(item.stock)}）</option>`);
+        });
+        options.push('</optgroup>');
+    }
     return options.join('');
 }
 
@@ -298,46 +337,37 @@ function renumberItems(selector, prefix) {
 
 function syncComponentChoice(componentItem, choice) {
     const input = componentItem.querySelector('.component-search-input');
-    const select = componentItem.querySelector('.component-workpiece-select');
+    const select = componentItem.querySelector('.component-item-select');
+    const typeInput = componentItem.querySelector('input[name^="component_item_type_"]');
+    const idInput = componentItem.querySelector('input[name^="component_item_id_"]');
     const workpieceIdInput = componentItem.querySelector('input[name^="component_workpiece_id_"]');
-    const workpieceCodeInput = componentItem.querySelector('input[name^="component_workpiece_code_"]');
-    const workpieceNameInput = componentItem.querySelector('input[name^="component_workpiece_name_"]');
+    const productIdInput = componentItem.querySelector('input[name^="component_product_id_"]');
+    const codeInput = componentItem.querySelector('input[name^="component_code_"]');
+    const nameInput = componentItem.querySelector('input[name^="component_name_"]');
 
     if (!choice || !choice.id) {
-        workpieceIdInput.value = '';
-        workpieceCodeInput.value = '';
-        workpieceNameInput.value = '';
+        [typeInput, idInput, workpieceIdInput, productIdInput, codeInput, nameInput].forEach((field) => { if (field) field.value = ''; });
         input.value = '';
         if (select) select.value = '';
         return;
     }
-
-    workpieceIdInput.value = choice.id;
-    workpieceCodeInput.value = choice.code;
-    workpieceNameInput.value = choice.name;
+    typeInput.value = choice.type;
+    idInput.value = choice.id;
+    workpieceIdInput.value = choice.type === 'workpiece' ? choice.id : '';
+    productIdInput.value = choice.type === 'product' ? choice.id : '';
+    codeInput.value = choice.code;
+    nameInput.value = choice.name;
     input.value = `${choice.code} / ${choice.name}`;
-    if (select) select.value = String(choice.id);
+    if (select) select.value = `${choice.type}:${choice.id}`;
 }
 
 function choiceFromOption(option) {
     if (!option || !option.value) return null;
-    return {
-        id: option.value,
-        code: option.dataset.code || '',
-        name: option.dataset.name || '',
-        typeDisplay: option.dataset.type || '',
-        stock: option.dataset.stock || ''
-    };
+    return { type: option.dataset.type || 'workpiece', id: option.dataset.id || '', code: option.dataset.code || '', name: option.dataset.name || '', typeDisplay: option.dataset.typeLabel || '', stock: option.dataset.stock || '' };
 }
 
 function choiceFromSuggestion(button) {
-    return {
-        id: button.dataset.id,
-        code: button.dataset.code,
-        name: button.dataset.name,
-        typeDisplay: button.dataset.type || '',
-        stock: button.dataset.stock || ''
-    };
+    return { type: button.dataset.type || 'workpiece', id: button.dataset.id, code: button.dataset.code, name: button.dataset.name, typeDisplay: button.dataset.typeLabel || '', stock: button.dataset.stock || '' };
 }
 
 function addComponentRow() {
@@ -347,44 +377,21 @@ function addComponentRow() {
         <div class="attachment-item component-item" data-index="${index}">
             <div class="attachment-toolbar mb-3">
                 <h6 class="fw-bold mb-0">配件</h6>
-                <button type="button" class="btn btn-outline-danger btn-sm" onclick="removeComponentRow(this)">
-                    <i class="bi bi-trash"></i> 删除
-                </button>
+                <button type="button" class="btn btn-outline-danger btn-sm" onclick="removeComponentRow(this)"><i class="bi bi-trash"></i> 删除</button>
             </div>
             <div class="row g-3">
-                <div class="col-lg-5">
-                    <label class="form-label">工件库下拉选择 <span class="text-danger">*</span></label>
-                    <select class="form-select component-workpiece-select" name="component_workpiece_select_${index}">
-                        ${buildWorkpieceOptions()}
-                    </select>
-                </div>
-                <div class="col-lg-4">
-                    <label class="form-label">模糊搜索</label>
-                    <div class="component-search-wrap">
-                        <input type="hidden" name="component_workpiece_id_${index}" value="">
-                        <input type="text" class="form-control component-search-input" name="component_workpiece_display_${index}" placeholder="输入工件编号或名称联想" autocomplete="off">
-                        <input type="hidden" name="component_workpiece_code_${index}" value="">
-                        <input type="hidden" name="component_workpiece_name_${index}" value="">
-                        <div class="component-suggestions"></div>
-                    </div>
-                </div>
-                <div class="col-lg-3">
-                    <label class="form-label">数量 <span class="text-danger">*</span></label>
-                    <input type="number" step="0.0001" min="0.0001" class="form-control" name="component_quantity_${index}" required>
-                </div>
+                <div class="col-lg-5"><label class="form-label">配件下拉选择 <span class="text-danger">*</span></label><select class="form-select component-item-select" name="component_item_select_${index}">${buildComponentOptions()}</select></div>
+                <div class="col-lg-4"><label class="form-label">模糊搜索</label><div class="component-search-wrap"><input type="hidden" name="component_item_type_${index}" value=""><input type="hidden" name="component_item_id_${index}" value=""><input type="hidden" name="component_workpiece_id_${index}" value=""><input type="hidden" name="component_product_id_${index}" value=""><input type="text" class="form-control component-search-input" name="component_display_${index}" placeholder="输入编号或名称联想" autocomplete="off"><input type="hidden" name="component_code_${index}" value=""><input type="hidden" name="component_name_${index}" value=""><div class="component-suggestions"></div></div></div>
+                <div class="col-lg-3"><label class="form-label">数量 <span class="text-danger">*</span></label><input type="number" step="0.0001" min="0.0001" class="form-control" name="component_quantity_${index}" required></div>
             </div>
-        </div>
-    `);
+        </div>`);
     renumberItems('.component-item', '配件');
     bindComponentSearch(container.lastElementChild);
 }
 
 function removeComponentRow(button) {
     const items = document.querySelectorAll('.component-item');
-    if (items.length <= 2) {
-        alert('装配结构至少需要保留两个配件。');
-        return;
-    }
+    if (items.length <= 2) { alert('装配结构至少需要保留两个配件。'); return; }
     button.closest('.component-item').remove();
     renumberItems('.component-item', '配件');
 }
@@ -394,37 +401,15 @@ function addAssemblySheet() {
     const index = assemblySheetIndex++;
     container.insertAdjacentHTML('beforeend', `
         <div class="attachment-item assembly-sheet-item" data-index="${index}">
-            <div class="attachment-toolbar mb-3">
-                <h6 class="fw-bold mb-0">装配单</h6>
-                <button type="button" class="btn btn-outline-danger btn-sm" onclick="removeAssemblySheet(this)">
-                    <i class="bi bi-trash"></i> 删除
-                </button>
-            </div>
-            <div class="row">
-                <div class="col-md-4 mb-3">
-                    <label class="form-label">标题</label>
-                    <input type="text" class="form-control" name="assembly_sheet_title_${index}" value="装配单 ${index + 1}">
-                </div>
-                <div class="col-md-4 mb-3">
-                    <label class="form-label">内容</label>
-                    <input type="text" class="form-control" name="assembly_sheet_content_${index}">
-                </div>
-                <div class="col-md-4 mb-3">
-                    <label class="form-label">文件 <span class="text-danger">*</span></label>
-                    <input type="file" class="form-control" name="assembly_sheet_file_${index}" accept="image/*,application/pdf">
-                </div>
-            </div>
-        </div>
-    `);
+            <div class="attachment-toolbar mb-3"><h6 class="fw-bold mb-0">装配单</h6><button type="button" class="btn btn-outline-danger btn-sm" onclick="removeAssemblySheet(this)"><i class="bi bi-trash"></i> 删除</button></div>
+            <div class="row"><div class="col-md-4 mb-3"><label class="form-label">标题</label><input type="text" class="form-control" name="assembly_sheet_title_${index}" value="装配单 ${index + 1}"></div><div class="col-md-4 mb-3"><label class="form-label">内容</label><input type="text" class="form-control" name="assembly_sheet_content_${index}"></div><div class="col-md-4 mb-3"><label class="form-label">文件 <span class="text-danger">*</span></label><input type="file" class="form-control" name="assembly_sheet_file_${index}" accept="image/*,application/pdf"></div></div>
+        </div>`);
     renumberItems('.assembly-sheet-item', '装配单');
 }
 
 function removeAssemblySheet(button) {
     const items = document.querySelectorAll('.assembly-sheet-item');
-    if (items.length <= 1) {
-        alert('请至少保留一项装配单。');
-        return;
-    }
+    if (items.length <= 1) { alert('请至少保留一项装配单。'); return; }
     button.closest('.assembly-sheet-item').remove();
     renumberItems('.assembly-sheet-item', '装配单');
 }
@@ -434,106 +419,51 @@ function addRemark() {
     const emptyText = document.getElementById('remarkEmptyText');
     if (emptyText) emptyText.remove();
     const index = remarkIndex++;
-    container.insertAdjacentHTML('beforeend', `
-        <div class="attachment-item remark-item" data-index="${index}">
-            <div class="attachment-toolbar mb-3">
-                <h6 class="fw-bold mb-0">备注</h6>
-                <button type="button" class="btn btn-outline-danger btn-sm" onclick="removeRemark(this)">
-                    <i class="bi bi-trash"></i> 删除
-                </button>
-            </div>
-            <div class="row">
-                <div class="col-md-5 mb-3">
-                    <label class="form-label">备注内容</label>
-                    <input type="text" class="form-control" name="remark_content_${index}">
-                </div>
-                <div class="col-md-3 mb-3">
-                    <label class="form-label">是否必填</label>
-                    <select class="form-select" name="remark_required_${index}">
-                        <option value="1">必填</option>
-                        <option value="0" selected>选填</option>
-                    </select>
-                </div>
-                <div class="col-md-4 mb-3">
-                    <label class="form-label">附件</label>
-                    <input type="file" class="form-control" name="remark_file_${index}" accept="image/*,application/pdf">
-                </div>
-            </div>
-        </div>
-    `);
+    container.insertAdjacentHTML('beforeend', `<div class="attachment-item remark-item" data-index="${index}"><div class="attachment-toolbar mb-3"><h6 class="fw-bold mb-0">备注</h6><button type="button" class="btn btn-outline-danger btn-sm" onclick="removeRemark(this)"><i class="bi bi-trash"></i> 删除</button></div><div class="row"><div class="col-md-5 mb-3"><label class="form-label">备注内容</label><input type="text" class="form-control" name="remark_content_${index}"></div><div class="col-md-3 mb-3"><label class="form-label">是否必填</label><select class="form-select" name="remark_required_${index}"><option value="1">必填</option><option value="0" selected>选填</option></select></div><div class="col-md-4 mb-3"><label class="form-label">附件</label><input type="file" class="form-control" name="remark_file_${index}" accept="image/*,application/pdf"></div></div></div>`);
     renumberItems('.remark-item', '备注');
 }
 
 function removeRemark(button) {
     button.closest('.remark-item').remove();
     renumberItems('.remark-item', '备注');
-    if (!document.querySelector('.remark-item')) {
-        document.getElementById('remarkContainer').insertAdjacentHTML('afterend', '<p class="text-muted mb-0" id="remarkEmptyText">暂无备注，可按需添加。</p>');
-    }
+    if (!document.querySelector('.remark-item')) document.getElementById('remarkContainer').insertAdjacentHTML('afterend', '<p class="text-muted mb-0" id="remarkEmptyText">暂无备注，可按需添加。</p>');
 }
 
 function bindComponentSearch(componentItem) {
     const input = componentItem.querySelector('.component-search-input');
-    const select = componentItem.querySelector('.component-workpiece-select');
+    const select = componentItem.querySelector('.component-item-select');
     const suggestionBox = componentItem.querySelector('.component-suggestions');
     const searchWrap = componentItem.querySelector('.component-search-wrap');
     let timer = null;
-
     if (select) {
-        select.addEventListener('change', () => {
-            syncComponentChoice(componentItem, choiceFromOption(select.selectedOptions[0]));
-        });
-        if (select.value) {
-            syncComponentChoice(componentItem, choiceFromOption(select.selectedOptions[0]));
-        }
+        select.addEventListener('change', () => syncComponentChoice(componentItem, choiceFromOption(select.selectedOptions[0])));
+        if (select.value) syncComponentChoice(componentItem, choiceFromOption(select.selectedOptions[0]));
     }
-
     input.addEventListener('input', () => {
         const keyword = input.value.trim();
-        componentItem.querySelector('input[name^="component_workpiece_id_"]').value = '';
-        componentItem.querySelector('input[name^="component_workpiece_code_"]').value = '';
-        componentItem.querySelector('input[name^="component_workpiece_name_"]').value = '';
-        if (select) select.value = '';
+        syncComponentChoice(componentItem, null);
         suggestionBox.innerHTML = '';
         suggestionBox.style.display = 'none';
         searchWrap.classList.remove('is-open');
         if (timer) clearTimeout(timer);
         if (keyword.length < 1) return;
-
         timer = setTimeout(async () => {
-            const response = await fetch(`/qc/assembly/workpieces/search?keyword=${encodeURIComponent(keyword)}`);
+            const response = await fetch(`/qc/assembly/components/search?level=${PRODUCT_LEVEL}&keyword=${encodeURIComponent(keyword)}`);
             const payload = await response.json();
             const items = payload.items || [];
             if (!items.length) {
-                suggestionBox.innerHTML = '<div class="px-3 py-2 text-muted small">未找到匹配工件</div>';
+                suggestionBox.innerHTML = '<div class="px-3 py-2 text-muted small">未找到匹配配件</div>';
                 suggestionBox.style.display = 'block';
                 searchWrap.classList.add('is-open');
                 return;
             }
-            suggestionBox.innerHTML = items.map((item) => `
-                <button type="button" class="component-suggestion" data-id="${escapeHtml(item.id)}" data-code="${escapeHtml(item.workpiece_code)}" data-name="${escapeHtml(item.workpiece_name)}" data-type="${escapeHtml(item.workpiece_type_display)}" data-stock="${escapeHtml(item.stock_quantity)}">
-                    <div class="fw-semibold">${escapeHtml(item.workpiece_code)} / ${escapeHtml(item.workpiece_name)}</div>
-                    <div class="component-meta">类型：${escapeHtml(item.workpiece_type_display)}，库存：${escapeHtml(item.stock_quantity)}</div>
-                </button>
-            `).join('');
+            suggestionBox.innerHTML = items.map((item) => `<button type="button" class="component-suggestion" data-type="${escapeHtml(item.type)}" data-id="${escapeHtml(item.id)}" data-code="${escapeHtml(item.code)}" data-name="${escapeHtml(item.name)}" data-type-label="${escapeHtml(item.type_display)}" data-stock="${escapeHtml(item.stock_quantity)}"><div class="fw-semibold">${escapeHtml(item.code)} / ${escapeHtml(item.name)}</div><div class="component-meta">来源：${escapeHtml(item.type_display)}，库存：${escapeHtml(item.stock_quantity)}</div></button>`).join('');
             suggestionBox.style.display = 'block';
             searchWrap.classList.add('is-open');
-            suggestionBox.querySelectorAll('.component-suggestion').forEach((button) => {
-                button.addEventListener('click', () => {
-                    syncComponentChoice(componentItem, choiceFromSuggestion(button));
-                    suggestionBox.style.display = 'none';
-                    searchWrap.classList.remove('is-open');
-                });
-            });
+            suggestionBox.querySelectorAll('.component-suggestion').forEach((button) => button.addEventListener('click', () => { syncComponentChoice(componentItem, choiceFromSuggestion(button)); suggestionBox.style.display = 'none'; searchWrap.classList.remove('is-open'); }));
         }, 200);
     });
-
-    document.addEventListener('click', (event) => {
-        if (!componentItem.contains(event.target)) {
-            suggestionBox.style.display = 'none';
-            searchWrap.classList.remove('is-open');
-        }
-    });
+    document.addEventListener('click', (event) => { if (!componentItem.contains(event.target)) { suggestionBox.style.display = 'none'; searchWrap.classList.remove('is-open'); } });
 }
 
 document.querySelectorAll('.component-item').forEach((item) => bindComponentSearch(item));
@@ -543,8 +473,8 @@ renumberItems('.remark-item', '备注');
 
 document.getElementById('assemblyProductForm').addEventListener('submit', () => {
     document.querySelectorAll('.component-item').forEach((item) => {
-        const select = item.querySelector('.component-workpiece-select');
-        const hiddenId = item.querySelector('input[name^="component_workpiece_id_"]');
+        const select = item.querySelector('.component-item-select');
+        const hiddenId = item.querySelector('input[name^="component_item_id_"]');
         if (select && select.value && !hiddenId.value) {
             syncComponentChoice(item, choiceFromOption(select.selectedOptions[0]));
         }

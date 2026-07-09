@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>出厂报告 - {{ order.batch_no }}</title>
+    <title>验收报告 - {{ order.batch_no }}</title>
     <link href="{{ url_for('static', filename='vendor/bootstrap/css/bootstrap.min.css') }}" rel="stylesheet">
     <link href="{{ url_for('static', filename='vendor/bootstrap-icons/font/bootstrap-icons.css') }}" rel="stylesheet">
     <style>
@@ -65,13 +65,16 @@
         <button class="btn btn-primary" onclick="window.print()">
             <i class="bi bi-printer"></i> 打印
         </button>
-        <button class="btn btn-secondary" onclick="window.close()">
+        <a class="btn btn-outline-primary" href="{{ download_url }}">
+            <i class="bi bi-file-earmark-word"></i> 下载
+        </a>
+        <a class="btn btn-secondary" href="{{ url_for('qc.assembly_acceptance_detail', order_id=order.id) }}">
             <i class="bi bi-x-lg"></i> 关闭
-        </button>
+        </a>
     </div>
 
     <div class="print-header">
-        <div class="print-title">装配/出厂报告</div>
+        <div class="print-title">装配验收报告</div>
         <div class="text-muted">ALCOEN AI CATS 生成</div>
     </div>
 
@@ -89,7 +92,7 @@
             <div>{{ '{:g}'.format(order.quantity or 0) }}</div>
         </div>
         <div class="info-item">
-            <label>出厂日期</label>
+            <label>验收日期</label>
             <div>{{ order.accepted_at.strftime('%Y年%m月%d日') if order.accepted_at else '-' }}</div>
         </div>
         <div class="info-item">
@@ -171,7 +174,7 @@
     </div>
 
     <div class="text-center text-muted mt-5 small">
-        <p>本出厂报告由 ALCOEN AI CATS 自动生成</p>
+        <p>本验收报告由 ALCOEN AI CATS 自动生成</p>
         <p>打印时间：{{ current_time }}</p>
     </div>
 </body>
