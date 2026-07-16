@@ -115,7 +115,11 @@ class Contract(db.Model):
     )
     transactions: Mapped[list['Transaction']] = relationship(
         back_populates='contract',
-        order_by='Transaction.delivery_date.desc()'
+        # Keep same-day delivery records deterministic after new rows are added.
+        order_by=lambda: (
+            Transaction.delivery_date.desc(),
+            Transaction.id.desc(),
+        )
     )
     payment_records: Mapped[list['PaymentRecord']] = relationship(
         back_populates='contract',
@@ -211,7 +215,10 @@ class ContractProduct(db.Model):
     # 关联
     contract: Mapped['Contract'] = relationship(back_populates='contract_products')
     product: Mapped['Product'] = relationship(back_populates='contract_products')
-    transactions: Mapped[list['Transaction']] = relationship(back_populates='contract_product')
+    transactions: Mapped[list['Transaction']] = relationship(
+        back_populates='contract_product',
+        order_by=lambda: Transaction.id.asc()
+    )
     payment_records: Mapped[list['PaymentRecord']] = relationship(back_populates='contract_product')
     
     def __repr__(self):

@@ -416,6 +416,14 @@ function toggleTransactionRow(btn) {
 function removeTransactionRow(btn) {
     if (confirm('确定要删除这条发货记录吗？')) {
         const row = btn.closest('.transaction-row');
+        const existingId = row.dataset.existingId;
+        if (existingId !== undefined && existingId !== null && existingId !== '') {
+            const deletedInput = document.createElement('input');
+            deletedInput.type = 'hidden';
+            deletedInput.name = 'deleted_transaction_ids';
+            deletedInput.value = existingId;
+            document.getElementById('logisticsForm').appendChild(deletedInput);
+        }
         row.remove();
         reindexTransactions();
     }
@@ -430,6 +438,19 @@ function reindexTransactions() {
             const name = input.name.replace(/transaction_\d+_/, `transaction_${index}_`);
             input.name = name;
         });
+
+        // Keep the existing database identity attached to its visual row.
+        const existingId = row.dataset.existingId;
+        if (existingId !== undefined && existingId !== null && existingId !== '') {
+            let idInput = row.querySelector('input[type="hidden"][name$="_id"]');
+            if (!idInput) {
+                idInput = document.createElement('input');
+                idInput.type = 'hidden';
+                row.appendChild(idInput);
+            }
+            idInput.name = `transaction_${index}_id`;
+            idInput.value = existingId;
+        }
     });
     transactionCount = rows.length;
     document.getElementById('transaction_count').value = transactionCount;
@@ -571,14 +592,14 @@ function openImageModal(src) {
 const existingTransactions = [
     {% for trans in contract.transactions %}
     {
-        id: {{ trans.id }},
-        product_code: '{{ trans.product_code }}',
-        quantity: {{ trans.quantity }},
-        unit: '{{ trans.unit }}',
-        price_with_tax: {{ trans.price_with_tax }},
-        handler: '{{ trans.handler or "" }}',
-        delivery_date: '{{ trans.delivery_date.isoformat() if trans.delivery_date else "" }}',
-        remark: '{{ trans.remark or "" }}'
+        id: {{ trans.id|tojson }},
+        product_code: {{ (trans.product_code or '')|tojson }},
+        quantity: {{ (trans.quantity or 0)|tojson }},
+        unit: {{ (trans.unit or '')|tojson }},
+        price_with_tax: {{ (trans.price_with_tax or 0)|tojson }},
+        handler: {{ (trans.handler or '')|tojson }},
+        delivery_date: {{ (trans.delivery_date.isoformat() if trans.delivery_date else '')|tojson }},
+        remark: {{ (trans.remark or '')|tojson }}
     }{% if not loop.last %},{% endif %}
     {% endfor %}
 ];
@@ -611,9 +632,11 @@ function addTransactionRowWithData(data, isExisting = false) {
         document.querySelector(`[name="transaction_${index}_remark"]`).value = data.remark;
     }
     
-    if (isExisting && data && data.id !== undefined && data.id !== null && data.id !== '') {
+    if (isExisting && data && data.id !== undefined && data.id !== null &&
+        data.id !== '' && data.id !== 'undefined' && data.id !== 'null') {
         // 仅已有记录携带 transaction id，避免新填充行提交 undefined。
         const row = document.querySelector(`.transaction-row[data-index="${index}"]`);
+        row.dataset.existingId = String(data.id);
         const idInput = document.createElement('input');
         idInput.type = 'hidden';
         idInput.name = `transaction_${index}_id`;
