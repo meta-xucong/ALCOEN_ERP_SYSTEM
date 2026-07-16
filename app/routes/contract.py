@@ -479,19 +479,29 @@ def edit_contract(id):
             
             # 处理发货记录 - 包括更新、新增和删除
             transaction_count = _to_non_negative_int(request.form.get('transaction_count'), 0)
-            existing_transaction_ids = {t.id for t in contract.transactions}
+            existing_transaction_ids = {
+                t.id for t in Transaction.query.filter_by(contract_id=id).all()
+            }
             submitted_transaction_ids = set()
+            deleted_transaction_ids = set()
+            for raw_id in request.form.getlist('deleted_transaction_ids'):
+                trans_id = _to_int(raw_id)
+                if trans_id in existing_transaction_ids:
+                    deleted_transaction_ids.add(trans_id)
             
             for i in range(transaction_count):
                 prefix = f'transaction_{i}_'
                 trans_id = _to_int(request.form.get(f'{prefix}id'))  # 如果有id则是已有记录
                 product_code = request.form.get(f'{prefix}contract_product_id')
                 
-                if trans_id is not None:
+                if trans_id is not None and trans_id in existing_transaction_ids:
                     submitted_transaction_ids.add(trans_id)
                     # [v1.4] 更新已有发货记录
                     if trans_id in existing_transaction_ids:
-                        transaction = Transaction.query.get(trans_id)
+                        transaction = Transaction.query.filter_by(
+                            id=trans_id,
+                            contract_id=id
+                        ).first()
                         if transaction:
                             selected_product_code = (request.form.get(f'{prefix}contract_product_id') or '').strip()
                             selected_contract_product = None
@@ -589,8 +599,12 @@ def edit_contract(id):
             
             # 删除未被提交的发货记录（已在页面上删除的）
             # 仅删除“提交前已存在”的记录，避免误删本次新增记录
-            for trans in contract.transactions:
-                if trans.id in existing_transaction_ids and trans.id not in submitted_transaction_ids:
+            for trans in Transaction.query.filter_by(contract_id=id).all():
+                if (
+                    trans.id in deleted_transaction_ids
+                    and trans.id in existing_transaction_ids
+                    and trans.id not in submitted_transaction_ids
+                ):
                     # [v1.3] 先删除关联的对账单明细，避免外键约束错误
                     for item in trans.statement_items:
                         db.session.delete(item)
@@ -740,18 +754,28 @@ def logistics_edit_contract(id):
         try:
             # 处理发货记录
             transaction_count = _to_non_negative_int(request.form.get('transaction_count'), 0)
-            existing_transaction_ids = {t.id for t in contract.transactions}
+            existing_transaction_ids = {
+                t.id for t in Transaction.query.filter_by(contract_id=contract.id).all()
+            }
             submitted_transaction_ids = set()
+            deleted_transaction_ids = set()
+            for raw_id in request.form.getlist('deleted_transaction_ids'):
+                trans_id = _to_int(raw_id)
+                if trans_id in existing_transaction_ids:
+                    deleted_transaction_ids.add(trans_id)
             
             for i in range(transaction_count):
                 prefix = f'transaction_{i}_'
                 trans_id = _to_int(request.form.get(f'{prefix}id'))
                 product_code = request.form.get(f'{prefix}contract_product_id')
                 
-                if trans_id is not None:
+                if trans_id is not None and trans_id in existing_transaction_ids:
                     # [v1.4] 更新已有发货记录
                     submitted_transaction_ids.add(trans_id)
-                    transaction = Transaction.query.get(trans_id)
+                    transaction = Transaction.query.filter_by(
+                        id=trans_id,
+                        contract_id=contract.id
+                    ).first()
                     if transaction:
                         selected_product_code = (product_code or '').strip()
                         selected_contract_product = None
@@ -845,8 +869,12 @@ def logistics_edit_contract(id):
             
             # 删除未提交的发货记录
             # 仅删除“提交前已存在”的记录，避免误删本次新增记录
-            for trans in contract.transactions:
-                if trans.id in existing_transaction_ids and trans.id not in submitted_transaction_ids:
+            for trans in Transaction.query.filter_by(contract_id=contract.id).all():
+                if (
+                    trans.id in deleted_transaction_ids
+                    and trans.id in existing_transaction_ids
+                    and trans.id not in submitted_transaction_ids
+                ):
                     for item in trans.statement_items:
                         db.session.delete(item)
                     db.session.delete(trans)

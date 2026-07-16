@@ -300,13 +300,13 @@ def test_edit_contract_accepts_invoice_only_payment_record(app, client, login, b
         assert payment.contract_product_id is None
 
 
-def test_edit_contract_deletes_only_omitted_existing_rows(app, client, login, base_data):
-    """Rows omitted from payload should be deleted only if they existed before submit."""
+def test_edit_contract_deletes_only_explicitly_marked_existing_rows(app, client, login, base_data):
+    """Only rows explicitly removed in the UI should be deleted."""
     from app.models import Contract
 
     with app.app_context():
         contract, cp = _create_contract(base_data["owner_user_id"])
-        ContractService.add_transaction(
+        existing_tx = ContractService.add_transaction(
             contract.id,
             {
                 "contract_product_id": cp.id,
@@ -331,10 +331,17 @@ def test_edit_contract_deletes_only_omitted_existing_rows(app, client, login, ba
             },
         )
         contract_id = contract.id
+        existing_tx_id = existing_tx.id
         form_data = _base_edit_form(contract, cp)
 
     login(base_data["superadmin_id"])
-    form_data.update({"transaction_count": "0", "payment_count": "0"})
+    form_data.update(
+        {
+            "transaction_count": "0",
+            "payment_count": "0",
+            "deleted_transaction_ids": str(existing_tx_id),
+        }
+    )
     resp = client.post(f"/contract/{contract_id}/edit", data=form_data, follow_redirects=False)
 
     assert resp.status_code == 302
@@ -675,3 +682,165 @@ def test_logistics_edit_submit_with_autofill_payload_completes_delivery_status(a
         delivered_total = round(sum(float(tx.quantity) for tx in transactions), 2)
         assert delivered_total == round(cp_quantity, 2)
         assert PaymentRecord.query.filter_by(contract_id=contract_id).count() == 0
+
+
+def test_logistics_edit_does_not_delete_history_when_existing_id_is_missing(
+    app, client, login, base_data
+):
+    """A malformed payload must not turn a missing row ID into data loss."""
+    from app import db
+    from app.models import Contract, Role, Transaction, User
+
+    with app.app_context():
+        contract, cp = _create_contract(base_data["owner_user_id"])
+        existing_tx = ContractService.add_transaction(
+            contract.id,
+            {
+                "contract_product_id": cp.id,
+                "quantity": 30,
+                "unit": "pcs",
+                "price_with_tax": cp.price,
+                "handler": "Original Logistics",
+                "delivery_date": "2026-04-12",
+                "invoice_date": "",
+                "remark": "original history",
+            },
+            is_new=True,
+        )
+
+        logistics_role = Role.query.filter_by(code="logistics_manager").first()
+        if logistics_role is None:
+            logistics_role = Role(
+                name="Logistics Manager",
+                code="logistics_manager",
+                permissions=json.dumps(["contract_view", "contract_edit_delivery"]),
+                level=60,
+            )
+            db.session.add(logistics_role)
+            db.session.flush()
+
+        logistics_user = User(
+            username="logistics_missing_id",
+            password_hash="x",
+            real_name="Logistics Missing ID",
+            role_id=logistics_role.id,
+            department_id=None,
+            is_active=True,
+            is_superadmin=False,
+            require_password_change=False,
+        )
+        db.session.add(logistics_user)
+        db.session.commit()
+
+        contract_id = contract.id
+        existing_tx_id = existing_tx.id
+        cp_code = cp.product_code
+        cp_unit = cp.unit
+        cp_price = float(cp.price)
+        logistics_user_id = logistics_user.id
+
+    login(logistics_user_id)
+    response = client.post(
+        f"/contract/{contract_id}/logistics-edit",
+        data={
+            "transaction_count": "1",
+            "transaction_0_contract_product_id": cp_code,
+            "transaction_0_quantity": "70",
+            "transaction_0_unit": cp_unit,
+            "transaction_0_price": str(cp_price),
+            "transaction_0_handler": "New Logistics",
+            "transaction_0_delivery_date": "2026-04-13",
+            "transaction_0_remark": "new history",
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 302
+
+    with app.app_context():
+        updated_contract = Contract.query.get(contract_id)
+        transactions = Transaction.query.filter_by(
+            contract_id=contract_id
+        ).order_by(Transaction.id.asc()).all()
+
+        assert updated_contract.delivery_status == "completed"
+        assert len(transactions) == 2
+        assert transactions[0].id == existing_tx_id
+        assert transactions[0].remark == "original history"
+        assert float(transactions[0].quantity) == 30.0
+        assert transactions[1].remark == "new history"
+        assert float(transactions[1].quantity) == 70.0
+
+
+def test_edit_contract_preserves_same_day_delivery_history_and_recalculates_status(
+    app, client, login, base_data
+):
+    """Adding a same-day shipment must keep the old row and complete delivery."""
+    from app.models import Contract, Transaction
+
+    with app.app_context():
+        contract, cp = _create_contract(base_data["owner_user_id"])
+        existing_tx = ContractService.add_transaction(
+            contract.id,
+            {
+                "contract_product_id": cp.id,
+                "quantity": 40,
+                "unit": "pcs",
+                "price_with_tax": 10,
+                "handler": "Original Handler",
+                "delivery_date": "2026-04-11",
+                "invoice_date": "",
+                "remark": "original delivery",
+            },
+            is_new=True,
+        )
+        contract_id = contract.id
+        existing_tx_id = existing_tx.id
+        form_data = _base_edit_form(contract, cp)
+
+    login(base_data["superadmin_id"])
+    form_data.update(
+        {
+            "transaction_count": "2",
+            "transaction_0_id": str(existing_tx_id),
+            "transaction_0_contract_product_id": cp.product_code,
+            "transaction_0_quantity": "40",
+            "transaction_0_unit": "pcs",
+            "transaction_0_price": "10",
+            "transaction_0_handler": "Original Handler",
+            "transaction_0_delivery_date": "2026-04-11",
+            "transaction_0_invoice_date": "",
+            "transaction_0_remark": "original delivery",
+            "transaction_1_contract_product_id": cp.product_code,
+            "transaction_1_quantity": "60",
+            "transaction_1_unit": "pcs",
+            "transaction_1_price": "10",
+            "transaction_1_handler": "New Handler",
+            "transaction_1_delivery_date": "2026-04-11",
+            "transaction_1_invoice_date": "",
+            "transaction_1_remark": "new delivery",
+            "payment_count": "0",
+        }
+    )
+
+    response = client.post(
+        f"/contract/{contract_id}/edit",
+        data=form_data,
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 302
+
+    with app.app_context():
+        updated_contract = Contract.query.get(contract_id)
+        transactions = Transaction.query.filter_by(
+            contract_id=contract_id
+        ).order_by(Transaction.id.asc()).all()
+
+        assert updated_contract.delivery_status == "completed"
+        assert len(transactions) == 2
+        assert transactions[0].id == existing_tx_id
+        assert float(transactions[0].quantity) == 40.0
+        assert transactions[0].remark == "original delivery"
+        assert float(transactions[1].quantity) == 60.0
+        assert transactions[1].remark == "new delivery"

@@ -204,6 +204,8 @@ class ContractService:
         # 获取关联的产品计划
         cp_id = transaction_data.get('contract_product_id')
         cp = ContractProduct.query.get(cp_id) if cp_id else None
+        if cp and cp.contract_id != contract_id:
+            raise ValueError("发货记录关联的产品计划不属于当前合同")
         
         # 检查发货数量是否超过合同数量
         quantity = ContractService._to_float2(transaction_data.get('quantity', 0))
