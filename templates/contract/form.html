@@ -1848,7 +1848,8 @@ function loadExistingData() {
             quantity: {{ cp.quantity }},
             unit: '{{ cp.unit }}',
             price: {{ cp.price }},
-            total: {{ cp.total }}
+            total: {{ cp.total }},
+            remark: {{ (cp.remark or '')|tojson }}
         }{% if not loop.last %},{% endif %}
         {% endfor %}
     ];
@@ -1950,6 +1951,7 @@ function addProductRowWithData(data) {
     row.querySelector('.product-model-input').value = data.product_model;
     row.querySelector('.product-unit-input').value = data.unit;
     row.querySelector('.product-price-input').value = data.price;
+    row.querySelector('.product-remark').value = data.remark || '';
     
     row.querySelector(`[name="product_${productCount}_quantity"]`).value = data.quantity;
     row.querySelector('.product-total').value = data.total;
