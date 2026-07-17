@@ -92,6 +92,195 @@ def test_edit_contract_preserves_four_decimal_product_price(app, client, login, 
         assert round(float(contract.total_value), 2) == 100.00
 
 
+def test_edit_contract_preserves_duplicate_product_plans_and_remarks(app, client, login, base_data):
+    """同一产品编码的多条计划应分别保存，连续编辑不能丢失各自行备注。"""
+    from app.models import Contract, ContractProduct
+
+    with app.app_context():
+        contract = ContractService.create_contract(
+            {
+                "contract_no": f"TEST-DUPLICATE-REMARK-{base_data['owner_user_id']}",
+                "company_name": "Acme Corp",
+                "owner": "Sales - Owner",
+                "department": "Sales",
+                "manager": "Sales Owner",
+                "created_by_id": base_data["owner_user_id"],
+            },
+            [
+                {
+                    "product_code": "DUP-001",
+                    "product_name": "同一产品",
+                    "product_model": "M1",
+                    "product_type": "TypeA",
+                    "quantity": 10,
+                    "unit": "pcs",
+                    "price": 10,
+                    "remark": "第一批备注",
+                },
+                {
+                    "product_code": "DUP-001",
+                    "product_name": "同一产品",
+                    "product_model": "M1",
+                    "product_type": "TypeA",
+                    "quantity": 20,
+                    "unit": "pcs",
+                    "price": 10,
+                    "remark": "第二批备注",
+                },
+            ],
+        )
+        products = ContractProduct.query.filter_by(contract_id=contract.id).order_by(ContractProduct.id).all()
+        assert len(products) == 2
+        contract_id = contract.id
+        first_id, second_id = products[0].id, products[1].id
+        contract_no = contract.contract_no
+        company_name = contract.company_name
+        owner = contract.owner or ""
+        department = contract.department or ""
+        manager = contract.manager or ""
+
+    login(base_data["superadmin_id"])
+    form_data = {
+        "contract_no": contract_no,
+        "company_name": company_name,
+        "owner": owner,
+        "department": department,
+        "manager": manager,
+        "product_count": "2",
+        "product_0_id": str(first_id),
+        "product_0_code": "DUP-001",
+        "product_0_name": "同一产品",
+        "product_0_model": "M1",
+        "product_0_type": "TypeA",
+        "product_0_quantity": "11",
+        "product_0_unit": "pcs",
+        "product_0_price": "10",
+        "product_0_total": "110",
+        "product_0_remark": "第一批备注-第一次编辑",
+        "product_1_id": str(second_id),
+        "product_1_code": "DUP-001",
+        "product_1_name": "同一产品",
+        "product_1_model": "M1",
+        "product_1_type": "TypeA",
+        "product_1_quantity": "21",
+        "product_1_unit": "pcs",
+        "product_1_price": "10",
+        "product_1_total": "210",
+        "product_1_remark": "第二批备注-第一次编辑",
+        "transaction_count": "0",
+        "payment_count": "0",
+    }
+
+    response = client.post(
+        f"/contract/{contract_id}/edit",
+        data=form_data,
+        follow_redirects=False,
+    )
+    assert response.status_code in (302, 303)
+
+    with app.app_context():
+        products = ContractProduct.query.filter_by(contract_id=contract_id).order_by(ContractProduct.id).all()
+        assert [product.id for product in products] == [first_id, second_id]
+        assert [product.remark for product in products] == [
+            "第一批备注-第一次编辑",
+            "第二批备注-第一次编辑",
+        ]
+
+    # 第二次提交模拟再次打开编辑页后保存，备注仍应由各自产品计划保留。
+    form_data["product_0_remark"] = "第一批备注-第二次编辑"
+    form_data["product_1_remark"] = "第二批备注-第二次编辑"
+    response = client.post(
+        f"/contract/{contract_id}/edit",
+        data=form_data,
+        follow_redirects=False,
+    )
+    assert response.status_code in (302, 303)
+
+    with app.app_context():
+        products = ContractProduct.query.filter_by(contract_id=contract_id).order_by(ContractProduct.id).all()
+        assert len(products) == 2
+        assert [product.remark for product in products] == [
+            "第一批备注-第二次编辑",
+            "第二批备注-第二次编辑",
+        ]
+
+
+def test_edit_contract_matches_duplicate_product_plans_without_row_ids(
+    app, client, login, base_data
+):
+    """旧前端未提交行ID时，也要按同编码的未占用记录逐条匹配。"""
+    from app.models import ContractProduct
+
+    with app.app_context():
+        contract = ContractService.create_contract(
+            {
+                "contract_no": f"TEST-DUPLICATE-FALLBACK-{base_data['owner_user_id']}",
+                "company_name": "Acme Corp",
+                "owner": "Sales - Owner",
+                "department": "Sales",
+                "manager": "Sales Owner",
+                "created_by_id": base_data["owner_user_id"],
+            },
+            [
+                {
+                    "product_code": "DUP-002",
+                    "product_name": "同一产品",
+                    "quantity": 10,
+                    "unit": "pcs",
+                    "price": 10,
+                    "remark": "旧备注1",
+                },
+                {
+                    "product_code": "DUP-002",
+                    "product_name": "同一产品",
+                    "quantity": 20,
+                    "unit": "pcs",
+                    "price": 10,
+                    "remark": "旧备注2",
+                },
+            ],
+        )
+        products = ContractProduct.query.filter_by(contract_id=contract.id).order_by(ContractProduct.id).all()
+        contract_id = contract.id
+        contract_no = contract.contract_no
+
+    login(base_data["superadmin_id"])
+    response = client.post(
+        f"/contract/{contract_id}/edit",
+        data={
+            "contract_no": contract_no,
+            "company_name": "Acme Corp",
+            "owner": "Sales - Owner",
+            "department": "Sales",
+            "manager": "Sales Owner",
+            "product_count": "2",
+            "product_0_code": "DUP-002",
+            "product_0_name": "同一产品",
+            "product_0_quantity": "12",
+            "product_0_unit": "pcs",
+            "product_0_price": "10",
+            "product_0_total": "120",
+            "product_0_remark": "新备注1",
+            "product_1_code": "DUP-002",
+            "product_1_name": "同一产品",
+            "product_1_quantity": "22",
+            "product_1_unit": "pcs",
+            "product_1_price": "10",
+            "product_1_total": "220",
+            "product_1_remark": "新备注2",
+            "transaction_count": "0",
+            "payment_count": "0",
+        },
+        follow_redirects=False,
+    )
+    assert response.status_code in (302, 303)
+
+    with app.app_context():
+        products = ContractProduct.query.filter_by(contract_id=contract_id).order_by(ContractProduct.id).all()
+        assert len(products) == 2
+        assert [product.remark for product in products] == ["新备注1", "新备注2"]
+
+
 def test_edit_contract_calculates_unit_price_from_product_total(app, client, login, base_data):
     """Submitting a row total without unit price derives the unit price."""
     from app.models import ContractProduct

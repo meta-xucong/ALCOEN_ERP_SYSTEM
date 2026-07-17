@@ -443,6 +443,9 @@ def edit_contract(id):
             # Handle product plan edits and additions.
             product_count = _to_non_negative_int(request.form.get('product_count'), 0)
             existing_product_ids = {cp.id for cp in contract.contract_products}
+            existing_products_by_code = {}
+            for existing_cp in contract.contract_products:
+                existing_products_by_code.setdefault(existing_cp.product_code, []).append(existing_cp)
             submitted_product_ids = set()
             
             for i in range(product_count):
@@ -461,8 +464,17 @@ def edit_contract(id):
                     submitted_product_ids.add(product_id)
                     continue
 
-                # 兼容旧前端：没有 product_id 时，按产品编码匹配已有记录
-                existing_cp = ContractProduct.query.filter_by(contract_id=id, product_code=product_code).first()
+                # 兼容旧前端：没有 product_id 时，按产品编码匹配“尚未被本次提交占用”的记录。
+                # 同一产品编码允许存在多条计划，不能每次都取 first()，否则后续行会覆盖
+                # 第一条并把其余记录误判为已删除。
+                existing_cp = next(
+                    (
+                        candidate
+                        for candidate in existing_products_by_code.get(product_code, [])
+                        if candidate.id not in submitted_product_ids
+                    ),
+                    None,
+                )
                 if existing_cp:
                     ContractService.update_contract_product(existing_cp.id, product_data)
                     submitted_product_ids.add(existing_cp.id)
