@@ -76,6 +76,80 @@ def _to_non_negative_int(value, default: int = 0) -> int:
     return parsed if parsed >= 0 else default
 
 
+def _resolve_contract_product(
+    contract_products,
+    *,
+    product_ref=None,
+    product_code=None,
+    product_row_map=None,
+    used_ids=None,
+    current_product=None,
+):
+    """Resolve a contract product without collapsing duplicate product codes.
+
+    Newer forms submit a stable row reference such as ``row:2``. Older forms
+    submit only the product code, so keep a deterministic first-unused fallback
+    for backwards compatibility.
+    """
+    product_row_map = product_row_map or {}
+    used_ids = used_ids or set()
+    normalized_ref = (str(product_ref).strip() if product_ref is not None else '')
+    normalized_code = (str(product_code).strip() if product_code is not None else '')
+
+    if normalized_ref.startswith('row:'):
+        try:
+            row_index = int(normalized_ref[4:])
+        except (TypeError, ValueError):
+            row_index = None
+        if row_index is not None:
+            mapped_id = product_row_map.get(row_index)
+            if mapped_id is not None:
+                for product in contract_products:
+                    if product.id == mapped_id:
+                        return product
+
+    if normalized_ref.startswith('cp:'):
+        try:
+            product_id = int(normalized_ref[3:])
+        except (TypeError, ValueError):
+            product_id = None
+        if product_id is not None:
+            for product in contract_products:
+                if product.id == product_id:
+                    return product
+
+    # Accept a raw numeric ID from integrations and older experimental forms.
+    if normalized_ref.isdigit():
+        product_id = int(normalized_ref)
+        for product in contract_products:
+            if product.id == product_id:
+                return product
+
+    if current_product is not None and (
+        not normalized_code or current_product.product_code == normalized_code
+    ):
+        return current_product
+
+    if normalized_code:
+        candidates = [
+            product
+            for product in contract_products
+            if product.product_code == normalized_code and product.id not in used_ids
+        ]
+        if candidates:
+            return candidates[0]
+        return next(
+            (
+                product
+                for product in contract_products
+                if product.product_code == normalized_code
+            ),
+            None,
+        )
+
+    return None
+
+
 def _parse_optional_date(value):
     """解析可选日期字符串。"""
     if not value:
@@ -130,6 +204,9 @@ def _extract_payment_row_payload(prefix: str, form_data, *, existing: bool = Fal
     invoice_date_raw = form_data.get(f'{prefix}invoice_date')
     remark = form_data.get(f'{prefix}remark')
     contract_product_code = (form_data.get(f'{prefix}contract_product_id') or '').strip() or None
+    contract_product_ref = (
+        (form_data.get(f'{prefix}contract_product_ref') or '').strip() or None
+    )
     handler = (form_data.get(f'{prefix}handler') or '').strip() or None
 
     has_meaningful_input = any([
@@ -139,6 +216,7 @@ def _extract_payment_row_payload(prefix: str, form_data, *, existing: bool = Fal
         bool(invoice_date_raw),
         bool((remark or '').strip()),
         bool(contract_product_code),
+        bool(contract_product_ref),
     ])
 
     if payment_amount is None and invoice_amount is None:
@@ -154,6 +232,7 @@ def _extract_payment_row_payload(prefix: str, form_data, *, existing: bool = Fal
         'handler': handler,
         'remark': remark,
         'contract_product_code': contract_product_code,
+        'contract_product_ref': contract_product_ref,
     }
 
 
@@ -248,13 +327,15 @@ def new_contract():
             
             # Read product rows from the dynamic form.
             products_data = []
+            product_row_indices = []
             product_count = _to_non_negative_int(request.form.get('product_count'), 0)
-            
+
             for i in range(product_count):
                 prefix = f'product_{i}_'
                 product_data = _extract_product_row_payload(prefix, request.form)
                 if product_data['product_code'] and product_data['quantity'] > 0:
                     products_data.append(product_data)
+                    product_row_indices.append(i)
             
             if not products_data:
                 flash('请至少添加一种发货产品', 'error')
@@ -279,19 +360,31 @@ def new_contract():
             
             # 创建合同
             contract = ContractService.create_contract(contract_data, products_data)
-            
+            created_contract_products = ContractProduct.query.filter_by(
+                contract_id=contract.id
+            ).order_by(ContractProduct.id.asc()).all()
+            product_row_map = {
+                row_index: product.id
+                for row_index, product in zip(product_row_indices, created_contract_products)
+            }
+            used_contract_product_ids = set()
+
             # 添加发货记录（如果有）
             transaction_count = _to_non_negative_int(request.form.get('transaction_count'), 0)
             for i in range(transaction_count):
                 prefix = f'transaction_{i}_'
                 product_code = request.form.get(f'{prefix}contract_product_id')
                 if product_code:
-                    contract_product = ContractProduct.query.filter_by(
-                        contract_id=contract.id,
-                        product_code=product_code
-                    ).first()
-                    
+                    contract_product = _resolve_contract_product(
+                        created_contract_products,
+                        product_ref=request.form.get(f'{prefix}contract_product_ref'),
+                        product_code=product_code,
+                        product_row_map=product_row_map,
+                        used_ids=used_contract_product_ids,
+                    )
+
                     if contract_product:
+                        used_contract_product_ids.add(contract_product.id)
                         transaction_data = {
                             'contract_product_id': contract_product.id,
                             'quantity': _to_float2(request.form.get(f'{prefix}quantity', 0)),
@@ -311,7 +404,16 @@ def new_contract():
                 prefix = f'payment_{i}_'
                 payment_data = _extract_payment_row_payload(prefix, request.form)
                 if payment_data:
-                    payment_data['contract_product_id'] = payment_data.pop('contract_product_code')
+                    contract_product = _resolve_contract_product(
+                        created_contract_products,
+                        product_ref=payment_data.pop('contract_product_ref', None),
+                        product_code=payment_data.pop('contract_product_code', None),
+                        product_row_map=product_row_map,
+                        used_ids=used_contract_product_ids,
+                    )
+                    payment_data['contract_product_id'] = contract_product.id if contract_product else None
+                    if contract_product:
+                        used_contract_product_ids.add(contract_product.id)
                     ContractService.add_payment_record(contract.id, payment_data)
             
             # 处理图片上传 [v1.3]
@@ -447,7 +549,8 @@ def edit_contract(id):
             for existing_cp in contract.contract_products:
                 existing_products_by_code.setdefault(existing_cp.product_code, []).append(existing_cp)
             submitted_product_ids = set()
-            
+            product_row_map = {}
+
             for i in range(product_count):
                 prefix = f'product_{i}_'
                 product_data = _extract_product_row_payload(prefix, request.form)
@@ -462,6 +565,7 @@ def edit_contract(id):
                 if product_id and product_id in existing_product_ids:
                     ContractService.update_contract_product(product_id, product_data)
                     submitted_product_ids.add(product_id)
+                    product_row_map[i] = product_id
                     continue
 
                 # 兼容旧前端：没有 product_id 时，按产品编码匹配“尚未被本次提交占用”的记录。
@@ -478,9 +582,11 @@ def edit_contract(id):
                 if existing_cp:
                     ContractService.update_contract_product(existing_cp.id, product_data)
                     submitted_product_ids.add(existing_cp.id)
+                    product_row_map[i] = existing_cp.id
                 else:
                     new_cp = ContractService.add_contract_product(id, product_data)
                     submitted_product_ids.add(new_cp.id)
+                    product_row_map[i] = new_cp.id
             
             # 删除未被提交的产品计划（已被删除的）
             for cp in contract.contract_products:
@@ -495,6 +601,7 @@ def edit_contract(id):
                 t.id for t in Transaction.query.filter_by(contract_id=id).all()
             }
             submitted_transaction_ids = set()
+            used_contract_product_ids = set()
             deleted_transaction_ids = set()
             for raw_id in request.form.getlist('deleted_transaction_ids'):
                 trans_id = _to_int(raw_id)
@@ -516,25 +623,31 @@ def edit_contract(id):
                         ).first()
                         if transaction:
                             selected_product_code = (request.form.get(f'{prefix}contract_product_id') or '').strip()
-                            selected_contract_product = None
-                            if selected_product_code:
-                                selected_contract_product = ContractProduct.query.filter_by(
-                                    contract_id=id,
-                                    product_code=selected_product_code
-                                ).first()
-                                if selected_contract_product:
-                                    # 同步产品计划关联及冗余字段，避免“前端显示已变更但保存后回滚”
-                                    transaction.contract_product_id = selected_contract_product.id
-                                    transaction.product_id = selected_contract_product.product_id
-                                    transaction.product_code = selected_contract_product.product_code
-                                    transaction.product_name = selected_contract_product.product_name
-                                    transaction.product_model = selected_contract_product.product_model
-                                    transaction.product_type = selected_contract_product.product_type
-                                else:
-                                    current_app.logger.warning(
-                                        f"[v1.5.3] Transaction update product not found: "
-                                        f"contract_id={id}, product_code={selected_product_code}"
-                                    )
+                            contract_products = ContractProduct.query.filter_by(
+                                contract_id=id
+                            ).order_by(ContractProduct.id.asc()).all()
+                            selected_contract_product = _resolve_contract_product(
+                                contract_products,
+                                product_ref=request.form.get(f'{prefix}contract_product_ref'),
+                                product_code=selected_product_code,
+                                product_row_map=product_row_map,
+                                used_ids=used_contract_product_ids,
+                                current_product=transaction.contract_product,
+                            )
+                            if selected_contract_product:
+                                used_contract_product_ids.add(selected_contract_product.id)
+                                # 同步产品计划关联及冗余字段，避免“前端显示已变更但保存后回滚”
+                                transaction.contract_product_id = selected_contract_product.id
+                                transaction.product_id = selected_contract_product.product_id
+                                transaction.product_code = selected_contract_product.product_code
+                                transaction.product_name = selected_contract_product.product_name
+                                transaction.product_model = selected_contract_product.product_model
+                                transaction.product_type = selected_contract_product.product_type
+                            elif selected_product_code:
+                                current_app.logger.warning(
+                                    f"[v1.5.3] Transaction update product not found: "
+                                    f"contract_id={id}, product_code={selected_product_code}"
+                                )
 
                             # 更新可编辑字段
                             quantity = request.form.get(f'{prefix}quantity')
@@ -571,22 +684,31 @@ def edit_contract(id):
                             
                             # [v1.5.2] 恢复 invoice_date 处理
                             invoice_date = request.form.get(f'{prefix}invoice_date')
-                            if invoice_date:
-                                transaction.invoice_date = datetime.strptime(invoice_date, '%Y-%m-%d').date()
-                            else:
-                                transaction.invoice_date = None
+                            if invoice_date is not None:
+                                transaction.invoice_date = (
+                                    datetime.strptime(invoice_date, '%Y-%m-%d').date()
+                                    if invoice_date
+                                    else None
+                                )
                         continue
-                
+
                 if product_code:
-                    contract_product = ContractProduct.query.filter_by(
-                        contract_id=id,
-                        product_code=product_code
-                    ).first()
-                    
+                    contract_products = ContractProduct.query.filter_by(
+                        contract_id=id
+                    ).order_by(ContractProduct.id.asc()).all()
+                    contract_product = _resolve_contract_product(
+                        contract_products,
+                        product_ref=request.form.get(f'{prefix}contract_product_ref'),
+                        product_code=product_code,
+                        product_row_map=product_row_map,
+                        used_ids=used_contract_product_ids,
+                    )
+
                     # [v1.5.2] 调试日志
                     current_app.logger.info(f"[v1.5.2] Looking for ContractProduct: contract_id={id}, product_code={product_code}, found={contract_product is not None}")
-                    
+
                     if contract_product:
+                        used_contract_product_ids.add(contract_product.id)
                         transaction_data = {
                             'contract_product_id': contract_product.id,
                             'quantity': _to_float2(request.form.get(f'{prefix}quantity', 0)),
@@ -645,18 +767,36 @@ def edit_contract(id):
                             payment.handler = payment_data['handler']
                             payment.remark = payment_data['remark']
 
-                            product_code = payment_data['contract_product_code']
-                            if product_code:
-                                cp = ContractProduct.query.filter_by(contract_id=id, product_code=product_code).first()
-                                payment.contract_product_id = cp.id if cp else None
-                            else:
-                                payment.contract_product_id = None
+                            contract_products = ContractProduct.query.filter_by(
+                                contract_id=id
+                            ).order_by(ContractProduct.id.asc()).all()
+                            cp = _resolve_contract_product(
+                                contract_products,
+                                product_ref=payment_data.get('contract_product_ref'),
+                                product_code=payment_data.get('contract_product_code'),
+                                product_row_map=product_row_map,
+                                used_ids=used_contract_product_ids,
+                                current_product=payment.contract_product,
+                            )
+                            payment.contract_product_id = cp.id if cp else None
+                            if cp:
+                                used_contract_product_ids.add(cp.id)
                         continue
                 
                 payment_data = _extract_payment_row_payload(prefix, request.form)
                 if payment_data:
-                    product_code = payment_data['contract_product_code']
-                    cp = ContractProduct.query.filter_by(contract_id=id, product_code=product_code).first() if product_code else None
+                    contract_products = ContractProduct.query.filter_by(
+                        contract_id=id
+                    ).order_by(ContractProduct.id.asc()).all()
+                    cp = _resolve_contract_product(
+                        contract_products,
+                        product_ref=payment_data.get('contract_product_ref'),
+                        product_code=payment_data.get('contract_product_code'),
+                        product_row_map=product_row_map,
+                        used_ids=used_contract_product_ids,
+                    )
+                    if cp:
+                        used_contract_product_ids.add(cp.id)
 
                     new_payment = PaymentRecord(
                         contract_id=id,
@@ -770,6 +910,7 @@ def logistics_edit_contract(id):
                 t.id for t in Transaction.query.filter_by(contract_id=contract.id).all()
             }
             submitted_transaction_ids = set()
+            used_contract_product_ids = set()
             deleted_transaction_ids = set()
             for raw_id in request.form.getlist('deleted_transaction_ids'):
                 trans_id = _to_int(raw_id)
@@ -790,25 +931,30 @@ def logistics_edit_contract(id):
                     ).first()
                     if transaction:
                         selected_product_code = (product_code or '').strip()
-                        selected_contract_product = None
-                        if selected_product_code:
-                            selected_contract_product = ContractProduct.query.filter_by(
-                                contract_id=contract.id,
-                                product_code=selected_product_code
-                            ).first()
-                            if selected_contract_product:
-                                # 同步产品计划关联及冗余字段，避免保存后产品信息未更新
-                                transaction.contract_product_id = selected_contract_product.id
-                                transaction.product_id = selected_contract_product.product_id
-                                transaction.product_code = selected_contract_product.product_code
-                                transaction.product_name = selected_contract_product.product_name
-                                transaction.product_model = selected_contract_product.product_model
-                                transaction.product_type = selected_contract_product.product_type
-                            else:
-                                current_app.logger.warning(
-                                    f"[v1.5.3] Logistics update product not found: "
-                                    f"contract_id={contract.id}, product_code={selected_product_code}"
-                                )
+                        contract_products = ContractProduct.query.filter_by(
+                            contract_id=contract.id
+                        ).order_by(ContractProduct.id.asc()).all()
+                        selected_contract_product = _resolve_contract_product(
+                            contract_products,
+                            product_ref=request.form.get(f'{prefix}contract_product_ref'),
+                            product_code=selected_product_code,
+                            used_ids=used_contract_product_ids,
+                            current_product=transaction.contract_product,
+                        )
+                        if selected_contract_product:
+                            used_contract_product_ids.add(selected_contract_product.id)
+                            # 同步产品计划关联及冗余字段，避免保存后产品信息未更新
+                            transaction.contract_product_id = selected_contract_product.id
+                            transaction.product_id = selected_contract_product.product_id
+                            transaction.product_code = selected_contract_product.product_code
+                            transaction.product_name = selected_contract_product.product_name
+                            transaction.product_model = selected_contract_product.product_model
+                            transaction.product_type = selected_contract_product.product_type
+                        elif selected_product_code:
+                            current_app.logger.warning(
+                                f"[v1.5.3] Logistics update product not found: "
+                                f"contract_id={contract.id}, product_code={selected_product_code}"
+                            )
 
                         # 更新可编辑字段
                         quantity = _to_float2(request.form.get(f'{prefix}quantity', 0))
@@ -842,16 +988,31 @@ def logistics_edit_contract(id):
                         remark = request.form.get(f'{prefix}remark')
                         if remark is not None:
                             transaction.remark = remark
+
+                        invoice_date = request.form.get(f'{prefix}invoice_date')
+                        if invoice_date is not None:
+                            from datetime import datetime
+                            transaction.invoice_date = (
+                                datetime.strptime(invoice_date, '%Y-%m-%d').date()
+                                if invoice_date
+                                else None
+                            )
                     continue
-                
+
                 # 新增发货记录
                 if product_code:
-                    contract_product = ContractProduct.query.filter_by(
-                        contract_id=contract.id,
-                        product_code=product_code
-                    ).first()
-                    
+                    contract_products = ContractProduct.query.filter_by(
+                        contract_id=contract.id
+                    ).order_by(ContractProduct.id.asc()).all()
+                    contract_product = _resolve_contract_product(
+                        contract_products,
+                        product_ref=request.form.get(f'{prefix}contract_product_ref'),
+                        product_code=product_code,
+                        used_ids=used_contract_product_ids,
+                    )
+
                     if contract_product:
+                        used_contract_product_ids.add(contract_product.id)
                         quantity = _to_float2(request.form.get(f'{prefix}quantity', 0))
                         handler = request.form.get(f'{prefix}handler', '').strip()
                         delivery_date_str = request.form.get(f'{prefix}delivery_date')
@@ -875,6 +1036,14 @@ def logistics_edit_contract(id):
                                 price_with_tax=_to_float2(request.form.get(f'{prefix}price', 0)),
                                 handler=handler,
                                 delivery_date=delivery_date,
+                                invoice_date=(
+                                    datetime.strptime(
+                                        request.form.get(f'{prefix}invoice_date'),
+                                        '%Y-%m-%d',
+                                    ).date()
+                                    if request.form.get(f'{prefix}invoice_date')
+                                    else None
+                                ),
                                 remark=request.form.get(f'{prefix}remark')
                             )
                             db.session.add(transaction)

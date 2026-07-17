@@ -620,16 +620,21 @@
                     <label class="form-label">发货日期 *</label>
                     <input type="date" class="form-control" name="transaction_{index}_delivery_date" required>
                 </div>
-                <div class="col-md-4">
+                <div class="col-md-3">
+                    <label class="form-label">开票日期</label>
+                    <input type="date" class="form-control" name="transaction_{index}_invoice_date">
+                </div>
+                <div class="col-md-3">
                     <label class="form-label">经手人 *</label>
-                    <input type="text" class="form-control" name="transaction_{index}_handler" 
+                    <input type="text" class="form-control" name="transaction_{index}_handler"
                            required maxlength="50" placeholder="必填" value="{{ current_user.real_name or current_user.username }}">
                 </div>
-                <div class="col-md-4">
+                <div class="col-md-3">
                     <label class="form-label">备注</label>
                     <input type="text" class="form-control" name="transaction_{index}_remark" maxlength="100">
                 </div>
             </div>
+            <input type="hidden" class="trans-product-ref" name="transaction_{index}_contract_product_ref">
         </div>
     </div>
 </template>
@@ -671,11 +676,12 @@
             </div>
             <div class="col-md-2">
                 <label class="form-label">对应产品</label>
-                <select class="form-select" name="payment_{index}_contract_product_id">
+                <select class="form-select" name="payment_{index}_contract_product_id" onchange="onPaymentProductSelect(this)">
                     <option value="">-- 选择产品 --</option>
                 </select>
             </div>
         </div>
+        <input type="hidden" class="payment-product-ref" name="payment_{index}_contract_product_ref">
         <div class="row align-items-end mt-3">
             <div class="col-md-4">
                 <label class="form-label">备注</label>
@@ -889,6 +895,7 @@ function getCurrentProductPlans() {
         const code = getProductCodeFromRow(row);
         if (!code) return;
         products.push({
+            index: row.dataset.index,
             code,
             name: row.querySelector('.product-name-input')?.value || '',
             model: row.querySelector('.product-model-input')?.value || '',
@@ -903,10 +910,15 @@ function getCurrentProductPlans() {
 function getCurrentTransactionTotalsByProduct() {
     const totals = new Map();
     document.querySelectorAll('.transaction-row').forEach(row => {
-        const code = row.querySelector('[name^="transaction_"][name$="_contract_product_id"]')?.value?.trim();
-        if (!code) return;
+        const select = row.querySelector('[name^="transaction_"][name$="_contract_product_id"]');
+        const option = select?.selectedOptions[0];
+        const code = select?.value?.trim();
+        const productRef = row.querySelector('.trans-product-ref')?.value?.trim()
+            || (option?.dataset.productIndex ? `row:${option.dataset.productIndex}` : '')
+            || (code ? `code:${code}` : '');
+        if (!productRef) return;
         const qty = round2(row.querySelector('.trans-qty')?.value || 0);
-        totals.set(code, round2((totals.get(code) || 0) + qty));
+        totals.set(productRef, round2((totals.get(productRef) || 0) + qty));
     });
     return totals;
 }
@@ -936,7 +948,9 @@ function fillAllTransactions() {
     let createdCount = 0;
 
     products.forEach(product => {
-        const deliveredQty = deliveredMap.get(product.code) || 0;
+        const deliveredQty = deliveredMap.get(`row:${product.index}`)
+            || deliveredMap.get(`code:${product.code}`)
+            || 0;
         const remainingQty = round2(product.quantity - deliveredQty);
         if (remainingQty <= 0) {
             return;
@@ -951,6 +965,7 @@ function fillAllTransactions() {
             delivery_date: today,
             invoice_date: '',
             remark: '',
+            product_ref: `row:${product.index}`,
         });
         createdCount += 1;
     });
@@ -1206,9 +1221,10 @@ function updateTransactionProductOptions(specificIndex = null) {
         const model = row.querySelector('.product-model-input')?.value || '';
         const unit = row.querySelector('.product-unit-input')?.value || '个';
         const price = row.querySelector('.product-price-input')?.value || 0;
-        
+        const productId = row.querySelector(`[name="product_${index}_id"]`)?.value || '';
+
         if (code) {
-            products.push({ index, code, name, model, unit, price });
+            products.push({ index, code, name, model, unit, price, productId });
         }
     });
     
@@ -1221,13 +1237,16 @@ function updateTransactionProductOptions(specificIndex = null) {
         const currentValue = select.value;
         const selectedOption = select.selectedOptions[0];
         const currentProductIndex = selectedOption?.dataset?.productIndex;
+        const currentRef = select.closest('.transaction-row')
+            ?.querySelector('.trans-product-ref')?.value || '';
         
         select.innerHTML = '<option value="">-- 选择 --</option>';
         products.forEach(p => {
             const option = document.createElement('option');
             option.value = p.code;
-            option.textContent = `${p.code}`;
+            option.textContent = `产品 #${Number(p.index) + 1} - ${p.code}`;
             option.dataset.productIndex = p.index;
+            option.dataset.contractProductId = p.productId;
             option.dataset.name = p.name;
             option.dataset.model = p.model;
             option.dataset.unit = p.unit;
@@ -1235,19 +1254,23 @@ function updateTransactionProductOptions(specificIndex = null) {
             select.appendChild(option);
         });
         
-        if (currentValue) {
+        const refProductIndex = currentRef.startsWith('row:')
+            ? currentRef.slice(4)
+            : '';
+        const targetProductIndex = currentProductIndex || refProductIndex;
+        const restoredOption = targetProductIndex
+            ? Array.from(select.options).find(
+                option => option.dataset.productIndex === String(targetProductIndex)
+            )
+            : null;
+        if (restoredOption) {
+            select.selectedIndex = Array.from(select.options).indexOf(restoredOption);
+        } else if (currentValue) {
             select.value = currentValue;
         }
-        
-        if (currentProductIndex) {
-            const productRow = document.querySelector(`.product-row[data-index="${currentProductIndex}"]`);
-            if (productRow) {
-                const transRow = select.closest('.transaction-row');
-                transRow.querySelector('.trans-unit').value = productRow.querySelector('.product-unit-input').value;
-                transRow.querySelector('.trans-price').value = productRow.querySelector('.product-price-input').value;
-                transRow.querySelector('.trans-product-name').value = productRow.querySelector('.product-name-input').value;
-                transRow.querySelector('.trans-product-model').value = productRow.querySelector('.product-model-input').value;
-            }
+
+        if (select.value) {
+            onTransactionProductSelect(select);
         }
     });
 }
@@ -1258,6 +1281,10 @@ function onTransactionProductSelect(select) {
     
     const productIndex = option.dataset.productIndex;
     const transRow = select.closest('.transaction-row');
+    const refInput = transRow?.querySelector('.trans-product-ref');
+    if (refInput) {
+        refInput.value = `row:${productIndex}`;
+    }
     
     const productRow = document.querySelector(`.product-row[data-index="${productIndex}"]`);
     if (productRow) {
@@ -1397,6 +1424,9 @@ function addPaymentRow() {
 function updatePaymentProductOptions(paymentIndex) {
     const select = document.querySelector(`[name="payment_${paymentIndex}_contract_product_id"]`);
     if (!select) return;
+    const row = select.closest('.payment-row');
+    const currentValue = select.value;
+    const currentRef = row?.querySelector('.payment-product-ref')?.value || '';
     
     // 收集所有产品计划
     const products = [];
@@ -1415,12 +1445,13 @@ function updatePaymentProductOptions(paymentIndex) {
         }
         
         if (productCode) {
-            products.push({
-                index: index,
-                productCode: productCode,
-                productName: productName,
-                productModel: productModel
-            });
+        products.push({
+            index: index,
+            productCode: productCode,
+            productName: productName,
+            productModel: productModel,
+            productId: row.querySelector(`[name="product_${index}_id"]`)?.value || ''
+        });
         }
     });
     
@@ -1428,26 +1459,42 @@ function updatePaymentProductOptions(paymentIndex) {
     let html = '<option value="">-- 选择产品 --</option>';
     products.forEach((p, idx) => {
         const label = p.productName ? `产品 #${p.index} - ${p.productCode} ${p.productName}` : `产品 #${p.index} - ${p.productCode}`;
-        html += `<option value="${p.productCode}">${label}</option>`;
+        html += `<option value="${p.productCode}" data-product-index="${p.index}" data-contract-product-id="${p.productId}">${label}</option>`;
     });
     select.innerHTML = html;
+    const currentProductIndex = currentRef.startsWith('row:')
+        ? currentRef.slice(4)
+        : '';
+    const restoredOption = currentProductIndex
+        ? Array.from(select.options).find(
+            option => option.dataset.productIndex === String(currentProductIndex)
+        )
+        : null;
+    if (restoredOption) {
+        select.selectedIndex = Array.from(select.options).indexOf(restoredOption);
+    } else if (currentValue) {
+        select.value = currentValue;
+    }
+    if (select.value) {
+        onPaymentProductSelect(select);
+    }
+}
+
+function onPaymentProductSelect(select) {
+    const option = select.selectedOptions[0];
+    const row = select.closest('.payment-row');
+    const refInput = row?.querySelector('.payment-product-ref');
+    if (refInput) {
+        refInput.value = option?.dataset.productIndex
+            ? `row:${option.dataset.productIndex}`
+            : '';
+    }
 }
 
 // [v1.3] 更新所有回款记录中的对应产品下拉列表
 function updateAllPaymentProductOptions() {
     document.querySelectorAll('.payment-row').forEach((row, index) => {
-        const currentValue = row.querySelector(`[name="payment_${index}_contract_product_id"]`)?.value;
         updatePaymentProductOptions(index);
-        // 尝试恢复之前的选择（如果选项仍然存在）
-        const select = row.querySelector(`[name="payment_${index}_contract_product_id"]`);
-        if (select && currentValue) {
-            for (let opt of select.options) {
-                if (opt.value === currentValue) {
-                    select.value = currentValue;
-                    break;
-                }
-            }
-        }
     });
 }
 
@@ -1869,6 +1916,8 @@ function loadExistingData() {
             price_with_tax: {{ (trans.price_with_tax or 0)|tojson }},
             handler: {{ (trans.handler or '')|tojson }},
             delivery_date: {{ (trans.delivery_date.isoformat() if trans.delivery_date else '')|tojson }},
+            invoice_date: {{ (trans.invoice_date.isoformat() if trans.invoice_date else '')|tojson }},
+            contract_product_id: {{ (trans.contract_product_id if trans.contract_product_id else '')|tojson }},
             remark: {{ (trans.remark or '')|tojson }}
         }{% if not loop.last %},{% endif %}
         {% endfor %}
@@ -1889,7 +1938,8 @@ function loadExistingData() {
             invoice_date: {{ (payment.invoice_date.isoformat() if payment.invoice_date else "")|tojson }},
             handler: {{ (payment.handler or "")|tojson }},
             remark: {{ (payment.remark or "")|tojson }},
-            product_code: {{ (payment.contract_product.product_code if payment.contract_product else "")|tojson }}
+            product_code: {{ (payment.contract_product.product_code if payment.contract_product else "")|tojson }},
+            contract_product_id: {{ (payment.contract_product_id if payment.contract_product_id else '')|tojson }}
         }{% if not loop.last %},{% endif %}
         {% endfor %}
     ];
@@ -2004,14 +2054,23 @@ function addTransactionRowWithData(data, isExisting = false) {
     const productSelect = row.querySelector(`[name="transaction_${transactionCount}_contract_product_id"]`);
 
     let productFound = false;
-    if (productSelect && payload.product_code) {
-        for (let opt of productSelect.options) {
-            if (opt.value === payload.product_code) {
-                productSelect.value = payload.product_code;
-                onTransactionProductSelect(productSelect);
-                productFound = true;
-                break;
-            }
+    if (productSelect && (payload.product_code || payload.contract_product_id || payload.product_ref)) {
+        const wantedProductId = payload.contract_product_id !== undefined
+            && payload.contract_product_id !== null
+            ? String(payload.contract_product_id)
+            : '';
+        const wantedRowIndex = (payload.product_ref || '').startsWith('row:')
+            ? String(payload.product_ref).slice(4)
+            : '';
+        const matchingOption = Array.from(productSelect.options).find(opt => (
+            (wantedProductId && opt.dataset.contractProductId === wantedProductId)
+            || (wantedRowIndex && opt.dataset.productIndex === wantedRowIndex)
+            || (!wantedProductId && !wantedRowIndex && opt.value === payload.product_code)
+        ));
+        if (matchingOption) {
+            productSelect.selectedIndex = Array.from(productSelect.options).indexOf(matchingOption);
+            onTransactionProductSelect(productSelect);
+            productFound = true;
         }
     }
 
@@ -2021,18 +2080,22 @@ function addTransactionRowWithData(data, isExisting = false) {
         option.textContent = `${payload.product_code} (原产品)`;
         option.selected = true;
         productSelect.appendChild(option);
+        const refInput = row.querySelector('.trans-product-ref');
+        if (refInput) refInput.value = payload.product_ref || '';
     }
 
     const qtyInput = row.querySelector(`[name="transaction_${transactionCount}_quantity"]`);
     const priceInput = row.querySelector(`[name="transaction_${transactionCount}_price"]`);
     const handlerInput = row.querySelector(`[name="transaction_${transactionCount}_handler"]`);
     const dateInput = row.querySelector(`[name="transaction_${transactionCount}_delivery_date"]`);
+    const invoiceDateInput = row.querySelector(`[name="transaction_${transactionCount}_invoice_date"]`);
     const remarkInput = row.querySelector(`[name="transaction_${transactionCount}_remark"]`);
 
     if (qtyInput) qtyInput.value = payload.quantity ?? '';
     if (priceInput) priceInput.value = payload.price_with_tax ?? '';
     if (handlerInput) handlerInput.value = payload.handler || currentUserDisplayName;
     if (dateInput) dateInput.value = payload.delivery_date || '';
+    if (invoiceDateInput) invoiceDateInput.value = payload.invoice_date || '';
     if (remarkInput) remarkInput.value = payload.remark || '';
 
     transactionCount++;
@@ -2061,21 +2124,30 @@ function addPaymentRowWithData(data, isExisting = false) {
     updatePaymentProductOptions(paymentCount);
 
     const productSelect = document.querySelector(`[name="payment_${paymentCount}_contract_product_id"]`);
-    if (productSelect && payload.product_code) {
-        let found = false;
-        for (let opt of productSelect.options) {
-            if (opt.value === payload.product_code) {
-                productSelect.value = payload.product_code;
-                found = true;
-                break;
-            }
-        }
-        if (!found) {
+    if (productSelect && (payload.product_code || payload.contract_product_id || payload.product_ref)) {
+        const wantedProductId = payload.contract_product_id !== undefined
+            && payload.contract_product_id !== null
+            ? String(payload.contract_product_id)
+            : '';
+        const wantedRowIndex = (payload.product_ref || '').startsWith('row:')
+            ? String(payload.product_ref).slice(4)
+            : '';
+        const matchingOption = Array.from(productSelect.options).find(opt => (
+            (wantedProductId && opt.dataset.contractProductId === wantedProductId)
+            || (wantedRowIndex && opt.dataset.productIndex === wantedRowIndex)
+            || (!wantedProductId && !wantedRowIndex && opt.value === payload.product_code)
+        ));
+        if (matchingOption) {
+            productSelect.selectedIndex = Array.from(productSelect.options).indexOf(matchingOption);
+            onPaymentProductSelect(productSelect);
+        } else if (payload.product_code) {
             const option = document.createElement('option');
             option.value = payload.product_code;
             option.textContent = `${payload.product_code} (原产品)`;
             option.selected = true;
             productSelect.appendChild(option);
+            const refInput = row.querySelector('.payment-product-ref');
+            if (refInput) refInput.value = payload.product_ref || '';
         }
     }
 

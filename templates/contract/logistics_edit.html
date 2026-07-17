@@ -254,8 +254,12 @@
                     <input type="date" class="form-control" name="transaction_{index}_delivery_date" required>
                 </div>
                 <div class="col-md-3">
+                    <label class="form-label">开票日期</label>
+                    <input type="date" class="form-control" name="transaction_{index}_invoice_date">
+                </div>
+                <div class="col-md-3">
                     <label class="form-label">经手人 *</label>
-                    <input type="text" class="form-control" name="transaction_{index}_handler" 
+                    <input type="text" class="form-control" name="transaction_{index}_handler"
                            value="{{ current_user.real_name or current_user.username }}" required>
                 </div>
                 <div class="col-md-4">
@@ -263,6 +267,7 @@
                     <input type="text" class="form-control" name="transaction_{index}_remark" maxlength="100">
                 </div>
             </div>
+            <input type="hidden" class="trans-product-ref" name="transaction_{index}_contract_product_ref">
         </div>
     </div>
 </template>
@@ -290,6 +295,7 @@
 const contractProducts = [
     {% for cp in contract.contract_products %}
     {
+        id: {{ cp.id }},
         code: '{{ cp.product_code }}',
         name: '{{ cp.product_name or "" }}',
         model: '{{ cp.product_model or "" }}',
@@ -315,12 +321,17 @@ function getTodayIsoDate() {
 function getCurrentTransactionTotalsByProduct() {
     const totals = new Map();
     document.querySelectorAll('.transaction-row').forEach(row => {
-        const code = row.querySelector('[name^="transaction_"][name$="_contract_product_id"]')?.value?.trim();
-        if (!code) {
+        const select = row.querySelector('[name^="transaction_"][name$="_contract_product_id"]');
+        const option = select?.selectedOptions[0];
+        const code = select?.value?.trim();
+        const productRef = row.querySelector('.trans-product-ref')?.value?.trim()
+            || (option?.dataset.productId ? `cp:${option.dataset.productId}` : '')
+            || (code ? `code:${code}` : '');
+        if (!productRef) {
             return;
         }
         const qty = round2(row.querySelector('.trans-qty')?.value || 0);
-        totals.set(code, round2((totals.get(code) || 0) + qty));
+        totals.set(productRef, round2((totals.get(productRef) || 0) + qty));
     });
     return totals;
 }
@@ -337,7 +348,11 @@ function fillAllTransactions() {
 
     contractProducts.forEach(product => {
         const plannedQty = round2(product.quantity || 0);
-        const deliveredQty = round2(deliveredMap.get(product.code) || 0);
+        const deliveredQty = round2(
+            deliveredMap.get(`cp:${product.id}`)
+            || deliveredMap.get(`code:${product.code}`)
+            || 0
+        );
         const remainingQty = round2(plannedQty - deliveredQty);
         if (remainingQty <= 0) {
             return;
@@ -351,6 +366,8 @@ function fillAllTransactions() {
             handler: currentUserDisplayName,
             delivery_date: today,
             remark: '',
+            contract_product_id: product.id,
+            product_ref: `cp:${product.id}`,
         });
         createdCount += 1;
     });
@@ -379,7 +396,8 @@ function addTransactionRow() {
     contractProducts.forEach(p => {
         const option = document.createElement('option');
         option.value = p.code;
-        option.textContent = p.code;
+        option.textContent = `产品 #${contractProducts.indexOf(p) + 1} - ${p.code}`;
+        option.dataset.productId = p.id;
         option.dataset.name = p.name;
         option.dataset.model = p.model;
         option.dataset.unit = p.unit;
@@ -461,6 +479,10 @@ function onTransactionProductSelect(select) {
     if (!option || !option.dataset.name) return;
     
     const row = select.closest('.transaction-row');
+    const refInput = row?.querySelector('.trans-product-ref');
+    if (refInput && option.dataset.productId) {
+        refInput.value = `cp:${option.dataset.productId}`;
+    }
     row.querySelector('.trans-product-name').value = option.dataset.name || '-';
     row.querySelector('.trans-product-model').value = option.dataset.model || '-';
     row.querySelector('.trans-unit').value = option.dataset.unit || '个';
@@ -599,6 +621,8 @@ const existingTransactions = [
         price_with_tax: {{ (trans.price_with_tax or 0)|tojson }},
         handler: {{ (trans.handler or '')|tojson }},
         delivery_date: {{ (trans.delivery_date.isoformat() if trans.delivery_date else '')|tojson }},
+        invoice_date: {{ (trans.invoice_date.isoformat() if trans.invoice_date else '')|tojson }},
+        contract_product_id: {{ (trans.contract_product_id if trans.contract_product_id else '')|tojson }},
         remark: {{ (trans.remark or '')|tojson }}
     }{% if not loop.last %},{% endif %}
     {% endfor %}
@@ -615,12 +639,17 @@ function addTransactionRowWithData(data, isExisting = false) {
     
     // 设置产品选择
     const productSelect = document.querySelector(`[name="transaction_${index}_contract_product_id"]`);
-    for (let opt of productSelect.options) {
-        if (opt.value === data.product_code) {
-            productSelect.value = data.product_code;
-            onTransactionProductSelect(productSelect);
-            break;
-        }
+    const wantedProductId = data.contract_product_id !== undefined
+        && data.contract_product_id !== null
+        ? String(data.contract_product_id)
+        : '';
+    const matchingOption = Array.from(productSelect.options).find(opt => (
+        (wantedProductId && opt.dataset.productId === wantedProductId)
+        || (!wantedProductId && opt.value === data.product_code)
+    ));
+    if (matchingOption) {
+        productSelect.selectedIndex = Array.from(productSelect.options).indexOf(matchingOption);
+        onTransactionProductSelect(productSelect);
     }
     
     // 设置其他字段
@@ -628,6 +657,11 @@ function addTransactionRowWithData(data, isExisting = false) {
     document.querySelector(`[name="transaction_${index}_price"]`).value = data.price_with_tax;
     document.querySelector(`[name="transaction_${index}_handler"]`).value = data.handler;
     document.querySelector(`[name="transaction_${index}_delivery_date"]`).value = data.delivery_date;
+    document.querySelector(`[name="transaction_${index}_invoice_date"]`).value = data.invoice_date || '';
+    if (!matchingOption) {
+        const refInput = document.querySelector(`.transaction-row[data-index="${index}"] .trans-product-ref`);
+        if (refInput) refInput.value = data.product_ref || '';
+    }
     if (data.remark) {
         document.querySelector(`[name="transaction_${index}_remark"]`).value = data.remark;
     }

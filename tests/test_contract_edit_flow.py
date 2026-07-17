@@ -1033,3 +1033,236 @@ def test_edit_contract_preserves_same_day_delivery_history_and_recalculates_stat
         assert transactions[0].remark == "original delivery"
         assert float(transactions[1].quantity) == 60.0
         assert transactions[1].remark == "new delivery"
+
+
+def test_edit_contract_preserves_invoice_date_when_legacy_payload_omits_field(
+    app, client, login, base_data
+):
+    """Old clients that omit invoice_date must not erase the saved value."""
+    from app.models import Transaction
+
+    with app.app_context():
+        contract, cp = _create_contract(base_data["owner_user_id"])
+        transaction = ContractService.add_transaction(
+            contract.id,
+            {
+                "contract_product_id": cp.id,
+                "quantity": 10,
+                "unit": "pcs",
+                "price_with_tax": 10,
+                "handler": "Original Handler",
+                "delivery_date": "2026-04-14",
+                "invoice_date": "2026-04-15",
+                "remark": "invoice date retained",
+            },
+            is_new=True,
+        )
+        contract_id = contract.id
+        cp_id = cp.id
+        transaction_id = transaction.id
+        form_data = _base_edit_form(contract, cp)
+
+    login(base_data["superadmin_id"])
+    form_data.update(
+        {
+            "transaction_count": "1",
+            "transaction_0_id": str(transaction_id),
+            "transaction_0_contract_product_id": cp.product_code,
+            "transaction_0_quantity": "10",
+            "transaction_0_unit": "pcs",
+            "transaction_0_price": "10",
+            "transaction_0_handler": "Updated Handler",
+            "transaction_0_delivery_date": "2026-04-14",
+            # Intentionally omit transaction_0_invoice_date.
+            "transaction_0_remark": "updated",
+            "payment_count": "0",
+        }
+    )
+
+    response = client.post(
+        f"/contract/{contract_id}/edit",
+        data=form_data,
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 302
+    with app.app_context():
+        transaction = Transaction.query.get(transaction_id)
+        assert transaction.invoice_date.isoformat() == "2026-04-15"
+
+
+def test_edit_contract_keeps_duplicate_product_transaction_and_payment_links_separate(
+    app, client, login, base_data
+):
+    """Explicit row references keep duplicate product plans from sharing records."""
+    from app.models import Contract, ContractProduct, PaymentRecord, Transaction
+
+    with app.app_context():
+        contract = ContractService.create_contract(
+            {
+                "contract_no": f"TEST-DUPLICATE-LINK-{base_data['owner_user_id']}",
+                "company_name": "Acme Corp",
+                "owner": "Sales - Owner",
+                "department": "Sales",
+                "manager": "Sales Owner",
+                "created_by_id": base_data["owner_user_id"],
+            },
+            [
+                {
+                    "product_code": "DUP-LINK",
+                    "product_name": "Shared Code",
+                    "quantity": 10,
+                    "unit": "pcs",
+                    "price": 10,
+                    "remark": "first plan",
+                },
+                {
+                    "product_code": "DUP-LINK",
+                    "product_name": "Shared Code",
+                    "quantity": 20,
+                    "unit": "pcs",
+                    "price": 10,
+                    "remark": "second plan",
+                },
+            ],
+        )
+        products = ContractProduct.query.filter_by(
+            contract_id=contract.id
+        ).order_by(ContractProduct.id.asc()).all()
+        transaction = ContractService.add_transaction(
+            contract.id,
+            {
+                "contract_product_id": products[1].id,
+                "quantity": 5,
+                "unit": "pcs",
+                "price_with_tax": 10,
+                "handler": "Original Handler",
+                "delivery_date": "2026-04-16",
+                "invoice_date": "",
+                "remark": "second plan shipment",
+            },
+            is_new=True,
+        )
+        payment = ContractService.add_payment_record(
+            contract.id,
+            {
+                "contract_product_id": products[1].id,
+                "payment_amount": 50,
+                "invoice_amount": 0,
+                "payment_date": "2026-04-17",
+                "handler": "Original Finance",
+                "remark": "second plan payment",
+            },
+        )
+        contract_id = contract.id
+        first_id, second_id = products[0].id, products[1].id
+        transaction_id, payment_id = transaction.id, payment.id
+
+    login(base_data["superadmin_id"])
+    response = client.post(
+        f"/contract/{contract_id}/edit",
+        data={
+            "contract_no": f"TEST-DUPLICATE-LINK-{base_data['owner_user_id']}",
+            "company_name": "Acme Corp",
+            "owner": "Sales - Owner",
+            "department": "Sales",
+            "manager": "Sales Owner",
+            "product_count": "2",
+            "product_0_id": str(first_id),
+            "product_0_code": "DUP-LINK",
+            "product_0_name": "Shared Code",
+            "product_0_quantity": "10",
+            "product_0_unit": "pcs",
+            "product_0_price": "10",
+            "product_0_total": "100",
+            "product_0_remark": "first plan",
+            "product_1_id": str(second_id),
+            "product_1_code": "DUP-LINK",
+            "product_1_name": "Shared Code",
+            "product_1_quantity": "20",
+            "product_1_unit": "pcs",
+            "product_1_price": "10",
+            "product_1_total": "200",
+            "product_1_remark": "second plan",
+            "transaction_count": "2",
+            "transaction_0_id": str(transaction_id),
+            "transaction_0_contract_product_id": "DUP-LINK",
+            "transaction_0_contract_product_ref": "row:1",
+            "transaction_0_quantity": "5",
+            "transaction_0_unit": "pcs",
+            "transaction_0_price": "10",
+            "transaction_0_handler": "Updated Handler",
+            "transaction_0_delivery_date": "2026-04-16",
+            "transaction_0_invoice_date": "",
+            "transaction_0_remark": "second plan shipment",
+            "transaction_1_contract_product_id": "DUP-LINK",
+            "transaction_1_contract_product_ref": "row:0",
+            "transaction_1_quantity": "10",
+            "transaction_1_unit": "pcs",
+            "transaction_1_price": "10",
+            "transaction_1_handler": "First Handler",
+            "transaction_1_delivery_date": "2026-04-18",
+            "transaction_1_invoice_date": "",
+            "transaction_1_remark": "first plan shipment",
+            "payment_count": "1",
+            "payment_0_id": str(payment_id),
+            "payment_0_amount": "50",
+            "payment_0_invoice_amount": "0",
+            "payment_0_date": "2026-04-17",
+            "payment_0_invoice_date": "",
+            "payment_0_handler": "Updated Finance",
+            "payment_0_remark": "second plan payment",
+            "payment_0_contract_product_id": "DUP-LINK",
+            "payment_0_contract_product_ref": "row:1",
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 302
+    with app.app_context():
+        transaction = Transaction.query.get(transaction_id)
+        new_transaction = Transaction.query.filter(
+            Transaction.contract_id == contract_id,
+            Transaction.id != transaction_id,
+        ).first()
+        payment = PaymentRecord.query.get(payment_id)
+
+        assert transaction.contract_product_id == second_id
+        assert new_transaction.contract_product_id == first_id
+        assert payment.contract_product_id == second_id
+
+
+def test_contract_edit_page_rehydrates_invoice_date_and_product_reference_fields(
+    app, client, login, base_data
+):
+    """The edit page must render every field needed for a lossless round trip."""
+    with app.app_context():
+        contract, cp = _create_contract(base_data["owner_user_id"])
+        ContractService.add_transaction(
+            contract.id,
+            {
+                "contract_product_id": cp.id,
+                "quantity": 5,
+                "unit": "pcs",
+                "price_with_tax": 10,
+                "handler": "Template Check",
+                "delivery_date": "2026-04-19",
+                "invoice_date": "2026-04-20",
+                "remark": "template check",
+            },
+            is_new=True,
+        )
+        contract_id = contract.id
+        cp_id = cp.id
+
+    login(base_data["superadmin_id"])
+    response = client.get(f"/contract/{contract_id}/edit")
+
+    assert response.status_code == 200
+    body = response.get_data(as_text=True)
+    assert 'name="transaction_{index}_invoice_date"' in body
+    assert 'name="transaction_{index}_contract_product_ref"' in body
+    assert 'invoice_date:' in body
+    assert '2026-04-20' in body
+    assert 'contract_product_id:' in body
+    assert str(cp_id) in body
