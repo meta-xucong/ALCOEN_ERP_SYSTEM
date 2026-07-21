@@ -62,12 +62,23 @@
                         <!-- [v1.3] 部门和负责人筛选 -->
                         <div class="col-md-2 mb-3">
                             {{ form.department.label(class="form-label") }}
+                            {% if is_department_pm %}
+                            <select name="department" class="form-select" required>
+                                {% if current_user_departments|length > 1 %}
+                                <option value="">-- 选择部门 --</option>
+                                {% endif %}
+                                {% for d in departments %}
+                                <option value="{{ d }}" {% if form.department.data == d %}selected{% endif %}>{{ d }}</option>
+                                {% endfor %}
+                            </select>
+                            {% else %}
                             {{ form.department(class="form-control", placeholder="选择或输入部门", list="department-list") }}
                             <datalist id="department-list">
                                 {% for d in departments %}
                                 <option value="{{ d }}">
                                 {% endfor %}
                             </datalist>
+                            {% endif %}
                             <div class="form-text">可选</div>
                         </div>
                         <div class="col-md-2 mb-3">

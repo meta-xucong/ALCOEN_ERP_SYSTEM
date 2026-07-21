@@ -134,11 +134,28 @@
                     {% if is_logistics %}
                     <input type="text" class="form-control" value="{{ contract.department if contract else '未设置' }}" disabled>
                     <input type="hidden" name="department" value="{{ contract.department if contract else '' }}">
-                    {% elif is_sales_manager or is_pm %}
+                    {% elif is_sales_manager %}
                     {# 部门销售经理和PM：部门自动匹配，不可改 #}
                     <input type="text" class="form-control" value="{{ current_user_dept }}" disabled>
                     <input type="hidden" name="department" value="{{ current_user_dept }}">
                     <div class="form-text text-success"><i class="bi bi-check-circle"></i> 自动匹配您的部门</div>
+                    {% elif is_pm %}
+                    {% if current_user_departments|length > 1 %}
+                    <select class="form-select" id="pm-department-select" name="department"
+                            onchange="onPmDepartmentSelect(this)">
+                        {% for dept_name in current_user_departments %}
+                        <option value="{{ dept_name }}"
+                                {% if (contract.department if contract else current_user_dept) == dept_name %}selected{% endif %}>
+                            {{ dept_name }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                    <div class="form-text text-success"><i class="bi bi-check-circle"></i> 可选择当前账号任职部门</div>
+                    {% else %}
+                    <input type="text" class="form-control" value="{{ current_user_dept }}" disabled>
+                    <input type="hidden" name="department" value="{{ current_user_dept }}">
+                    <div class="form-text text-success"><i class="bi bi-check-circle"></i> 鑷姩鍖归厤鎮ㄧ殑閮ㄩ棬</div>
+                    {% endif %}
                     {% else %}
                     {# 总经理和超级管理员：保持原有逻辑 #}
                     <div class="input-group input-group-sm">
@@ -178,8 +195,8 @@
                         <select class="form-select" id="manager-select" style="display: block;"
                                 onchange="onManagerSelect(this)">
                             <option value="{{ current_user_manager }}" selected>{{ current_user_manager }}（本人）</option>
-                            {% for mgr in managers %}
-                            <option value="{{ mgr }}">{{ mgr }}</option>
+                              {% for mgr in pm_managers %}
+                              <option value="{{ mgr }}">{{ mgr }}</option>
                             {% endfor %}
                         </select>
                         <input type="text" class="form-control" id="manager-input" name="manager"
@@ -1613,6 +1630,28 @@ function onDepartmentSelect(select) {
     managerSelect.innerHTML = html;
 }
 
+function onPmDepartmentSelect(select) {
+    const deptName = select.value;
+    const managerSelect = document.getElementById('manager-select');
+    const managerInput = document.getElementById('manager-input');
+    if (!managerSelect) return;
+
+    const managers = departmentManagers[deptName] || [];
+    const preferredManager = managerInput?.value || initialPmManager || '';
+    let html = '<option value="">-- 閫夋嫨璐熻矗浜?--</option>';
+    managers.forEach(mgr => {
+        html += `<option value="${mgr}">${mgr}</option>`;
+    });
+    if (preferredManager && !managers.includes(preferredManager)) {
+        html += `<option value="${preferredManager}">${preferredManager}</option>`;
+    }
+    managerSelect.innerHTML = html;
+    if (preferredManager) {
+        managerSelect.value = preferredManager;
+        if (managerInput) managerInput.value = preferredManager;
+    }
+}
+
 function onDepartmentInput(input) {
     const deptName = input.value.trim();
     const statusDiv = document.getElementById('department-status');
@@ -1665,6 +1704,14 @@ function onManagerInput(input) {
     
     statusDiv.innerHTML = '<span class="text-muted"><i class="bi bi-pencil"></i> 手动输入</span>';
 }
+
+const initialPmManager = {{ (contract.manager if contract and contract.manager else current_user_manager)|tojson }};
+document.addEventListener('DOMContentLoaded', function() {
+    const pmDepartmentSelect = document.getElementById('pm-department-select');
+    if (pmDepartmentSelect) {
+        onPmDepartmentSelect(pmDepartmentSelect);
+    }
+});
 
 // 图片上传管理 [v1.3] 支持多次添加
 let selectedFiles = [];

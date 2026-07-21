@@ -638,7 +638,7 @@ class ContractService:
         invoice_statuses: list = None,
         owner: str = None,
         dept_or_manager: str = None,
-        department: str = None,
+        department: str | list[str] = None,
         created_by: int = None
     ):
         """[v1.3] 获取合同列表 - 支持按部门或负责人筛选, [v1.4] 添加权限过滤"""
@@ -674,7 +674,14 @@ class ContractService:
             )
         
         # [v1.4] 按部门筛选（权限过滤）
-        if department:
+        if isinstance(department, (list, tuple, set)):
+            department_names = [name for name in department if name]
+            query = query.filter(
+                Contract.department.in_(department_names)
+                if department_names
+                else False
+            )
+        elif department:
             query = query.filter(Contract.department == department)
         
         # [v1.4] 按创建人筛选（权限过滤）
