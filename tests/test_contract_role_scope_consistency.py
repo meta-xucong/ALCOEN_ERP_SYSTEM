@@ -329,3 +329,61 @@ def test_department_pm_with_multiple_departments_can_access_each_department_cont
         assert pm_user.can_access_department("Ops") is True
         assert pm_user.can_view_contract(contract) is True
         assert pm_user.can_edit_contract(contract) is True
+
+
+def test_multi_department_pm_lists_and_creates_contract_in_selected_department(
+    app, client, login
+):
+    """A multi-department PM can work in either assigned department."""
+    with app.app_context():
+        sales = Department(name="Sales")
+        ops = Department(name="Ops")
+        db.session.add_all([sales, ops])
+        db.session.flush()
+
+        pm_role = _create_role(
+            "department_pm",
+            ["contract_view", "contract_edit", "contract_create"],
+            level=50,
+        )
+        pm_user = _create_user("pm_contract_multi", pm_role, sales)
+        pm_user.set_departments([sales.id, ops.id])
+        _create_contract("SALES-MULTI-C001", pm_user.id, "Sales")
+        _create_contract("OPS-MULTI-C001", pm_user.id, "Ops")
+        db.session.commit()
+        pm_user_id = pm_user.id
+
+    login(pm_user_id)
+
+    list_response = client.get("/contract/list")
+    assert list_response.status_code == 200
+    assert b"SALES-MULTI-C001" in list_response.data
+    assert b"OPS-MULTI-C001" in list_response.data
+
+    form_response = client.get("/contract/new")
+    assert form_response.status_code == 200
+    assert b'name="department"' in form_response.data
+    assert b'value="Sales"' in form_response.data
+    assert b'value="Ops"' in form_response.data
+
+    create_response = client.post(
+        "/contract/new",
+        data={
+            "contract_no": "OPS-MULTI-C002",
+            "company_name": "Permission Corp",
+            "department": "Ops",
+            "manager": "pm_contract_multi",
+            "product_count": "1",
+            "product_0_code": "OPS-P001",
+            "product_0_name": "Ops Product",
+            "product_0_quantity": "1",
+            "product_0_unit": "pcs",
+            "product_0_price": "10",
+        },
+        follow_redirects=False,
+    )
+    assert create_response.status_code == 302
+
+    with app.app_context():
+        created = Contract.query.filter_by(contract_no="OPS-MULTI-C002").one()
+        assert created.department == "Ops"

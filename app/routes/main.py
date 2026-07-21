@@ -35,10 +35,11 @@ def index():
     # 对账单统计 - 根据权限过滤
     statement_count_query = Statement.query
     if user.is_department_pm():
-        if user.department:
-            statement_count_query = statement_count_query.filter(Statement.department == user.department.name)
-        else:
-            statement_count_query = statement_count_query.filter(False)
+        statement_count_query = statement_count_query.filter(
+            Statement.department.in_(user.department_names)
+            if user.department_names
+            else False
+        )
     elif user.is_sales_manager():
         statement_count_query = statement_count_query.filter(Statement.created_by_id == user.id)
     # 物流经理、总经理、超级管理员：查看所有
@@ -50,10 +51,11 @@ def index():
     
     # 部门PM：只能看到本部门合同
     if user.is_department_pm():
-        if user.department:
-            contract_query = contract_query.filter(Contract.department == user.department.name)
-        else:
-            contract_query = contract_query.filter(False)  # 无部门则看不到任何合同
+        contract_query = contract_query.filter(
+            Contract.department.in_(user.department_names)
+            if user.department_names
+            else False
+        )
     
     # 销售经理：只能看到自己创建的合同
     elif user.is_sales_manager():
@@ -84,10 +86,11 @@ def index():
     
     if user.is_department_pm():
         # 部门PM：查看本部门所有成员发起的对账单
-        if user.department:
-            statement_query = statement_query.filter(Statement.department == user.department.name)
-        else:
-            statement_query = statement_query.filter(False)
+        statement_query = statement_query.filter(
+            Statement.department.in_(user.department_names)
+            if user.department_names
+            else False
+        )
     
     elif user.is_sales_manager():
         # 销售经理：只能看自己发起的对账单

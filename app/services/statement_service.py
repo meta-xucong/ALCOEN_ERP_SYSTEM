@@ -49,7 +49,7 @@ class StatementService:
                         products: list = None,
                         contract_no: str = None,
                         product_codes: list = None,
-                        department: str = None,
+                        department: str | list[str] = None,
                         manager: str = None,
                         created_by: int = None,
                         current_user=None) -> dict:
@@ -71,6 +71,10 @@ class StatementService:
             包含对账单信息的字典，如果没有匹配记录返回None
         """
         from sqlalchemy import or_, and_
+
+        if current_user and current_user.is_department_pm():
+            if not isinstance(department, str) or not current_user.belongs_to_department(department):
+                raise ValueError("Statement department is outside the current user's scope")
         
         # 1. 构建基础查询
         query = Transaction.query
@@ -90,8 +94,15 @@ class StatementService:
             query = query.join(Transaction.contract)
             if contract_no:
                 query = query.filter(Contract.contract_no.contains(contract_no))
-            if department:
-                query = query.filter(Contract.department.contains(department))
+            if isinstance(department, (list, tuple, set)):
+                department_names = [name for name in department if name]
+                query = query.filter(
+                    Contract.department.in_(department_names)
+                    if department_names
+                    else False
+                )
+            elif department:
+                query = query.filter(Contract.department == department)
             if manager:
                 query = query.filter(Contract.manager.contains(manager))
             if created_by:
@@ -138,6 +149,8 @@ class StatementService:
             filter_conditions['product_codes'] = product_codes
         if products:
             filter_conditions['product_names'] = products
+        if isinstance(department, str) and department:
+            filter_conditions['department'] = department
         
         # 11. 生成对账单记录 [v1.4] 添加发起人信息
         statement = Statement(
@@ -149,7 +162,15 @@ class StatementService:
             statement_total=total_amount,
             record_count=len(transactions),
             created_by_id=current_user.id if current_user else None,
-            department=current_user.department.name if current_user and current_user.department else None
+            department=(
+                department
+                if isinstance(department, str) and department
+                else (
+                    current_user.department.name
+                    if current_user and current_user.department
+                    else None
+                )
+            )
         )
         
         db.session.add(statement)

@@ -260,7 +260,7 @@ def list_contracts():
     
     if user.is_department_pm():
         # 部门PM只能看到本部门的合同
-        department_filter = user.department.name if user.department else None
+        department_filter = user.department_names
     elif user.is_sales_manager():
         # 部门销售经理只能看到自己创建的合同
         created_by_filter = user.id
@@ -347,6 +347,8 @@ def new_contract():
             
             # 处理部门/负责人 [v1.3] [v1.5] 简化逻辑，直接使用表单值
             department = request.form.get('department', '').strip()
+            if g.current_user.is_department_pm() and department not in g.current_user.department_names:
+                raise ValueError('所选部门不在当前账号的任职范围内')
             manager = request.form.get('manager', '').strip()
             if department:
                 contract_data['department'] = department
@@ -451,19 +453,16 @@ def new_contract():
         current_user_dept = g.current_user.department_names[0]
     
     # [v1.5] 获取部门用户列表（用于PM选择负责人）
-    department_users = []
-    if g.current_user.department_names:
-        primary_department = g.current_user.department_names[0]
-        department_users = [
-            item.split(' - ', 1)[1]
-            for item in ContractService.get_department_users(primary_department)
-            if ' - ' in item
-        ]
+    current_user_departments = g.current_user.department_names
+    department_users = [
+        item.split(' - ', 1)[1]
+        for item in ContractService.get_department_users()
+        if ' - ' in item and item.split(' - ', 1)[0] in current_user_departments
+    ]
+    pm_managers = list(dict.fromkeys(department_users))
     
     # 兼容模板中的 managers 变量
     managers = ContractService.get_department_users()
-    if g.current_user.is_department_pm() and department_users:
-        managers = department_users
     
     return render_template('contract/form.html',
                          form=form,
@@ -474,9 +473,11 @@ def new_contract():
                          departments=departments,
                          department_users=department_users,
                          managers=managers,
+                         pm_managers=pm_managers,
                          owners=owners,
                          is_new=True,
                          current_user_dept=current_user_dept,
+                         current_user_departments=current_user_departments,
                          current_user_manager=g.current_user.real_name or g.current_user.username)
 
 
@@ -819,6 +820,8 @@ def edit_contract(id):
             
             # 处理部门/负责人 [v1.3] [v1.5] 简化逻辑，直接使用表单值
             department = request.form.get('department', '').strip()
+            if g.current_user.is_department_pm() and department not in g.current_user.department_names:
+                raise ValueError('所选部门不在当前账号的任职范围内')
             manager = request.form.get('manager', '').strip()
             if department:
                 contract.department = department
@@ -862,19 +865,16 @@ def edit_contract(id):
     owners = ContractService.get_owner_list()
     
     # [v1.5] 获取部门用户列表（用于PM选择负责人）
-    department_users = []
-    if g.current_user.department_names:
-        primary_department = g.current_user.department_names[0]
-        department_users = [
-            item.split(' - ', 1)[1]
-            for item in ContractService.get_department_users(primary_department)
-            if ' - ' in item
-        ]
+    current_user_departments = g.current_user.department_names
+    department_users = [
+        item.split(' - ', 1)[1]
+        for item in ContractService.get_department_users()
+        if ' - ' in item and item.split(' - ', 1)[0] in current_user_departments
+    ]
+    pm_managers = list(dict.fromkeys(department_users))
     
     # 兼容模板中的 managers 变量
     managers = ContractService.get_department_users()
-    if g.current_user.is_department_pm() and department_users:
-        managers = department_users
     
     return render_template('contract/form.html',
                          form=form,
@@ -886,8 +886,16 @@ def edit_contract(id):
                          departments=departments,
                          department_users=department_users,
                          managers=managers,
+                         pm_managers=pm_managers,
                          owners=owners,
-                         is_new=False)
+                         is_new=False,
+                         current_user_dept=(
+                             contract.department
+                             if contract.department in current_user_departments
+                             else (current_user_departments[0] if current_user_departments else None)
+                         ),
+                         current_user_departments=current_user_departments,
+                         current_user_manager=g.current_user.real_name or g.current_user.username)
 
 
 @contract_bp.route('/<int:id>/logistics-edit', methods=['GET', 'POST'])

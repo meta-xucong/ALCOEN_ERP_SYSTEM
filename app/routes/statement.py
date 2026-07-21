@@ -10,6 +10,36 @@ from datetime import datetime
 statement_bp = Blueprint('statement', __name__)
 
 
+def _statement_departments_for_user(user):
+    """Return the departments that the current user may use for statements."""
+    if user.is_department_pm():
+        return user.department_names
+    return ContractService.get_department_list()
+
+
+def _render_generator(form, companies, departments, managers):
+    """Render the statement generator with the current scope metadata."""
+    user = g.current_user
+    return render_template(
+        'statement/generator.html',
+        form=form,
+        companies=companies,
+        departments=departments,
+        managers=managers,
+        is_department_pm=user.is_department_pm(),
+        current_user_departments=user.department_names,
+    )
+
+
+def _can_access_statement(user, statement) -> bool:
+    """Check statement scope consistently across view/export/list/delete routes."""
+    if user.is_department_pm():
+        return bool(statement.department and user.belongs_to_department(statement.department))
+    if user.is_sales_manager():
+        return statement.created_by_id == user.id
+    return True
+
+
 @statement_bp.route('/generator', methods=['GET', 'POST'])
 @login_required
 @permission_required('statement_create')
@@ -18,7 +48,7 @@ def generator():
     form = StatementGeneratorForm()
     companies = StatementService.get_company_list()
     # [v1.3] 获取部门列表 [v1.5] 移除从Manager表获取负责人列表
-    departments = ContractService.get_department_list()
+    departments = _statement_departments_for_user(g.current_user)
     managers = ContractService.get_owner_list()
     
     if form.validate_on_submit():
@@ -45,11 +75,19 @@ def generator():
         
         # 部门PM：只能生成本部门的对账单
         if user.is_department_pm():
-            if user.department:
-                department = user.department.name  # 强制使用本部门
-            else:
-                flash('您的账号未设置部门，无法生成对账单', 'error')
+            allowed_departments = user.department_names
+            if not allowed_departments:
+                flash('当前账号未设置部门，无法生成对账单', 'error')
                 return redirect(url_for('main.index'))
+            if department and department not in allowed_departments:
+                flash('所选部门不在当前账号的任职范围内', 'error')
+                return _render_generator(form, companies, departments, managers)
+            if len(allowed_departments) == 1:
+                department = allowed_departments[0]
+            elif not department:
+                flash('多部门账号请先选择要生成对账单的部门', 'warning')
+                return _render_generator(form, companies, departments, managers)
+            form.department.data = department
         
         # 部门销售经理：只能生成自己创建订单的对账单
         elif user.is_sales_manager():
@@ -64,8 +102,7 @@ def generator():
         
         if not has_filter:
             flash('请至少输入一个筛选条件！', 'warning')
-            return render_template('statement/generator.html', form=form, companies=companies, 
-                                 departments=departments, managers=managers)
+            return _render_generator(form, companies, departments, managers)
         
         # 生成对账单 [v1.4] 传入当前用户记录发起人
         result = StatementService.create_statement(
@@ -88,11 +125,7 @@ def generator():
         else:
             flash('未找到符合条件的交易记录，请调整筛选条件。', 'warning')
     
-    return render_template('statement/generator.html',
-                         form=form,
-                         companies=companies,
-                         departments=departments,
-                         managers=managers)
+    return _render_generator(form, companies, departments, managers)
 
 
 @statement_bp.route('/<statement_no>')
@@ -110,17 +143,9 @@ def view_statement(statement_no):
     user = g.current_user
     statement = result['statement']
     
-    if user.is_department_pm():
-        # 部门PM：只能查看本部门发起的对账单
-        if not statement.department or statement.department != (user.department.name if user.department else None):
-            flash('您无权查看此对账单！', 'error')
-            return redirect(url_for('statement.list_statements'))
-    
-    elif user.is_sales_manager():
-        # 销售经理：只能查看自己发起的对账单
-        if statement.created_by_id != user.id:
-            flash('您无权查看此对账单！', 'error')
-            return redirect(url_for('statement.list_statements'))
+    if not _can_access_statement(user, statement):
+        flash('您无权查看此对账单！', 'error')
+        return redirect(url_for('statement.list_statements'))
     
     # 物流经理已通过权限控制无法访问
     # 总经理和超级管理员可以查看所有
@@ -151,15 +176,9 @@ def export_statement(statement_no):
     user = g.current_user
     statement = result['statement']
     
-    if user.is_department_pm():
-        if not statement.department or statement.department != (user.department.name if user.department else None):
-            flash('您无权导出此对账单！', 'error')
-            return redirect(url_for('statement.list_statements'))
-    
-    elif user.is_sales_manager():
-        if statement.created_by_id != user.id:
-            flash('您无权导出此对账单！', 'error')
-            return redirect(url_for('statement.list_statements'))
+    if not _can_access_statement(user, statement):
+        flash('您无权导出此对账单！', 'error')
+        return redirect(url_for('statement.list_statements'))
     
     try:
         # 生成文件名
@@ -198,10 +217,11 @@ def list_statements():
     # [v1.4] 按权限过滤对账单
     if user.is_department_pm():
         # 部门PM：查看本部门所有成员发起的对账单
-        if user.department:
-            query = query.filter(Statement.department == user.department.name)
-        else:
-            query = query.filter(False)  # 无部门则看不到任何对账单
+        query = query.filter(
+            Statement.department.in_(user.department_names)
+            if user.department_names
+            else False
+        )
     
     elif user.is_sales_manager():
         # 销售经理：只能看自己发起的对账单
@@ -248,7 +268,7 @@ def delete_statement(statement_no):
     
     # 部门PM可以删除本部门的对账单
     elif user.is_department_pm():
-        if statement.department and user.department and statement.department == user.department.name:
+        if statement.department and user.belongs_to_department(statement.department):
             can_delete = True
     
     # 销售经理可以删除自己对账单
