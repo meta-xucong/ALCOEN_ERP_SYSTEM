@@ -23,7 +23,7 @@ class Config:
     
     # 文件上传/导出
     EXPORT_FOLDER = os.path.join(BASE_DIR, 'exports')
-    MAX_CONTENT_LENGTH = 16 * 1024 * 1024  # 16MB
+    MAX_CONTENT_LENGTH = 50 * 1024 * 1024  # 50MB, aligned with nginx client_max_body_size
     
     # Session 配置（记住我功能）
     PERMANENT_SESSION_LIFETIME = timedelta(days=30)  # 30天
