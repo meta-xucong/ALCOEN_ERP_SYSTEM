@@ -18,7 +18,14 @@ contract_bp = Blueprint('contract', __name__, url_prefix='/contract')
 
 def _get_multi_query_values(param_name: str) -> list:
     """读取 GET 多选参数，兼容重复参数与逗号拼接两种格式。"""
-    values = [v.strip() for v in request.args.getlist(param_name) if v and v.strip()]
+    values = []
+    for raw_value in request.args.getlist(param_name):
+        if not raw_value:
+            continue
+        for item in str(raw_value).split(','):
+            normalized = item.strip()
+            if normalized and normalized not in values:
+                values.append(normalized)
     if values:
         return values
     csv_value = (request.args.get(param_name, '') or '').strip()
