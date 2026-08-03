@@ -27,6 +27,29 @@ class ContractService:
             return default
 
     @staticmethod
+    def _normalize_product_type(value) -> Optional[str]:
+        """规范化合同表单提交的产品类型。"""
+        if isinstance(value, str):
+            value = value.strip()
+        return value or None
+
+    @staticmethod
+    def _resolve_contract_product_type(
+        product: Optional[Product],
+        provided_type
+    ) -> Optional[str]:
+        """确定合同产品快照中的产品类型。
+
+        已存在产品优先使用产品库中的类型；历史产品库记录没有类型时，
+        允许使用合同表单补录的类型修复旧数据。
+        """
+        catalog_type = ContractService._normalize_product_type(
+            getattr(product, 'product_type', None)
+        )
+        provided = ContractService._normalize_product_type(provided_type)
+        return catalog_type or provided
+
+    @staticmethod
     def _normalize_contract_amounts(total_value: float, actual_received_value: float = None) -> tuple:
         """规范化合同总价、实收金额、折扣金额。"""
         total = ContractService._to_float2(total_value, 0.0)
@@ -103,14 +126,40 @@ class ContractService:
             # 创建产品计划 [v1.3] 自动保存新产品到产品库
             from app.services.product_service import ProductService
             for product_data in products_data:
-                # [v1.3] 获取或创建产品 - 自动保存新产品到产品库
-                product, is_new = ProductService.get_or_create_product(
-                    product_code=product_data['product_code'],
-                    product_name=product_data.get('product_name'),
-                    product_model=product_data.get('product_model'),
-                    product_type=product_data.get('product_type'),
-                    default_price=float(product_data.get('price', 0)) if product_data.get('price') else None
+                provided_product_type = ContractService._normalize_product_type(
+                    product_data.get('product_type')
                 )
+                existing_product = ProductService.find_product_by_code(
+                    product_data['product_code']
+                )
+                if existing_product:
+                    product = existing_product
+                    resolved_product_type = ContractService._resolve_contract_product_type(
+                        product,
+                        provided_product_type
+                    )
+                    if (
+                        not ContractService._normalize_product_type(product.product_type)
+                        and provided_product_type
+                    ):
+                        product.product_type = provided_product_type
+                else:
+                    product = ProductService.create_product(
+                        product_code=product_data['product_code'],
+                        product_name=product_data.get('product_name'),
+                        product_model=product_data.get('product_model'),
+                        product_type=provided_product_type,
+                        default_price=(
+                            float(product_data.get('price', 0))
+                            if product_data.get('price')
+                            else None
+                        ),
+                        auto_commit=False,
+                    )
+                    resolved_product_type = provided_product_type
+
+                if product is not None and product.id is None:
+                    db.session.flush()
                 
                 quantity = ContractService._to_float2(product_data.get('quantity', 0))
                 price = ContractService._to_float4(product_data.get('price', 0))
@@ -122,7 +171,7 @@ class ContractService:
                     product_code=product_data['product_code'],
                     product_name=product_data.get('product_name'),
                     product_model=product_data.get('product_model'),
-                    product_type=product_data.get('product_type'),
+                    product_type=resolved_product_type,
                     quantity=quantity,
                     unit=product_data.get('unit', '个'),
                     price=price,
@@ -730,14 +779,40 @@ class ContractService:
         
         contract = Contract.query.get_or_404(contract_id)
         
-        # [v1.3] 获取或创建产品 - 自动保存新产品到产品库
-        product, is_new = ProductService.get_or_create_product(
-            product_code=data['product_code'],
-            product_name=data.get('product_name'),
-            product_model=data.get('product_model'),
-            product_type=data.get('product_type'),
-            default_price=float(data.get('price', 0)) if data.get('price') else None
+        provided_product_type = ContractService._normalize_product_type(
+            data.get('product_type')
         )
+        existing_product = ProductService.find_product_by_code(data['product_code'])
+        if existing_product:
+            product = existing_product
+            is_new = False
+            resolved_product_type = ContractService._resolve_contract_product_type(
+                product,
+                provided_product_type
+            )
+            if (
+                not ContractService._normalize_product_type(product.product_type)
+                and provided_product_type
+            ):
+                product.product_type = provided_product_type
+        else:
+            product = ProductService.create_product(
+                product_code=data['product_code'],
+                product_name=data.get('product_name'),
+                product_model=data.get('product_model'),
+                product_type=provided_product_type,
+                default_price=(
+                    float(data.get('price', 0))
+                    if data.get('price')
+                    else None
+                ),
+                auto_commit=False,
+            )
+            is_new = True
+            resolved_product_type = provided_product_type
+
+        if product is not None and product.id is None:
+            db.session.flush()
         
         quantity = ContractService._to_float2(data.get('quantity', 0))
         price = ContractService._to_float4(data.get('price', 0))
@@ -749,7 +824,7 @@ class ContractService:
             product_code=data['product_code'],
             product_name=data.get('product_name'),
             product_model=data.get('product_model'),
-            product_type=data.get('product_type'),
+            product_type=resolved_product_type,
             quantity=quantity,
             unit=data.get('unit', '个'),
             price=price,
@@ -783,11 +858,55 @@ class ContractService:
     def update_contract_product(cp_id: int, data: dict) -> ContractProduct:
         """[修复] 更新产品计划 - 移动到ContractService类中"""
         cp = ContractProduct.query.get_or_404(cp_id)
-        
-        cp.product_code = data.get('product_code', cp.product_code)
+
+        from app.services.product_service import ProductService
+
+        product_code = data.get('product_code', cp.product_code) or cp.product_code
+        provided_product_type = ContractService._normalize_product_type(
+            data.get('product_type')
+        )
+        catalog_product = ProductService.find_product_by_code(product_code)
+        product = catalog_product
+
+        if catalog_product:
+            resolved_product_type = (
+                ContractService._resolve_contract_product_type(
+                    catalog_product,
+                    provided_product_type
+                )
+                or cp.product_type
+            )
+            if (
+                not ContractService._normalize_product_type(catalog_product.product_type)
+                and provided_product_type
+            ):
+                catalog_product.product_type = provided_product_type
+        elif product_code == cp.product_code:
+            # 产品库中已删除的历史产品仍允许编辑合同快照。
+            resolved_product_type = provided_product_type or cp.product_type
+        else:
+            if not provided_product_type:
+                raise ValueError(f"产品 {product_code} 需要填写产品类型")
+            product = ProductService.create_product(
+                product_code=product_code,
+                product_name=data.get('product_name'),
+                product_model=data.get('product_model'),
+                product_type=provided_product_type,
+                default_price=(
+                    float(data.get('price', 0))
+                    if data.get('price')
+                    else None
+                ),
+                auto_commit=False,
+            )
+            db.session.flush()
+            resolved_product_type = provided_product_type
+
+        cp.product_id = product.id if product else cp.product_id
+        cp.product_code = product_code
         cp.product_name = data.get('product_name', cp.product_name)
         cp.product_model = data.get('product_model', cp.product_model)
-        cp.product_type = data.get('product_type', cp.product_type)
+        cp.product_type = resolved_product_type
         cp.quantity = ContractService._to_float2(data.get('quantity', cp.quantity), cp.quantity)
         cp.unit = data.get('unit', cp.unit)
         cp.price = ContractService._to_float4(data.get('price', cp.price), cp.price)

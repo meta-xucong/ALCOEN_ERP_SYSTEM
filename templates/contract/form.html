@@ -51,6 +51,10 @@
     max-width: 240px;
 }
 
+.product-row .product-type-input {
+    max-width: 220px;
+}
+
 .product-row .product-qty,
 .transaction-row .trans-qty {
     min-width: 140px;
@@ -89,6 +93,11 @@
 
 <form method="POST" action="" id="contractForm" enctype="multipart/form-data">
     {{ form.hidden_tag() }}
+    <datalist id="product-type-list">
+        {% for product_type in product_types or [] %}
+        <option value="{{ product_type }}"></option>
+        {% endfor %}
+    </datalist>
     
     <!-- 合同基本信息 -->
     <div class="card mb-4">
@@ -549,13 +558,21 @@
                     </button>
                 </div>
             </div>
-            <div class="col-md-5">
+            <div class="col-md-4">
                 <label class="form-label">产品名称</label>
                 <input type="text" class="form-control product-name-input" name="product_{index}_name">
             </div>
-            <div class="col-md-3">
+            <div class="col-md-2">
                 <label class="form-label">型号</label>
                 <input type="text" class="form-control product-model-input" name="product_{index}_model">
+            </div>
+            <div class="col-md-2">
+                <label class="form-label">产品类型</label>
+                <input type="text" class="form-control product-type-input"
+                       name="product_{index}_type"
+                       list="product-type-list"
+                       placeholder="类型"
+                       onchange="onProductTypeInput(this)">
             </div>
             <div class="col-md-1">
                 <label class="form-label">单位</label>
@@ -727,14 +744,16 @@ function normalizeProductRowLayout(row) {
     const codeCol = row.querySelector('.product-code-select')?.closest('[class*="col-"]');
     const nameCol = row.querySelector('.product-name-input')?.closest('[class*="col-"]');
     const modelCol = row.querySelector('.product-model-input')?.closest('[class*="col-"]');
+    const typeCol = row.querySelector('.product-type-input')?.closest('[class*="col-"]');
     const qtyCol = row.querySelector('.product-qty')?.closest('[class*="col-"]');
     const unitCol = row.querySelector('.product-unit-input')?.closest('[class*="col-"]');
     const priceCol = row.querySelector('.product-price-input')?.closest('[class*="col-"]');
     const totalCol = row.querySelector('.product-total')?.closest('[class*="col-"]');
     const remarkCol = row.querySelector('.product-remark')?.closest('[class*="col-"]');
     if (codeCol) codeCol.className = 'col-md-3';
-    if (nameCol) nameCol.className = 'col-md-5';
-    if (modelCol) modelCol.className = 'col-md-3';
+    if (nameCol) nameCol.className = 'col-md-4';
+    if (modelCol) modelCol.className = 'col-md-2';
+    if (typeCol) typeCol.className = 'col-md-2';
     if (qtyCol) qtyCol.className = 'col-md-2';
     if (unitCol) unitCol.className = 'col-md-1';
     if (priceCol) priceCol.className = 'col-md-2';
@@ -1070,6 +1089,7 @@ function addProductRow() {
     const row = tempDiv.firstElementChild;
     container.appendChild(row);
     normalizeProductRowLayout(row);
+    syncProductTypeField(row, '', false);
     productCount++;
     document.getElementById('product_count').value = productCount;
     updateTransactionProductOptions();
@@ -1122,6 +1142,23 @@ function calculateProductTotal(input) {
     }
 
     updateContractFinancials();
+}
+
+function syncProductTypeField(row, value, readOnly = false, requiredOverride = null) {
+    if (!row) return;
+    const input = row.querySelector('.product-type-input');
+    if (!input) return;
+    input.value = (value || '').trim();
+    const isReadOnly = readOnly && !!input.value;
+    input.readOnly = isReadOnly;
+    input.dataset.productTypeReadonly = isReadOnly ? 'true' : 'false';
+    input.required = requiredOverride === null ? !isReadOnly : requiredOverride;
+}
+
+function onProductTypeInput(input) {
+    const row = input.closest('.product-row');
+    if (!row) return;
+    row.dataset.productTypeTouched = input.value.trim() ? 'true' : 'false';
 }
 
 // 发货记录管理
@@ -1351,6 +1388,7 @@ function toggleProductCodeInput(btn) {
         icon.classList.add('bi-list');
         btn.title = '切换下拉选择';
         statusDiv.innerHTML = '<span class="text-muted"><i class="bi bi-pencil"></i> 手动输入</span>';
+        syncProductTypeField(row, row.querySelector('.product-type-input')?.value || '', false, true);
     } else {
         select.style.display = 'block';
         input.style.display = 'none';
@@ -1374,6 +1412,8 @@ function onProductCodeSelect(select) {
     
     row.querySelector('.product-name-input').value = option.dataset.name || '';
     row.querySelector('.product-model-input').value = option.dataset.model || '';
+    const matchedType = (option.dataset.type || '').trim();
+    syncProductTypeField(row, matchedType, Boolean(matchedType), false);
     row.querySelector('.product-unit-input').value = option.dataset.unit || '个';
     row.querySelector('.product-price-input').value = option.dataset.price || 0;
     row.dataset.priceBasis = 'price';
@@ -1405,6 +1445,8 @@ function onProductCodeInput(input) {
     if (matchedOption) {
         row.querySelector('.product-name-input').value = matchedOption.dataset.name || '';
         row.querySelector('.product-model-input').value = matchedOption.dataset.model || '';
+        const matchedType = (matchedOption.dataset.type || '').trim();
+        syncProductTypeField(row, matchedType, Boolean(matchedType), false);
         row.querySelector('.product-unit-input').value = matchedOption.dataset.unit || '个';
         row.querySelector('.product-price-input').value = matchedOption.dataset.price || 0;
         row.dataset.priceBasis = 'price';
@@ -1413,6 +1455,7 @@ function onProductCodeInput(input) {
     } else {
         statusDiv.innerHTML = '<span class="text-warning"><i class="bi bi-info-circle"></i> 新产品</span>';
         row.dataset.productMatched = 'false';
+        syncProductTypeField(row, row.querySelector('.product-type-input')?.value || '', false, true);
     }
     
     calculateProductTotal(input);
@@ -2046,6 +2089,16 @@ function addProductRowWithData(data) {
     // [v1.5.2] 修复：无论是否匹配下拉框，都使用 data 中的数据填充字段
     row.querySelector('.product-name-input').value = data.product_name;
     row.querySelector('.product-model-input').value = data.product_model;
+    const providedType = (data.product_type || '').trim();
+    const resolvedType = providedType
+        || row.querySelector('.product-type-input')?.value
+        || '';
+    syncProductTypeField(
+        row,
+        resolvedType,
+        Boolean(resolvedType) && matchedInDropdown,
+        !matchedInDropdown
+    );
     row.querySelector('.product-unit-input').value = data.unit;
     row.querySelector('.product-price-input').value = data.price;
     row.querySelector('.product-remark').value = data.remark || '';

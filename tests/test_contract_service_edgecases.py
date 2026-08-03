@@ -108,3 +108,76 @@ def test_add_transaction_requires_handler(app, base_data):
                 },
                 is_new=True,
             )
+
+
+def test_create_contract_keeps_existing_product_type(app, base_data):
+    """Existing catalog product types should flow into the contract snapshot."""
+    from app import db
+    from app.models import Product
+
+    with app.app_context():
+        db.session.add(
+            Product(
+                product_code="EDGE-TYPE-KEEP-001",
+                product_name="Catalog Product",
+                product_model="T1",
+                product_type="CatalogType",
+            )
+        )
+        db.session.flush()
+
+        contract = ContractService.create_contract(
+            {
+                "contract_no": "EDGE-TYPE-KEEP",
+                "company_name": "Edge Corp",
+                "owner": "Sales - Owner",
+                "department": "Sales",
+                "manager": "Sales Owner",
+                "created_by_id": base_data["owner_user_id"],
+            },
+            [
+                {
+                    "product_code": "EDGE-TYPE-KEEP-001",
+                    "product_name": "Typed Product",
+                    "product_model": "T1",
+                    "product_type": "FormTypeShouldNotOverride",
+                    "quantity": 2,
+                    "unit": "pcs",
+                    "price": 18,
+                    "remark": "",
+                }
+            ],
+        )
+
+        cp = contract.contract_products[0]
+        assert cp.product_type == "CatalogType"
+
+
+def test_create_contract_keeps_new_product_type_when_supplied(app, base_data):
+    """New products created through the contract workflow should persist their type."""
+    with app.app_context():
+        contract = ContractService.create_contract(
+            {
+                "contract_no": "EDGE-TYPE-NEW",
+                "company_name": "Edge Corp",
+                "owner": "Sales - Owner",
+                "department": "Sales",
+                "manager": "Sales Owner",
+                "created_by_id": base_data["owner_user_id"],
+            },
+            [
+                {
+                    "product_code": "EDGE-TYPE-NEW-001",
+                    "product_name": "Typed Product",
+                    "product_model": "T2",
+                    "product_type": "TypeNew",
+                    "quantity": 2,
+                    "unit": "pcs",
+                    "price": 18,
+                    "remark": "",
+                }
+            ],
+        )
+
+        cp = contract.contract_products[0]
+        assert cp.product_type == "TypeNew"

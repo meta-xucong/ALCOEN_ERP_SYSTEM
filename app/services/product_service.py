@@ -47,6 +47,22 @@ class ProductService:
         if not product_code:
             return None
         return Product.query.filter_by(product_code=product_code).first()
+
+    @staticmethod
+    def get_product_types() -> list[str]:
+        """获取产品库中已有的非空产品类型，供合同表单联想使用。"""
+        types = db.session.query(Product.product_type).filter(
+            Product.product_type.isnot(None),
+            Product.product_type != ''
+        ).distinct().order_by(Product.product_type).all()
+        result = []
+        seen = set()
+        for value, in types:
+            normalized = value.strip() if isinstance(value, str) else value
+            if normalized and normalized not in seen:
+                seen.add(normalized)
+                result.append(normalized)
+        return result
     
     @staticmethod
     def create_product(
@@ -56,7 +72,8 @@ class ProductService:
         product_type: Optional[str] = None,
         default_price: Optional[float] = None,
         remark: Optional[str] = None,
-        image_path: Optional[str] = None
+        image_path: Optional[str] = None,
+        auto_commit: bool = True
     ) -> Product:
         """
         创建新产品
@@ -80,13 +97,18 @@ class ProductService:
             product_code=product_code,
             product_name=product_name if product_name else None,
             product_model=product_model if product_model else None,
-            product_type=product_type if product_type else None,
+            product_type=(
+                product_type.strip()
+                if isinstance(product_type, str) and product_type.strip()
+                else product_type
+            ),
             default_price=default_price,
             remark=remark if remark else "从交易记录自动创建",
             image_path=image_path
         )
         db.session.add(product)
-        db.session.commit()
+        if auto_commit:
+            db.session.commit()
         return product
     
     @staticmethod
@@ -124,11 +146,12 @@ class ProductService:
             return existing, False
         
         # 不存在，创建新产品
+        normalized_type = product_type.strip() if isinstance(product_type, str) else product_type
         new_product = ProductService.create_product(
             product_code=product_code,
             product_name=product_name,
             product_model=product_model,
-            product_type=product_type,
+            product_type=normalized_type,
             default_price=default_price
         )
         return new_product, True
@@ -172,7 +195,11 @@ class ProductService:
         if product_model is not None:
             product.product_model = product_model if product_model else None
         if product_type is not None:
-            product.product_type = product_type if product_type else None
+            product.product_type = (
+                product_type.strip()
+                if isinstance(product_type, str) and product_type.strip()
+                else None
+            )
         if default_price is not None:
             product.default_price = default_price
         if remark is not None:
@@ -300,16 +327,3 @@ class ProductService:
         db.session.delete(product)
         db.session.commit()
         return True
-    
-    @staticmethod
-    def get_product_types() -> list:
-        """获取所有产品类型列表（去重）
-        
-        Returns:
-            产品类型列表（非空）
-        """
-        types = db.session.query(Product.product_type).filter(
-            Product.product_type.isnot(None),
-            Product.product_type != ''
-        ).distinct().order_by(Product.product_type).all()
-        return [t[0] for t in types]
