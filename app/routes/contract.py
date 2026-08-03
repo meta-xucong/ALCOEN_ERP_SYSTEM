@@ -341,6 +341,18 @@ def new_contract():
                 prefix = f'product_{i}_'
                 product_data = _extract_product_row_payload(prefix, request.form)
                 if product_data['product_code'] and product_data['quantity'] > 0:
+                    existing_product = ProductService.find_product_by_code(
+                        product_data['product_code']
+                    )
+                    if (
+                        not existing_product
+                        and not ContractService._normalize_product_type(
+                            product_data.get('product_type')
+                        )
+                    ):
+                        raise ValueError(
+                            f"产品 {product_data['product_code']} 需要填写产品类型"
+                        )
                     products_data.append(product_data)
                     product_row_indices.append(i)
             
@@ -350,7 +362,8 @@ def new_contract():
                                      form=form,
                                      product_form=product_form,
                                      transaction_form=transaction_form,
-                                     companies=StatementService.get_company_list())
+                                     companies=StatementService.get_company_list(),
+                                     product_types=ProductService.get_product_types())
             
             # 处理部门/负责人 [v1.3] [v1.5] 简化逻辑，直接使用表单值
             department = request.form.get('department', '').strip()
@@ -477,6 +490,7 @@ def new_contract():
                          transaction_form=transaction_form,
                          companies=companies,
                          products=products,
+                         product_types=ProductService.get_product_types(),
                          departments=departments,
                          department_users=department_users,
                          managers=managers,
@@ -568,9 +582,22 @@ def edit_contract(id):
 
                 product_id_raw = (request.form.get(f'{prefix}id') or '').strip()
                 product_id = int(product_id_raw) if product_id_raw.isdigit() else None
+                is_existing_contract_row = product_id in existing_product_ids
+
+                if not is_existing_contract_row:
+                    existing_product = ProductService.find_product_by_code(product_code)
+                    if (
+                        not existing_product
+                        and not ContractService._normalize_product_type(
+                            product_data.get('product_type')
+                        )
+                    ):
+                        raise ValueError(
+                            f"产品 {product_code} 需要填写产品类型"
+                        )
 
                 # 优先按前端提交的产品计划ID更新，避免修改产品编码时“保存后看似不生效”
-                if product_id and product_id in existing_product_ids:
+                if is_existing_contract_row:
                     ContractService.update_contract_product(product_id, product_data)
                     submitted_product_ids.add(product_id)
                     product_row_map[i] = product_id
@@ -592,6 +619,16 @@ def edit_contract(id):
                     submitted_product_ids.add(existing_cp.id)
                     product_row_map[i] = existing_cp.id
                 else:
+                    existing_product = ProductService.find_product_by_code(product_code)
+                    if (
+                        not existing_product
+                        and not ContractService._normalize_product_type(
+                            product_data.get('product_type')
+                        )
+                    ):
+                        raise ValueError(
+                            f"产品 {product_code} 需要填写产品类型"
+                        )
                     new_cp = ContractService.add_contract_product(id, product_data)
                     submitted_product_ids.add(new_cp.id)
                     product_row_map[i] = new_cp.id
@@ -864,7 +901,6 @@ def edit_contract(id):
     
     stats = ContractService.get_statistics(id)
     companies = StatementService.get_company_list()
-    from app.services.product_service import ProductService
     products = ProductService.get_all_products()
     # [v1.4] 从部门管理模块获取部门列表
     from app.models import Department
@@ -890,6 +926,7 @@ def edit_contract(id):
                          stats=stats,
                          companies=companies,
                          products=products,
+                         product_types=ProductService.get_product_types(),
                          departments=departments,
                          department_users=department_users,
                          managers=managers,
