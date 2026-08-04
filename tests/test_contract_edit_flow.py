@@ -489,6 +489,60 @@ def test_edit_contract_accepts_invoice_only_payment_record(app, client, login, b
         assert payment.contract_product_id is None
 
 
+def test_edit_contract_clearing_invoice_amount_clears_invoice_date(
+    app, client, login, base_data
+):
+    """Clearing invoice amount must make the record unbilled and remove its date."""
+    from app.models import Contract, PaymentRecord
+
+    with app.app_context():
+        contract, cp = _create_contract(base_data["owner_user_id"])
+        payment = ContractService.add_payment_record(
+            contract.id,
+            {
+                "payment_amount": 88,
+                "invoice_amount": 88,
+                "payment_date": "2026-04-08",
+                "invoice_date": "2026-04-08",
+                "handler": "Finance",
+                "remark": "to be cleared",
+                "contract_product_id": cp.id,
+            },
+        )
+        contract_id = contract.id
+        payment_id = payment.id
+        form_data = _base_edit_form(contract, cp)
+
+    login(base_data["superadmin_id"])
+    form_data.update(
+        {
+            "transaction_count": "0",
+            "payment_count": "1",
+            "payment_0_id": str(payment_id),
+            "payment_0_amount": "88",
+            "payment_0_invoice_amount": "",
+            "payment_0_date": "2026-04-08",
+            "payment_0_invoice_date": "2026-04-08",
+            "payment_0_handler": "Finance",
+            "payment_0_remark": "to be cleared",
+            "payment_0_contract_product_id": cp.product_code,
+        }
+    )
+    response = client.post(
+        f"/contract/{contract_id}/edit",
+        data=form_data,
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 302
+    with app.app_context():
+        contract = Contract.query.get(contract_id)
+        payment = PaymentRecord.query.get(payment_id)
+        assert payment.invoice_amount is None
+        assert payment.invoice_date is None
+        assert contract.get_invoice_status_display()["text"] == "未开票"
+
+
 def test_edit_contract_deletes_only_explicitly_marked_existing_rows(app, client, login, base_data):
     """Only rows explicitly removed in the UI should be deleted."""
     from app.models import Contract

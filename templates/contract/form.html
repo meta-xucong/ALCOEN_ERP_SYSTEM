@@ -885,6 +885,18 @@ function updatePaymentRowStatus(row) {
     flags.innerHTML = badges.join(' ');
 }
 
+function clearInvoiceDateWhenUnbilled(row) {
+    if (!row) return;
+    const invoiceAmountInput = row.querySelector('.payment-invoice-amount-input');
+    const invoiceDateInput = row.querySelector('[name$="_invoice_date"]');
+    if (!invoiceAmountInput || !invoiceDateInput) return;
+
+    const invoiceAmount = toNumber(invoiceAmountInput.value, 0);
+    if (invoiceAmountInput.value === '' || invoiceAmount <= 0) {
+        invoiceDateInput.value = '';
+    }
+}
+
 function bindPaymentRowBehavior(row, options = {}) {
     if (!row || row.dataset.paymentBehaviorBound === 'true') {
         if (row) {
@@ -904,6 +916,7 @@ function bindPaymentRowBehavior(row, options = {}) {
         ? options.autoFollowInvoice
         : (!invoiceAmountInput.value || invoiceAmountInput.value === amountInput.value);
     invoiceAmountInput.dataset.autoFollow = initialAutoFollow ? 'true' : 'false';
+    clearInvoiceDateWhenUnbilled(row);
 
     amountInput.addEventListener('input', () => {
         if (invoiceAmountInput.dataset.autoFollow === 'true') {
@@ -919,6 +932,12 @@ function bindPaymentRowBehavior(row, options = {}) {
         } else {
             invoiceAmountInput.dataset.autoFollow = invoiceAmountInput.value === amountInput.value ? 'true' : 'false';
         }
+        clearInvoiceDateWhenUnbilled(row);
+        updatePaymentRowStatus(row);
+    });
+
+    invoiceAmountInput.addEventListener('change', () => {
+        clearInvoiceDateWhenUnbilled(row);
         updatePaymentRowStatus(row);
     });
 

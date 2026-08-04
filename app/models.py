@@ -276,6 +276,7 @@ class Transaction(db.Model):
     
     # 日期
     delivery_date: Mapped[Date] = mapped_column(Date, nullable=False, index=True)
+    delivery_batch_no: Mapped[str] = mapped_column(String(100), nullable=True, index=True)
     invoice_date: Mapped[Date] = mapped_column(Date, nullable=True)
     
     # 其他
