@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+from io import BytesIO
 from pathlib import Path
+
+from openpyxl import load_workbook
 
 from app.services.contract_service import ContractService
 
@@ -89,6 +92,98 @@ def test_contract_print_delivery_note_renders_when_transactions_exist(app, clien
     html = resp.get_data(as_text=True)
     assert "window.print()" in html
     assert f"/contract/{contract_id}/export-delivery-note" in html
+
+
+def test_delivery_note_defaults_to_latest_batch_without_losing_history(
+    app, client, login, base_data
+):
+    """Print/export should use the latest batch while preserving old transactions."""
+    from app.models import Contract, Transaction
+
+    with app.app_context():
+        contract = ContractService.create_contract(
+            {
+                "contract_no": "EXPORT-BATCH-TX",
+                "company_name": "Export Corp",
+                "owner": "Sales - Owner",
+                "department": "Sales",
+                "manager": "Sales Owner",
+                "created_by_id": base_data["owner_user_id"],
+            },
+            [
+                {
+                    "product_code": "EX-BATCH-001",
+                    "product_name": "Export Product",
+                    "product_model": "E1",
+                    "product_type": "TypeE",
+                    "quantity": 20,
+                    "unit": "pcs",
+                    "price": 10,
+                    "remark": "",
+                }
+            ],
+        )
+        cp = contract.contract_products[0]
+        ContractService.add_transaction(
+            contract.id,
+            {
+                "contract_product_id": cp.id,
+                "quantity": 5,
+                "unit": "pcs",
+                "price_with_tax": 10,
+                "handler": "Logistics A",
+                "delivery_date": "2026-04-08",
+                "invoice_date": "",
+                "remark": "old batch",
+                "delivery_batch_no": "BATCH-OLD",
+            },
+            is_new=True,
+        )
+        ContractService.add_transaction(
+            contract.id,
+            {
+                "contract_product_id": cp.id,
+                "quantity": 3,
+                "unit": "pcs",
+                "price_with_tax": 10,
+                "handler": "Logistics B",
+                "delivery_date": "2026-04-09",
+                "invoice_date": "",
+                "remark": "new batch",
+                "delivery_batch_no": "BATCH-NEW",
+            },
+            is_new=True,
+        )
+        contract_id = contract.id
+
+        all_transactions = Transaction.query.filter_by(contract_id=contract_id).all()
+        assert len(all_transactions) == 2
+
+    login(base_data["superadmin_id"])
+    print_response = client.get(
+        f"/contract/{contract_id}/print-delivery-note?autoprint=0",
+        follow_redirects=False,
+    )
+    assert print_response.status_code == 200
+    html = print_response.get_data(as_text=True)
+    assert "new batch" in html
+    assert "old batch" not in html
+
+    export_response = client.get(
+        f"/contract/{contract_id}/export-delivery-note",
+        follow_redirects=False,
+    )
+    assert export_response.status_code == 200
+    workbook = load_workbook(BytesIO(export_response.data), read_only=True, data_only=True)
+    values = [
+        value
+        for row in workbook.active.iter_rows(values_only=True)
+        for value in row
+        if value is not None
+    ]
+    workbook.close()
+    assert "new batch" in values
+    assert "old batch" not in values
 
 
 def test_contract_detail_has_direct_print_and_export_actions(app, client, login, base_data):

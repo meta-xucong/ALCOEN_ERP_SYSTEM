@@ -228,7 +228,11 @@ class ContractService:
         return contract
     
     @staticmethod
-    def add_transaction(contract_id: int, transaction_data: dict, is_new: bool = True) -> Transaction:
+    def add_transaction(
+        contract_id: int,
+        transaction_data: dict,
+        is_new: bool = True
+    ) -> Transaction:
         """
         向合同添加发货记录 [v1.3] 移除回款相关逻辑
         
@@ -292,7 +296,13 @@ class ContractService:
         product_code = cp.product_code if cp else transaction_data.get('product_code', '').strip()
         if not product_code:
             raise ValueError("产品编码不能为空")
-        
+
+        delivery_batch_no = transaction_data.get('delivery_batch_no')
+        if not delivery_batch_no:
+            delivery_batch_no = (
+                f"DB{contract_id}-{datetime.now().strftime('%Y%m%d%H%M%S%f')}"
+            )
+
         # 创建发货记录
         transaction = Transaction(
             contract_id=contract_id,
@@ -308,6 +318,7 @@ class ContractService:
             price_with_tax=ContractService._to_float2(transaction_data.get('price_with_tax', 0)),
             handler=handler,
             delivery_date=delivery_date,
+            delivery_batch_no=delivery_batch_no,
             invoice_date=invoice_date,
             remark=transaction_data.get('remark')
         )
@@ -370,7 +381,11 @@ class ContractService:
             return date_val if isinstance(date_val, date) else None
         
         payment_date = parse_date(payment_data.get('payment_date'))
-        invoice_date = parse_date(payment_data.get('invoice_date'))
+        invoice_date = (
+            None
+            if invoice_amount is None or invoice_amount <= 0
+            else parse_date(payment_data.get('invoice_date'))
+        )
         
         # 处理关联的产品计划 [v1.3] 支持contract_product_id 或 product_code
         contract_product_id = None

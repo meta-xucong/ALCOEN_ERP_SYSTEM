@@ -197,10 +197,47 @@ def _build_delivery_note_no(contract: Contract) -> str:
     return f"FH{contract.contract_no}-{datetime.now().strftime('%Y%m%d%H%M%S')}"
 
 
+def _build_delivery_batch_no(contract: Contract) -> str:
+    """生成一次保存内共用的发货批次号。"""
+    return f"DB{contract.id}-{datetime.now().strftime('%Y%m%d%H%M%S%f')}"
+
+
+def _get_delivery_note_transactions(contract: Contract):
+    """获取发货单记录，默认只返回最新一次发货批次。
+
+    历史记录没有批次号时保留兼容行为，仍显示合同全部历史记录。
+    """
+    query = Transaction.query.filter_by(contract_id=contract.id)
+    requested_batch = (request.args.get('delivery_batch_no') or '').strip()
+    show_all = request.args.get('all', '0') == '1'
+
+    if requested_batch:
+        query = query.filter(Transaction.delivery_batch_no == requested_batch)
+    elif not show_all:
+        latest_batch = query.filter(
+            Transaction.delivery_batch_no.isnot(None),
+            Transaction.delivery_batch_no != ''
+        ).order_by(
+            Transaction.created_at.desc(),
+            Transaction.id.desc()
+        ).first()
+        if latest_batch:
+            query = query.filter(
+                Transaction.delivery_batch_no == latest_batch.delivery_batch_no
+            )
+
+    return query.order_by(
+        Transaction.delivery_date.desc(),
+        Transaction.id.desc()
+    ).all()
+
+
 def _extract_payment_row_payload(prefix: str, form_data, *, existing: bool = False):
     """提取并校验单条回款记录表单数据。"""
+    invoice_amount_field = f'{prefix}invoice_amount'
     payment_amount = _to_float2_or_none(form_data.get(f'{prefix}amount'))
-    invoice_amount = _to_float2_or_none(form_data.get(f'{prefix}invoice_amount'))
+    invoice_amount = _to_float2_or_none(form_data.get(invoice_amount_field))
+    invoice_amount_submitted = invoice_amount_field in form_data
 
     if payment_amount is not None and payment_amount < 0:
         raise ValueError("回款金额不能为负数")
@@ -231,11 +268,17 @@ def _extract_payment_row_payload(prefix: str, form_data, *, existing: bool = Fal
             raise ValueError("回款金额和开票金额至少填写一个")
         return None
 
+    invoice_date = (
+        None
+        if invoice_amount_submitted and (invoice_amount is None or invoice_amount <= 0)
+        else _parse_optional_date(invoice_date_raw)
+    )
+
     return {
         'payment_amount': payment_amount,
         'invoice_amount': invoice_amount,
         'payment_date': _parse_optional_date(payment_date_raw),
-        'invoice_date': _parse_optional_date(invoice_date_raw),
+        'invoice_date': invoice_date,
         'handler': handler,
         'remark': remark,
         'contract_product_code': contract_product_code,
@@ -393,6 +436,11 @@ def new_contract():
 
             # 添加发货记录（如果有）
             transaction_count = _to_non_negative_int(request.form.get('transaction_count'), 0)
+            delivery_batch_no = (
+                _build_delivery_batch_no(contract)
+                if transaction_count > 0
+                else None
+            )
             for i in range(transaction_count):
                 prefix = f'transaction_{i}_'
                 product_code = request.form.get(f'{prefix}contract_product_id')
@@ -412,6 +460,7 @@ def new_contract():
                             'quantity': _to_float2(request.form.get(f'{prefix}quantity', 0)),
                             'unit': request.form.get(f'{prefix}unit'),
                             'price_with_tax': _to_float2(request.form.get(f'{prefix}price', 0)),
+                            'delivery_batch_no': delivery_batch_no,
                             'handler': request.form.get(f'{prefix}handler', '').strip(),
                             'delivery_date': request.form.get(f'{prefix}delivery_date'),
                             'invoice_date': request.form.get(f'{prefix}invoice_date') or None,
@@ -647,6 +696,7 @@ def edit_contract(id):
             }
             submitted_transaction_ids = set()
             used_contract_product_ids = set()
+            delivery_batch_no = None
             deleted_transaction_ids = set()
             for raw_id in request.form.getlist('deleted_transaction_ids'):
                 trans_id = _to_int(raw_id)
@@ -759,6 +809,7 @@ def edit_contract(id):
                             'quantity': _to_float2(request.form.get(f'{prefix}quantity', 0)),
                             'unit': request.form.get(f'{prefix}unit'),
                             'price_with_tax': _to_float2(request.form.get(f'{prefix}price', 0)),
+                            'delivery_batch_no': delivery_batch_no,
                             'handler': request.form.get(f'{prefix}handler', '').strip(),
                             'delivery_date': request.form.get(f'{prefix}delivery_date'),
                             'invoice_date': request.form.get(f'{prefix}invoice_date') or None,
@@ -768,6 +819,9 @@ def edit_contract(id):
                         current_app.logger.info(f"[v1.5.2] Creating transaction: {transaction_data}")
                         if transaction_data['quantity'] > 0:
                             try:
+                                if delivery_batch_no is None:
+                                    delivery_batch_no = _build_delivery_batch_no(contract)
+                                    transaction_data['delivery_batch_no'] = delivery_batch_no
                                 trans = ContractService.add_transaction(id, transaction_data, is_new=True)
                                 current_app.logger.info(f"[v1.5.2] Transaction created: id={trans.id}")
                             except Exception as e:
@@ -963,6 +1017,7 @@ def logistics_edit_contract(id):
             }
             submitted_transaction_ids = set()
             used_contract_product_ids = set()
+            delivery_batch_no = None
             deleted_transaction_ids = set()
             for raw_id in request.form.getlist('deleted_transaction_ids'):
                 trans_id = _to_int(raw_id)
@@ -1071,7 +1126,10 @@ def logistics_edit_contract(id):
                         
                         if quantity > 0 and handler and delivery_date_str:
                             from datetime import datetime
-                            
+
+                            if delivery_batch_no is None:
+                                delivery_batch_no = _build_delivery_batch_no(contract)
+
                             delivery_date = datetime.strptime(delivery_date_str, '%Y-%m-%d').date()
                             
                             transaction = Transaction(
@@ -1088,6 +1146,7 @@ def logistics_edit_contract(id):
                                 price_with_tax=_to_float2(request.form.get(f'{prefix}price', 0)),
                                 handler=handler,
                                 delivery_date=delivery_date,
+                                delivery_batch_no=delivery_batch_no,
                                 invoice_date=(
                                     datetime.strptime(
                                         request.form.get(f'{prefix}invoice_date'),
@@ -1347,7 +1406,8 @@ def print_delivery_note(id):
         flash('您没有权限查看此合同的发货单', 'error')
         return redirect(url_for('contract.list_contracts'))
 
-    if not contract.transactions:
+    transactions = _get_delivery_note_transactions(contract)
+    if not transactions:
         flash('没有发货记录，无法打印发货单', 'warning')
         return redirect(url_for('contract.view_contract', id=id))
 
@@ -1357,7 +1417,7 @@ def print_delivery_note(id):
     return render_template(
         'contract/delivery_note_print.html',
         contract=contract,
-        transactions=contract.transactions,
+        transactions=transactions,
         note_no=note_no,
         auto_print=auto_print,
         embedded=embedded,
@@ -1376,7 +1436,8 @@ def export_delivery_note(id):
         flash('您没有权限导出此合同的发货单', 'error')
         return redirect(url_for('contract.list_contracts'))
     
-    if not contract.transactions:
+    transactions = _get_delivery_note_transactions(contract)
+    if not transactions:
         flash('没有发货记录，无法导出发货单', 'warning')
         return redirect(url_for('contract.view_contract', id=id))
     
@@ -1392,7 +1453,7 @@ def export_delivery_note(id):
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     
     # 导出发货单
-    export_delivery_note_to_excel(contract, contract.transactions, output_path, note_no)
+    export_delivery_note_to_excel(contract, transactions, output_path, note_no)
     
     # 返回文件
     return send_file(

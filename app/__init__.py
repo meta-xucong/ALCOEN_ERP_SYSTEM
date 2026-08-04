@@ -53,6 +53,20 @@ def _run_lightweight_schema_upgrades():
                 '''
             )
 
+    if inspector.has_table('transactions'):
+        transaction_columns = {
+            column['name'] for column in inspector.get_columns('transactions')
+        }
+        with db.engine.begin() as connection:
+            if 'delivery_batch_no' not in transaction_columns:
+                connection.exec_driver_sql(
+                    'ALTER TABLE transactions ADD COLUMN delivery_batch_no VARCHAR(100)'
+                )
+            connection.exec_driver_sql(
+                'CREATE INDEX IF NOT EXISTS ix_transactions_delivery_batch_no '
+                'ON transactions (delivery_batch_no)'
+            )
+
     if inspector.has_table('qc_work_orders'):
         order_columns = {column['name'] for column in inspector.get_columns('qc_work_orders')}
         alter_statements = []
