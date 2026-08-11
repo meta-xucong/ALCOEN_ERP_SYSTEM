@@ -54,6 +54,12 @@ static/uploads/contract_documents/*
 # Exports
 exports/*.xlsx
 exports/*.csv
+exports/official_contracts/*
+!exports/official_contracts/.gitkeep
+
+# Official contract runtime templates
+data/official_contract_templates/*
+!data/official_contract_templates/.gitkeep
 
 # Logs
 *.log

@@ -193,34 +193,43 @@
     
     <script src="{{ url_for('static', filename='vendor/bootstrap/js/bootstrap.bundle.min.js') }}"></script>
     <script>
+        const departmentOptionalRoles = new Set([
+            'general_manager',
+            'gm_assistant',
+            'logistics_manager'
+        ]);
+
         function toggleDepartment() {
             const roleSelect = document.getElementById('role_id');
             const deptSelect = document.getElementById('department_id');
             const deptLabel = document.getElementById('deptLabel');
             const deptHint = document.getElementById('deptHint');
             const allDeptOption = deptSelect.querySelector('option[value="all"]');
-            
+
             const selectedOption = roleSelect.options[roleSelect.selectedIndex];
             const roleCode = selectedOption.getAttribute('data-code');
-            
+            const isDepartmentOptional = departmentOptionalRoles.has(roleCode);
+
             // 显示/隐藏"全部部门"选项
-            if (roleCode === 'general_manager' || roleCode === 'logistics_manager') {
+            if (isDepartmentOptional) {
                 allDeptOption.style.display = 'block';
             } else {
                 allDeptOption.style.display = 'none';
             }
-            
-            if (roleCode === 'logistics_manager' || roleCode === 'general_manager') {
-                // 物流经理和总经理：默认选择"全部部门"
-                // [修复] 对总经理/物流经理不设置 required，允许使用默认 "all"
+
+            if (isDepartmentOptional) {
+                // 总经理、总经理助理和物流经理不绑定具体部门，统一提交为全部部门范围。
                 deptSelect.removeAttribute('required');
-                // 强制设置为 "all"
                 deptSelect.value = 'all';
-                deptLabel.classList.add('required');
+                deptLabel.classList.remove('required');
                 deptHint.style.display = 'inline';
-                deptHint.textContent = roleCode === 'logistics_manager' ? 
-                    '物流经理可选择"全部部门"查看所有数据' : 
-                    '总经理默认拥有全部部门权限';
+                if (roleCode === 'logistics_manager') {
+                    deptHint.textContent = '物流经理默认查看全部部门数据';
+                } else if (roleCode === 'gm_assistant') {
+                    deptHint.textContent = '总经理助理不绑定具体部门，默认拥有全部部门范围';
+                } else {
+                    deptHint.textContent = '总经理不绑定具体部门，默认拥有全部部门范围';
+                }
             } else {
                 // 其他角色需要选择具体部门
                 deptSelect.setAttribute('required', 'required');
@@ -237,14 +246,11 @@
             const roleSelect = document.getElementById('role_id');
             const deptSelect = document.getElementById('department_id');
             const selectedRole = roleSelect.options[roleSelect.selectedIndex].getAttribute('data-code');
-            
-            // 总经理和物流经理：确保值为 'all'
-            if (selectedRole === 'general_manager' || selectedRole === 'logistics_manager') {
+
+            // 无需部门的角色：确保提交到后端时不会触发部门必填。
+            if (departmentOptionalRoles.has(selectedRole)) {
                 deptSelect.value = 'all';
-                console.log('[DEBUG] Set department to all for role:', selectedRole);
             }
-            
-            console.log('[DEBUG] Submitting form with department_id:', deptSelect.value);
         });
         
         // 初始化

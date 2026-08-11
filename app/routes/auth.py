@@ -417,13 +417,8 @@ def register():
             flash('角色不存在', 'error')
             return render_template('auth/register.html', departments=departments, roles=roles)
         
-        if role.code in ['general_manager', 'logistics_manager']:
-            if department_id == 'all':
-                final_department_id = None
-            elif department_id and department_id.isdigit():
-                final_department_id = int(department_id)
-            else:
-                final_department_id = None
+        if role.code in AuthService.DEPARTMENT_OPTIONAL_ROLE_CODES:
+            final_department_id = None
         else:
             if not department_id or not department_id.isdigit():
                 flash('请选择所属部门', 'warning')

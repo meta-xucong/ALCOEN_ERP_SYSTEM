@@ -1,0 +1,117 @@
+{% extends 'base.html' %}
+
+{% block title %}正式合同生成器{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <div class="text-muted small mb-1">独立业务板块</div>
+            <h1 class="h3 mb-1"><i class="bi bi-file-earmark-richtext me-2 text-success"></i>正式合同生成器</h1>
+            <p class="text-muted mb-0">按甲方档案和现有产品库快速生成正式合同。</p>
+        </div>
+        <div class="d-flex gap-2">
+            {% if current_user.has_permission('formal_contract_template_manage') %}
+            <a href="{{ url_for('official_contract.list_templates') }}" class="btn btn-outline-secondary">
+                <i class="bi bi-file-earmark-check"></i> 模板管理
+            </a>
+            {% endif %}
+            {% if current_user.has_permission('formal_contract_create') %}
+            <a href="{{ url_for('official_contract.new_formal_contract') }}" class="btn btn-primary">
+                <i class="bi bi-plus-lg"></i> 新建正式合同
+            </a>
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="card mb-4">
+        <div class="card-body">
+            <form class="row g-2" method="get">
+                <div class="col-md-6 col-lg-4">
+                    <input class="form-control" name="keyword" value="{{ keyword }}"
+                           placeholder="搜索甲方名称或合同编号">
+                </div>
+                <div class="col-auto">
+                    <button class="btn btn-outline-primary" type="submit">
+                        <i class="bi bi-search"></i> 搜索
+                    </button>
+                </div>
+                {% if keyword %}
+                <div class="col-auto">
+                    <a class="btn btn-outline-secondary" href="{{ url_for('official_contract.list_formal_contracts') }}">
+                        清除
+                    </a>
+                </div>
+                {% endif %}
+            </form>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <strong>正式合同记录</strong>
+            <span class="text-muted small">共 {{ formal_contracts|length }} 条</span>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead>
+                    <tr>
+                        <th>甲方名称</th>
+                        <th>乙方名称</th>
+                        <th>合同编号</th>
+                        <th>签订日期</th>
+                        <th class="text-end">合同金额</th>
+                        <th>状态</th>
+                        <th>同步状态</th>
+                        <th>更新时间</th>
+                        <th class="text-end">操作</th>
+                    </tr>
+                </thead>
+                <tbody>
+                {% for formal in formal_contracts %}
+                    <tr>
+                        <td class="fw-semibold">{{ formal.party.party_a_name }}</td>
+                        <td>{{ formal.party_b_name or '-' }}</td>
+                        <td class="cell-wrap">{{ formal.contract_no or '未填写' }}</td>
+                        <td>{{ formal.sign_date|format_date or '-' }}</td>
+                        <td class="text-end">{{ formal.total_amount|format_money }}</td>
+                        <td>
+                            {% if formal.status == 'synced' %}
+                            <span class="badge bg-success">已同步</span>
+                            {% elif formal.status == 'generated' %}
+                            <span class="badge bg-primary">已生成</span>
+                            {% else %}
+                            <span class="badge bg-secondary">草稿</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if formal.sync_link and formal.sync_link.contract %}
+                            <a href="{{ url_for('contract.view_contract', id=formal.sync_link.contract_id) }}"
+                               class="badge bg-success text-decoration-none">
+                                {{ formal.sync_link.contract.contract_no }}
+                            </a>
+                            {% else %}
+                            <span class="text-muted">未同步</span>
+                            {% endif %}
+                        </td>
+                        <td>{{ formal.updated_at.strftime('%Y-%m-%d %H:%M') if formal.updated_at else '-' }}</td>
+                        <td class="text-end">
+                            <a href="{{ url_for('official_contract.view_formal_contract', formal_contract_id=formal.id) }}"
+                               class="btn btn-sm btn-outline-primary">查看</a>
+                            {% if current_user.has_permission('formal_contract_print') and formal.latest_document %}
+                            <a href="{{ url_for('official_contract.print_formal_contract', formal_contract_id=formal.id, autoprint=1) }}"
+                               target="_blank" class="btn btn-sm btn-outline-success">打印</a>
+                            {% endif %}
+                        </td>
+                    </tr>
+                {% else %}
+                    <tr>
+                        <td colspan="9" class="text-center text-muted py-5">暂无正式合同记录</td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

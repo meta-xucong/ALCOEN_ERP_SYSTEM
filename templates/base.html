@@ -84,6 +84,34 @@
                         </ul>
                     </li>
                     {% endif %}
+                    {% if current_user and current_user.has_permission('formal_contract_view') %}
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown">
+                            <i class="bi bi-file-earmark-richtext"></i> 正式合同生成器
+                        </a>
+                        <ul class="dropdown-menu">
+                            <li>
+                                <a class="dropdown-item" href="{{ url_for('official_contract.list_formal_contracts') }}">
+                                    <i class="bi bi-list"></i> 正式合同列表
+                                </a>
+                            </li>
+                            {% if current_user.has_permission('formal_contract_create') %}
+                            <li>
+                                <a class="dropdown-item" href="{{ url_for('official_contract.new_formal_contract') }}">
+                                    <i class="bi bi-plus-circle"></i> 新建正式合同
+                                </a>
+                            </li>
+                            {% endif %}
+                            {% if current_user.has_permission('formal_contract_template_manage') %}
+                            <li>
+                                <a class="dropdown-item" href="{{ url_for('official_contract.list_templates') }}">
+                                    <i class="bi bi-file-earmark-check"></i> 模板管理
+                                </a>
+                            </li>
+                            {% endif %}
+                        </ul>
+                    </li>
+                    {% endif %}
                     {% if current_user and current_user.has_permission('statement_view') %}
                     <li class="nav-item dropdown">
                         <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown">

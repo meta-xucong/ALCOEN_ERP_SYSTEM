@@ -44,6 +44,44 @@ def test_register_creates_pending_user(app, client, base_data):
         assert user.require_password_change is True
 
 
+def test_register_gm_assistant_does_not_require_department(app, client):
+    """GM assistants are global roles and should not be forced into a department."""
+    from app.models import User
+
+    with app.app_context():
+        role = Role(
+            name="总经理助理",
+            code="gm_assistant",
+            permissions='["contract_view"]',
+            level=80,
+        )
+        db.session.add(role)
+        db.session.commit()
+        role_id = role.id
+
+    response = client.post(
+        "/auth/register",
+        data={
+            "username": "gm_assistant_pending",
+            "real_name": "GM Assistant Pending",
+            "role_id": str(role_id),
+            "department_id": "",
+            "email": "gm_assistant_pending@example.com",
+            "phone": "13900000001",
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 302
+    assert "/auth/pending" in response.headers.get("Location", "")
+
+    with app.app_context():
+        user = User.query.filter_by(username="gm_assistant_pending").first()
+        assert user is not None
+        assert user.department_id is None
+        assert user.role.code == "gm_assistant"
+
+
 def test_qc_register_page_bootstraps_roles_and_lists_options(app, client):
     """QC register page should recreate missing QC roles and show both role options."""
     resp = client.get("/auth/register/qc")

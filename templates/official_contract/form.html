@@ -1,0 +1,568 @@
+{% extends 'base.html' %}
+
+{% block title %}{{ title }} - 正式合同生成器{% endblock %}
+
+{% block extra_css %}
+<style>
+    .official-contract-page {
+        max-width: 1280px;
+        margin: 0 auto;
+    }
+    .official-section-title {
+        display: flex;
+        align-items: center;
+        gap: .6rem;
+        font-weight: 700;
+    }
+    .official-section-title i {
+        color: #177e89;
+    }
+    .party-search-wrap,
+    .product-search-wrap {
+        position: relative;
+    }
+    .suggestion-menu {
+        position: absolute;
+        z-index: 1200;
+        left: 0;
+        right: 0;
+        top: calc(100% + 4px);
+        max-height: 240px;
+        overflow-y: auto;
+        display: none;
+        border: 1px solid rgba(23, 126, 137, .25);
+        border-radius: .65rem;
+        background: rgba(255, 255, 255, .98);
+        box-shadow: 0 12px 28px rgba(20, 70, 90, .16);
+    }
+    .suggestion-menu.show {
+        display: block;
+    }
+    .suggestion-item {
+        display: block;
+        width: 100%;
+        padding: .55rem .75rem;
+        border: 0;
+        background: transparent;
+        text-align: left;
+        color: #1e3945;
+    }
+    .suggestion-item:hover {
+        background: #eaf7f7;
+    }
+    .item-card {
+        border: 1px solid rgba(31, 93, 104, .15);
+        border-radius: .75rem;
+        background: rgba(255, 255, 255, .58);
+    }
+    .item-card + .item-card {
+        margin-top: .75rem;
+    }
+    .field-label {
+        font-size: .8rem;
+        color: #5d7480;
+        margin-bottom: .25rem;
+    }
+    .required-mark {
+        color: #c84949;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4 official-contract-page">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <div class="text-muted small mb-1">独立业务板块</div>
+            <h1 class="h3 mb-1"><i class="bi bi-file-earmark-richtext me-2 text-success"></i>{{ title }}</h1>
+            <p class="text-muted mb-0">根据甲方档案和现有产品库信息生成正式合同。</p>
+        </div>
+        <a href="{{ url_for('official_contract.list_formal_contracts') }}" class="btn btn-outline-secondary">
+            <i class="bi bi-arrow-left"></i> 返回列表
+        </a>
+    </div>
+
+    <form method="post" id="official-contract-form" novalidate>
+        <input type="hidden" name="item_count" id="item-count" value="{{ items|length }}">
+
+        <div class="card mb-4">
+            <div class="card-header">
+                <div class="official-section-title">
+                    <i class="bi bi-file-earmark-text"></i>
+                    <span>合同基础信息</span>
+                </div>
+            </div>
+            <div class="card-body">
+                <div class="row g-3">
+                    <div class="col-lg-6">
+                        <label class="form-label">甲方名称 <span class="required-mark">*</span></label>
+                        <div class="party-search-wrap">
+                            <input class="form-control" name="party_a_name" id="party-a-name"
+                                   value="{{ form_data.party_a_name or '' }}"
+                                   placeholder="选择已有公司或直接输入新公司名称"
+                                   autocomplete="off" required>
+                            <div id="party-suggestions" class="suggestion-menu"></div>
+                        </div>
+                        <div class="form-text">选择已有甲方会自动带入最近一次正式合同信息。</div>
+                    </div>
+                    <div class="col-lg-6">
+                        <label class="form-label">乙方名称</label>
+                        <input class="form-control" name="party_b_name"
+                               value="{{ form_data.party_b_name or '' }}">
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">合同编号</label>
+                        <input class="form-control" name="contract_no"
+                               value="{{ form_data.contract_no or '' }}"
+                               placeholder="用户手填">
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">签订地点</label>
+                        <input class="form-control" name="sign_place"
+                               value="{{ form_data.sign_place or '' }}">
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">签订时间</label>
+                            <input class="form-control" type="date" name="sign_date"
+                               value="{{ form_data.sign_date or '' }}">
+                    </div>
+                        <div class="col-md-4">
+                            <label class="form-label">所属部门</label>
+                            <select class="form-select" name="department_id">
+                                <option value="">使用全局默认模板</option>
+                                {% for department in departments %}
+                                <option value="{{ department.id }}"
+                                        {% if form_data.department_id|string == department.id|string %}selected{% endif %}>
+                                    {{ department.name }}
+                                </option>
+                                {% endfor %}
+                            </select>
+                            <div class="form-text">生成时优先使用该部门启用的合同模板。</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card mb-4">
+            <div class="card-header">
+                <div class="official-section-title">
+                    <i class="bi bi-building"></i>
+                    <span>甲方资料</span>
+                </div>
+            </div>
+            <div class="card-body">
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <label class="form-label">开票地址</label>
+                        <input class="form-control" name="billing_address" id="billing-address"
+                               value="{{ form_data.billing_address or '' }}">
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">公司电话</label>
+                        <input class="form-control" name="phone" id="party-phone"
+                               value="{{ form_data.phone or '' }}">
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">税号</label>
+                        <input class="form-control" name="tax_no" id="party-tax-no"
+                               value="{{ form_data.tax_no or '' }}">
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">开户银行</label>
+                        <input class="form-control" name="bank_name" id="party-bank-name"
+                               value="{{ form_data.bank_name or '' }}">
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">银行账号</label>
+                        <input class="form-control" name="bank_account" id="party-bank-account"
+                               value="{{ form_data.bank_account or '' }}">
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card mb-4">
+            <div class="card-header">
+                <div class="official-section-title">
+                    <i class="bi bi-building-check"></i>
+                    <span>乙方资料</span>
+                </div>
+            </div>
+            <div class="card-body">
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <label class="form-label">开票地址</label>
+                        <input class="form-control" name="party_b_billing_address"
+                               id="party-b-billing-address"
+                               value="{{ form_data.party_b_billing_address or '' }}">
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">公司电话</label>
+                        <input class="form-control" name="party_b_phone"
+                               id="party-b-phone"
+                               value="{{ form_data.party_b_phone or '' }}">
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">税号</label>
+                        <input class="form-control" name="party_b_tax_no"
+                               id="party-b-tax-no"
+                               value="{{ form_data.party_b_tax_no or '' }}">
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">开户银行</label>
+                        <input class="form-control" name="party_b_bank_name"
+                               id="party-b-bank-name"
+                               value="{{ form_data.party_b_bank_name or '' }}">
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">银行账号</label>
+                        <input class="form-control" name="party_b_bank_account"
+                               id="party-b-bank-account"
+                               value="{{ form_data.party_b_bank_account or '' }}">
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card mb-4">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <div class="official-section-title">
+                    <i class="bi bi-box-seam"></i>
+                    <span>产品明细</span>
+                </div>
+                <button type="button" class="btn btn-sm btn-outline-primary" id="add-item-btn">
+                    <i class="bi bi-plus-lg"></i> 增加产品
+                </button>
+            </div>
+            <div class="card-body" id="items-container">
+                {% for item in items %}
+                <div class="item-card p-3" data-item-index="{{ loop.index0 }}">
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <strong>产品 #{{ loop.index }}</strong>
+                        <button type="button" class="btn btn-sm btn-outline-danger remove-item-btn">
+                            <i class="bi bi-trash"></i> 删除
+                        </button>
+                    </div>
+                    <input type="hidden" name="item_{{ loop.index0 }}_product_id"
+                           value="{{ item.product_id or '' }}">
+                    <div class="row g-3">
+                        <div class="col-lg-4">
+                            <label class="field-label">产品编码</label>
+                            <select class="form-select product-select mb-2"
+                                    data-selected-id="{{ item.product_id or '' }}">
+                                <option value="">从产品库选择（也可手填新产品）</option>
+                                {% for product in product_options %}
+                                <option value="{{ product.id }}"
+                                        data-product-code="{{ product.product_code|e }}"
+                                        data-product-name="{{ (product.product_name or '')|e }}"
+                                        data-product-model="{{ (product.product_model or '')|e }}"
+                                        data-default-price="{{ product.default_price if product.default_price is not none else '' }}"
+                                        {% if item.product_id and item.product_id|string == product.id|string %}selected{% endif %}>
+                                    {{ product.product_code }}{% if product.product_name %} - {{ product.product_name }}{% endif %}
+                                </option>
+                                {% endfor %}
+                            </select>
+                            <div class="product-search-wrap">
+                                <input class="form-control product-code-input"
+                                       name="item_{{ loop.index0 }}_product_code"
+                                       value="{{ item.product_code or '' }}"
+                                       placeholder="输入编码或名称联想"
+                                       autocomplete="off">
+                                <div class="suggestion-menu product-suggestions"></div>
+                            </div>
+                        </div>
+                        <div class="col-lg-4">
+                            <label class="field-label">产品名称</label>
+                            <input class="form-control product-name-input"
+                                   name="item_{{ loop.index0 }}_product_name"
+                                   value="{{ item.product_name or '' }}">
+                        </div>
+                        <div class="col-lg-4">
+                            <label class="field-label">规格型号</label>
+                            <input class="form-control product-model-input"
+                                   name="item_{{ loop.index0 }}_product_model"
+                                   value="{{ item.product_model or '' }}">
+                        </div>
+                        <div class="col-md-3">
+                            <label class="field-label">数量 <span class="required-mark">*</span></label>
+                            <input class="form-control quantity-input" type="number" min="0" step="0.01"
+                                   name="item_{{ loop.index0 }}_quantity"
+                                   value="{{ item.quantity or '' }}" required>
+                        </div>
+                        <div class="col-md-3">
+                            <label class="field-label">单位</label>
+                            <input class="form-control" name="item_{{ loop.index0 }}_unit"
+                                   value="{{ item.unit or '个' }}">
+                        </div>
+                        <div class="col-md-3">
+                            <label class="field-label">单价</label>
+                            <input class="form-control unit-price-input" type="number" min="0" step="0.01"
+                                   name="item_{{ loop.index0 }}_unit_price"
+                                   value="{{ item.unit_price or '' }}">
+                        </div>
+                        <div class="col-md-3">
+                            <label class="field-label">金额</label>
+                            <input class="form-control total-amount-input" readonly>
+                        </div>
+                        <div class="col-12">
+                            <label class="field-label">备注</label>
+                            <input class="form-control" name="item_{{ loop.index0 }}_remark"
+                                   value="{{ item.remark or '' }}">
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+
+        <div class="card mb-4">
+            <div class="card-header">
+                <div class="official-section-title">
+                    <i class="bi bi-journal-text"></i>
+                    <span>合同条款</span>
+                </div>
+            </div>
+            <div class="card-body">
+                <div class="row g-3">
+                    <div class="col-12">
+                        <label class="form-label">质量标准</label>
+                        <textarea class="form-control" name="quality_standard" rows="2">{{ form_data.quality_standard or '' }}</textarea>
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label">交货方式及费用承担</label>
+                        <textarea class="form-control" name="delivery_terms" rows="2">{{ form_data.delivery_terms or '' }}</textarea>
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label">交货时间及地点</label>
+                        <textarea class="form-control" name="delivery_schedule" rows="2">{{ form_data.delivery_schedule or '' }}</textarea>
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label">结算方式及期限</label>
+                        <textarea class="form-control" name="settlement_terms" rows="3">{{ form_data.settlement_terms or '' }}</textarea>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">违约责任</label>
+                        <textarea class="form-control" name="breach_terms" rows="2">{{ form_data.breach_terms or '' }}</textarea>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">解决合同纠纷的方式</label>
+                        <textarea class="form-control" name="dispute_terms" rows="2">{{ form_data.dispute_terms or '' }}</textarea>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="d-flex justify-content-end gap-2 mb-5">
+            <a href="{{ url_for('official_contract.list_formal_contracts') }}" class="btn btn-outline-secondary">取消</a>
+            <button type="submit" class="btn btn-primary">
+                <i class="bi bi-save"></i> 保存正式合同
+            </button>
+        </div>
+    </form>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const partyInput = document.getElementById('party-a-name');
+const partySuggestions = document.getElementById('party-suggestions');
+const itemsContainer = document.getElementById('items-container');
+const itemCountInput = document.getElementById('item-count');
+
+function debounce(fn, delay = 220) {
+    let timer;
+    return (...args) => {
+        window.clearTimeout(timer);
+        timer = window.setTimeout(() => fn(...args), delay);
+    };
+}
+
+function showSuggestions(container, items, onSelect) {
+    container.innerHTML = '';
+    if (!items.length) {
+        container.classList.remove('show');
+        return;
+    }
+    items.forEach(item => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'suggestion-item';
+        button.textContent = item.name || item.product_code;
+        button.addEventListener('click', () => {
+            onSelect(item);
+            container.classList.remove('show');
+        });
+        container.appendChild(button);
+    });
+    container.classList.add('show');
+}
+
+async function loadPartyDefaults(item) {
+    const params = new URLSearchParams();
+    if (item.party_id) params.set('party_id', item.party_id);
+    if (item.name) params.set('party_name', item.name);
+    const response = await fetch(`{{ url_for('official_contract.api_party_defaults') }}?${params}`);
+    if (!response.ok) return;
+    const data = await response.json();
+    partyInput.value = data.party_a_name || item.name || '';
+    document.getElementById('billing-address').value = data.billing_address || '';
+    document.getElementById('party-phone').value = data.phone || '';
+    document.getElementById('party-tax-no').value = data.tax_no || '';
+    document.getElementById('party-bank-name').value = data.bank_name || '';
+    document.getElementById('party-bank-account').value = data.bank_account || '';
+    for (const name of [
+        'party_b_name', 'party_b_billing_address', 'party_b_phone',
+        'party_b_tax_no', 'party_b_bank_name', 'party_b_bank_account',
+        'contract_no', 'sign_place', 'sign_date', 'quality_standard',
+        'delivery_terms', 'delivery_schedule', 'settlement_terms',
+        'breach_terms', 'dispute_terms'
+    ]) {
+        const field = document.querySelector(`[name="${name}"]`);
+        if (field && data[name] !== undefined) field.value = data[name] || '';
+    }
+}
+
+const searchParties = debounce(async () => {
+    const keyword = partyInput.value.trim();
+    if (!keyword) {
+        partySuggestions.classList.remove('show');
+        return;
+    }
+    const response = await fetch(`{{ url_for('official_contract.api_parties') }}?keyword=${encodeURIComponent(keyword)}`);
+    if (!response.ok) return;
+    const data = await response.json();
+    showSuggestions(partySuggestions, data.parties || [], loadPartyDefaults);
+}, 220);
+partyInput.addEventListener('input', searchParties);
+
+function updateItemTotal(card) {
+    const quantity = parseFloat(card.querySelector('.quantity-input')?.value || 0) || 0;
+    const price = parseFloat(card.querySelector('.unit-price-input')?.value || 0) || 0;
+    const total = card.querySelector('.total-amount-input');
+    if (total) total.value = (quantity * price).toFixed(2);
+}
+
+function applyProductToCard(card, product) {
+    const hidden = card.querySelector('[name$="_product_id"]');
+    const select = card.querySelector('.product-select');
+    const codeInput = card.querySelector('.product-code-input');
+    if (hidden) hidden.value = product.id || '';
+    if (select) {
+        select.value = product.id ? String(product.id) : '';
+        select.dataset.selectedCode = product.product_code || '';
+    }
+    if (codeInput) codeInput.value = product.product_code || '';
+    card.querySelector('.product-name-input').value = product.product_name || '';
+    card.querySelector('.product-model-input').value = product.product_model || '';
+    if (!card.querySelector('.unit-price-input').value && product.default_price != null) {
+        card.querySelector('.unit-price-input').value = product.default_price;
+    }
+    updateItemTotal(card);
+}
+
+function bindProductSearch(card) {
+    const input = card.querySelector('.product-code-input');
+    const menu = card.querySelector('.product-suggestions');
+    const select = card.querySelector('.product-select');
+    if (!input || !menu) return;
+    if (select) {
+        const selectedOption = select.selectedOptions[0];
+        select.dataset.selectedCode = selectedOption?.dataset.productCode || '';
+        select.addEventListener('change', () => {
+            const option = select.selectedOptions[0];
+            if (!select.value) {
+                card.querySelector('[name$="_product_id"]').value = '';
+                select.dataset.selectedCode = '';
+                return;
+            }
+            applyProductToCard(card, {
+                id: select.value,
+                product_code: option.dataset.productCode || '',
+                product_name: option.dataset.productName || '',
+                product_model: option.dataset.productModel || '',
+                default_price: option.dataset.defaultPrice || '',
+            });
+        });
+    }
+    input.addEventListener('input', debounce(async () => {
+        const keyword = input.value.trim();
+        if (select && select.dataset.selectedCode !== keyword) {
+            select.value = '';
+            card.querySelector('[name$="_product_id"]').value = '';
+            select.dataset.selectedCode = '';
+        }
+        if (!keyword) {
+            menu.classList.remove('show');
+            return;
+        }
+        const response = await fetch(`{{ url_for('official_contract.api_products') }}?keyword=${encodeURIComponent(keyword)}`);
+        if (!response.ok) return;
+        const data = await response.json();
+        showSuggestions(menu, data.products || [], product => {
+            applyProductToCard(card, product);
+        });
+    }, 220));
+    card.querySelectorAll('.quantity-input, .unit-price-input').forEach(inputEl => {
+        inputEl.addEventListener('input', () => updateItemTotal(card));
+    });
+    updateItemTotal(card);
+}
+
+function renumberItems() {
+    const cards = [...itemsContainer.querySelectorAll('.item-card')];
+    cards.forEach((card, index) => {
+        card.dataset.itemIndex = index;
+        card.querySelector('strong').textContent = `产品 #${index + 1}`;
+        card.querySelectorAll('[name]').forEach(field => {
+            const name = field.name.replace(/^item_\d+_/, `item_${index}_`);
+            field.name = name;
+        });
+    });
+    itemCountInput.value = cards.length;
+}
+
+function bindRemoveButton(card) {
+    card.querySelector('.remove-item-btn').addEventListener('click', () => {
+        const cards = itemsContainer.querySelectorAll('.item-card');
+        if (cards.length <= 1) {
+            card.querySelectorAll('input').forEach(input => input.value = '');
+            return;
+        }
+        card.remove();
+        renumberItems();
+    });
+}
+
+document.querySelectorAll('.item-card').forEach(card => {
+    bindProductSearch(card);
+    bindRemoveButton(card);
+});
+
+document.getElementById('add-item-btn').addEventListener('click', () => {
+    const index = itemsContainer.querySelectorAll('.item-card').length;
+    const template = itemsContainer.querySelector('.item-card').cloneNode(true);
+    template.dataset.itemIndex = index;
+    template.querySelector('strong').textContent = `产品 #${index + 1}`;
+    template.querySelectorAll('input').forEach(input => {
+        input.value = '';
+        input.name = input.name.replace(/^item_\d+_/, `item_${index}_`);
+    });
+    template.querySelectorAll('select').forEach(select => {
+        select.value = '';
+        select.dataset.selectedCode = '';
+    });
+    itemsContainer.appendChild(template);
+    bindProductSearch(template);
+    bindRemoveButton(template);
+    renumberItems();
+});
+
+document.addEventListener('click', event => {
+    if (!event.target.closest('.party-search-wrap')) partySuggestions.classList.remove('show');
+    if (!event.target.closest('.product-search-wrap')) {
+        document.querySelectorAll('.product-suggestions').forEach(menu => menu.classList.remove('show'));
+    }
+});
+</script>
+{% endblock %}

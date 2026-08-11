@@ -1,0 +1,380 @@
+{% extends 'base.html' %}
+
+{% block title %}正式合同打印 - {{ context.contract.contract_no or formal_contract.id }}{% endblock %}
+
+{% block extra_css %}
+<style>
+    /*
+     * The measurements below mirror the bundled "配件合同模版.docx":
+     * A4, 21.98/13.16/11.01/24.01 mm page margins, fixed table widths,
+     * and the same Songti/Times New Roman font fallback order.
+     */
+    @page {
+        size: A4 portrait;
+        margin: 21.98mm 13.16mm 11.01mm 24.01mm;
+    }
+
+    html,
+    body {
+        margin: 0;
+        padding: 0;
+        background: #fff !important;
+        color: #000 !important;
+        font-family: "Times New Roman", "SimSun", "宋体", serif;
+        font-size: 12pt;
+    }
+
+    .official-print-toolbar {
+        max-width: 172.84mm;
+        margin: 16px auto;
+    }
+
+    .official-print-sheet {
+        position: relative;
+        box-sizing: border-box;
+        width: 172.84mm;
+        min-height: 264.01mm;
+        margin: 0 auto;
+        padding: 0;
+        background: #fff;
+        font-family: "Times New Roman", "SimSun", "宋体", serif;
+        font-size: 12pt;
+        line-height: normal;
+    }
+
+    .official-print-title {
+        margin: 7.8pt 0 15.6pt;
+        padding: 0;
+        text-align: center;
+        font-family: "SimSun", "宋体", serif;
+        font-size: 22pt;
+        font-weight: 700;
+        line-height: 1;
+        letter-spacing: 0;
+    }
+
+    .official-meta-table {
+        position: absolute;
+        top: .18mm;
+        right: 0;
+        width: 65.88mm;
+        border-collapse: collapse;
+        table-layout: fixed;
+        font-size: 10.5pt;
+    }
+
+    .official-meta-table col:first-child {
+        width: 21.7mm;
+    }
+
+    .official-meta-table col:last-child {
+        width: 44.18mm;
+    }
+
+    .official-meta-table td {
+        height: 9.02mm;
+        padding: 0 1.91mm;
+        border: 0;
+        vertical-align: middle;
+        white-space: nowrap;
+    }
+
+    .contract-paragraph {
+        margin: 0;
+        padding: 0;
+        font-size: 12pt;
+        line-height: normal;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+    }
+
+    .party-summary {
+        margin-top: 0;
+    }
+
+    .party-summary + .party-summary {
+        margin-top: 0;
+    }
+
+    .items-heading {
+        margin-top: 7.8pt;
+    }
+
+    .official-items-table {
+        width: 100%;
+        margin: 0;
+        border-collapse: collapse;
+        table-layout: fixed;
+        font-size: 10.5pt;
+    }
+
+    .official-items-table col:nth-child(1) {
+        width: 8.04%;
+    }
+
+    .official-items-table col:nth-child(2) {
+        width: 18.71%;
+    }
+
+    .official-items-table col:nth-child(3) {
+        width: 27.13%;
+    }
+
+    .official-items-table col:nth-child(4) {
+        width: 14.24%;
+    }
+
+    .official-items-table col:nth-child(5) {
+        width: 14.73%;
+    }
+
+    .official-items-table col:nth-child(6) {
+        width: 17.15%;
+    }
+
+    .official-items-table th,
+    .official-items-table td {
+        box-sizing: border-box;
+        height: 9.75mm;
+        padding: 0 1.91mm;
+        border: 1px solid #000;
+        vertical-align: middle;
+        overflow: hidden;
+        word-break: break-all;
+    }
+
+    .official-items-table th {
+        text-align: center;
+        font-weight: 400;
+    }
+
+    .official-items-table td {
+        text-align: center;
+    }
+
+    .official-items-table .total-label {
+        text-align: left;
+    }
+
+    .official-items-table .total-amount {
+        text-align: left;
+    }
+
+    .contract-clause {
+        margin-top: 7.8pt;
+    }
+
+    .quality-clause {
+        margin-top: 15.6pt;
+    }
+
+    .final-clause {
+        margin-bottom: 15.6pt;
+    }
+
+    .party-table-spacer {
+        height: 18pt;
+    }
+
+    .party-table {
+        width: 167.83mm;
+        margin: 0 auto;
+        border-collapse: collapse;
+        table-layout: fixed;
+        font-size: 12pt;
+    }
+
+    .party-table col:first-child {
+        width: 82.6mm;
+    }
+
+    .party-table col:last-child {
+        width: 85.23mm;
+    }
+
+    .party-table td {
+        box-sizing: border-box;
+        height: 55.88mm;
+        padding: 0 1.91mm;
+        border: .75pt solid #000;
+        vertical-align: top;
+    }
+
+    .party-table p {
+        margin: 0;
+        padding: 0;
+        line-height: 12pt;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+    }
+
+    .party-table .party-heading {
+        text-align: center;
+    }
+
+    .party-table .party-gap {
+        height: 12pt;
+    }
+
+    .no-print {
+        max-width: 172.84mm;
+        margin: 16px auto;
+    }
+
+    @media print {
+        html,
+        body {
+            height: auto !important;
+            min-height: 0 !important;
+            overflow: visible !important;
+        }
+
+        nav,
+        body > .container.mt-4,
+        body > footer,
+        .video-background,
+        .image-background,
+        .solid-background,
+        .orb,
+        .no-print {
+            display: none !important;
+        }
+
+        body > main.container {
+            width: auto !important;
+            max-width: none !important;
+            min-height: 0 !important;
+            margin: 0 !important;
+            padding: 0 !important;
+        }
+
+        .official-print-sheet {
+            width: 172.84mm;
+            min-height: 0;
+            margin: 0;
+        }
+
+        .official-items-table tr,
+        .party-table tr {
+            break-inside: avoid;
+        }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="no-print official-print-toolbar d-flex justify-content-end gap-2">
+    <button class="btn btn-primary" type="button" onclick="window.print()">
+        <i class="bi bi-printer"></i> 打印正式合同
+    </button>
+    <a class="btn btn-outline-primary"
+       href="{{ url_for('official_contract.download_formal_contract', formal_contract_id=formal_contract.id, document_id=document.id) }}">
+        <i class="bi bi-download"></i> 下载 DOCX
+    </a>
+    <a class="btn btn-outline-secondary"
+       href="{{ url_for('official_contract.view_formal_contract', formal_contract_id=formal_contract.id) }}">
+        返回
+    </a>
+</div>
+
+<main class="official-print-sheet">
+    <h1 class="official-print-title">产品销售合同</h1>
+
+    <table class="official-meta-table" aria-label="合同签订信息">
+        <colgroup><col><col></colgroup>
+        <tbody>
+            <tr><td>合同编号</td><td>{{ context.contract.contract_no or '' }}</td></tr>
+            <tr><td>签订地点</td><td>{{ context.contract.sign_place or '' }}</td></tr>
+            <tr><td>签订时间</td><td>{{ context.contract.sign_date_display or '' }}</td></tr>
+        </tbody>
+    </table>
+
+    <p class="contract-paragraph party-summary">需方（甲方）：{{ context.party_a.name }}</p>
+    <p class="contract-paragraph party-summary">供方（乙方）：{{ context.party_b.name }}</p>
+    <p class="contract-paragraph items-heading">产品名称、规格型号、数量、金额：</p>
+
+    <table class="official-items-table" aria-label="产品明细">
+        <colgroup><col><col><col><col><col><col></colgroup>
+        <thead>
+            <tr>
+                <th>序号</th>
+                <th>品名</th>
+                <th>规格型号</th>
+                <th>数量</th>
+                <th>单价(元)</th>
+                <th>金额（元）</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for item in context['items'] %}
+            <tr>
+                <td>{{ loop.index }}</td>
+                <td>{{ item.product_name or item.product_code }}</td>
+                <td>{{ item.product_model }}</td>
+                <td>{{ item.quantity_display }}</td>
+                <td>￥{{ item.unit_price_display }}</td>
+                <td>￥{{ item.total_amount_display }}</td>
+            </tr>
+        {% endfor %}
+            <tr>
+                <td></td>
+                <td colspan="4" class="total-label">合计：{{ context.contract.total_amount_upper }}</td>
+                <td class="total-amount">￥{{ context.contract.total_amount_display }}</td>
+            </tr>
+        </tbody>
+    </table>
+
+    <p class="contract-paragraph contract-clause quality-clause">质量标准：{{ context.contract.quality_standard }}</p>
+    <p class="contract-paragraph contract-clause">交货方式及费用承担：{{ context.contract.delivery_terms }}</p>
+    <p class="contract-paragraph contract-clause">交货时间及地点：{{ context.contract.delivery_schedule }}</p>
+    <p class="contract-paragraph contract-clause">结算方式及期限：{{ context.contract.settlement_terms }}</p>
+    <p class="contract-paragraph contract-clause">违约责任：{{ context.contract.breach_terms }}</p>
+    <p class="contract-paragraph contract-clause final-clause">解决合同纠纷的方式：{{ context.contract.dispute_terms }}</p>
+
+    <div class="party-table-spacer"></div>
+    <table class="party-table" aria-label="双方信息">
+        <colgroup><col><col></colgroup>
+        <tbody>
+            <tr>
+                <td>
+                    <p class="party-heading">需      方 (甲方)</p>
+                    <p class="party-gap"></p>
+                    <p>公司名称：{{ context.party_a.name }}</p>
+                    <p>开票地址：{{ context.party_a.billing_address }}</p>
+                    <p>公司电话：{{ context.party_a.phone }}</p>
+                    <p>税    号：{{ context.party_a.tax_no }}</p>
+                    <p>开户银行：{{ context.party_a.bank_name }}</p>
+                    <p>银行账号：{{ context.party_a.bank_account }}</p>
+                </td>
+                <td>
+                    <p class="party-heading">供     方（乙方）</p>
+                    <p class="party-gap"></p>
+                    <p>公司名称：{{ context.party_b.name }}</p>
+                    <p>开票地址：{{ context.party_b.billing_address }}</p>
+                    <p>公司电话：{{ context.party_b.phone }}</p>
+                    <p>税    号：{{ context.party_b.tax_no }}</p>
+                    <p>开户银行：{{ context.party_b.bank_name }}</p>
+                    <p>银行账号：{{ context.party_b.bank_account }}</p>
+                </td>
+            </tr>
+        </tbody>
+    </table>
+</main>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+{% if auto_print %}
+window.addEventListener('load', () => window.setTimeout(() => window.print(), 250));
+window.addEventListener('afterprint', () => {
+    {% if embedded %}
+    if (window.parent && window.parent !== window) {
+        window.parent.postMessage({type: 'official-contract-afterprint'}, window.location.origin);
+    }
+    {% else %}
+    window.close();
+    {% endif %}
+});
+{% endif %}
+</script>
+{% endblock %}

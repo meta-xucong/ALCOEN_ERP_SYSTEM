@@ -1,0 +1,124 @@
+{% extends 'base.html' %}
+
+{% block title %}正式合同模板管理{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4" style="max-width: 1180px;">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <div class="text-muted small mb-1">正式合同生成器</div>
+            <h1 class="h3 mb-1">
+                <i class="bi bi-file-earmark-check me-2 text-success"></i>模板管理
+            </h1>
+            <p class="text-muted mb-0">模板切换不会影响已经生成的历史合同文件。</p>
+        </div>
+        <a href="{{ url_for('official_contract.list_formal_contracts') }}"
+           class="btn btn-outline-secondary">返回生成器</a>
+    </div>
+
+    <div class="card mb-4">
+        <div class="card-header"><strong>上传 DOCX 模板</strong></div>
+        <div class="card-body">
+            <form method="post"
+                  enctype="multipart/form-data"
+                  action="{{ url_for('official_contract.upload_template') }}">
+                <div class="row g-3">
+                    <div class="col-md-4">
+                        <label class="form-label">模板名称</label>
+                        <input class="form-control" name="name"
+                               placeholder="例如：配件销售合同">
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label">版本</label>
+                        <input class="form-control" name="version"
+                               placeholder="例如：v1.0">
+                    </div>
+                    <div class="col-md-5">
+                        <label class="form-label">DOCX 文件</label>
+                        <input class="form-control" type="file" name="template_file"
+                               accept=".docx" required>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">适用部门</label>
+                        <select class="form-select" name="department_id">
+                            <option value="">全局默认模板</option>
+                            {% for department in departments %}
+                            <option value="{{ department.id }}">{{ department.name }}</option>
+                            {% endfor %}
+                        </select>
+                        <div class="form-text">未指定部门的模板作为所有部门的兜底模板。</div>
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label">版本说明</label>
+                        <textarea class="form-control" name="description" rows="2"></textarea>
+                    </div>
+                    <div class="col-12">
+                        <button class="btn btn-primary" type="submit">
+                            <i class="bi bi-upload"></i> 上传模板
+                        </button>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header"><strong>模板版本</strong></div>
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead>
+                    <tr>
+                        <th>名称</th>
+                        <th>版本</th>
+                        <th>原始文件</th>
+                        <th>适用部门</th>
+                        <th>状态</th>
+                        <th>上传时间</th>
+                        <th class="text-end">操作</th>
+                    </tr>
+                </thead>
+                <tbody>
+                {% for template in templates %}
+                    <tr>
+                        <td>{{ template.name }}</td>
+                        <td>{{ template.version }}</td>
+                        <td>{{ template.original_filename }}</td>
+                        <td>{{ template.department.name if template.department else '全局默认' }}</td>
+                        <td>
+                            {% if template.is_active %}
+                            <span class="badge bg-success">启用中</span>
+                            {% else %}
+                            <span class="badge bg-secondary">已停用</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {{ template.created_at.strftime('%Y-%m-%d %H:%M')
+                               if template.created_at else '-' }}
+                        </td>
+                        <td class="text-end">
+                            {% if not template.is_active %}
+                            <form method="post" class="d-inline"
+                                  action="{{ url_for(
+                                      'official_contract.activate_template',
+                                      template_id=template.id
+                                  ) }}">
+                                <button class="btn btn-sm btn-outline-success" type="submit">
+                                    启用
+                                </button>
+                            </form>
+                            {% endif %}
+                        </td>
+                    </tr>
+                {% else %}
+                    <tr>
+                        <td colspan="7" class="text-center text-muted py-5">
+                            暂无模板，请先上传 DOCX 模板。
+                        </td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

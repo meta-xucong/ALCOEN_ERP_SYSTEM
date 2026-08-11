@@ -1306,6 +1306,39 @@ def _run_lightweight_schema_upgrades():
             connection.exec_driver_sql('CREATE INDEX IF NOT EXISTS ix_assembly_outbound_histories_created_at ON assembly_outbound_histories (created_at)')
 
 
+    # Formal-contract generator additions. These columns are intentionally
+    # nullable so existing contracts keep their global-template fallback.
+    if inspector.has_table('formal_contracts'):
+        formal_contract_columns = {
+            column['name']
+            for column in inspector.get_columns('formal_contracts')
+        }
+        if 'department_id' not in formal_contract_columns:
+            with db.engine.begin() as connection:
+                connection.exec_driver_sql(
+                    'ALTER TABLE formal_contracts ADD COLUMN department_id INTEGER'
+                )
+                connection.exec_driver_sql(
+                    'CREATE INDEX IF NOT EXISTS ix_formal_contracts_department_id '
+                    'ON formal_contracts (department_id)'
+                )
+
+    if inspector.has_table('formal_contract_templates'):
+        template_columns = {
+            column['name']
+            for column in inspector.get_columns('formal_contract_templates')
+        }
+        if 'department_id' not in template_columns:
+            with db.engine.begin() as connection:
+                connection.exec_driver_sql(
+                    'ALTER TABLE formal_contract_templates ADD COLUMN department_id INTEGER'
+                )
+                connection.exec_driver_sql(
+                    'CREATE INDEX IF NOT EXISTS ix_formal_contract_templates_department_id '
+                    'ON formal_contract_templates (department_id)'
+                )
+
+
 def create_app(config_name='default'):
     """创建Flask应用实例"""
     app = Flask(__name__, 
@@ -1326,6 +1359,7 @@ def create_app(config_name='default'):
     from app.routes.statement import statement_bp
     from app.routes.product import product_bp
     from app.routes.contract import contract_bp
+    from app.routes.official_contract import official_contract_bp
     from app.routes.auth import auth_bp
     from app.routes.user import user_bp
     from app.routes.role import role_bp
@@ -1341,6 +1375,7 @@ def create_app(config_name='default'):
     app.register_blueprint(statement_bp, url_prefix='/statement')
     app.register_blueprint(product_bp, url_prefix='/product')
     app.register_blueprint(contract_bp, url_prefix='/contract')
+    app.register_blueprint(official_contract_bp)
     app.register_blueprint(auth_bp)
     app.register_blueprint(user_bp)
     app.register_blueprint(role_bp)
@@ -1425,5 +1460,7 @@ def create_app(config_name='default'):
         _run_lightweight_schema_upgrades()
         from app.services.auth_service import AuthService
         AuthService.ensure_qc_roles()
+        from app.services.official_contract_service import OfficialContractService
+        OfficialContractService.ensure_builtin_template()
     
     return app

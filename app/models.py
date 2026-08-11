@@ -51,6 +51,302 @@ class Product(db.Model):
 
 # ==================== v1.2: 新增合同模型 ====================
 
+class FormalContractParty(db.Model):
+    """甲方档案，按规范化后的甲方名称唯一识别。"""
+
+    __tablename__ = 'formal_contract_parties'
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    party_a_name: Mapped[str] = mapped_column(String(100), unique=True, nullable=False, index=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey('companies.id'), nullable=True, index=True)
+    billing_address: Mapped[str] = mapped_column(String(255), nullable=True)
+    phone: Mapped[str] = mapped_column(String(50), nullable=True)
+    tax_no: Mapped[str] = mapped_column(String(100), nullable=True)
+    bank_name: Mapped[str] = mapped_column(String(150), nullable=True)
+    bank_account: Mapped[str] = mapped_column(String(100), nullable=True)
+    source: Mapped[str] = mapped_column(String(30), default='manual', nullable=False)
+    last_used_at: Mapped[datetime] = mapped_column(DateTime, nullable=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now, onupdate=datetime.now)
+
+    company: Mapped['Company'] = relationship(
+        'Company',
+        foreign_keys=[company_id],
+        back_populates='formal_contract_parties',
+    )
+    formal_contracts: Mapped[list['FormalContract']] = relationship(
+        'FormalContract',
+        back_populates='party',
+        cascade='all, delete-orphan',
+        order_by=lambda: (FormalContract.created_at.desc(), FormalContract.id.desc()),
+    )
+
+    def __repr__(self):
+        return f'<FormalContractParty {self.party_a_name}>'
+
+
+class FormalContract(db.Model):
+    """正式合同生成器中的独立合同记录。"""
+
+    __tablename__ = 'formal_contracts'
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    department_id: Mapped[int] = mapped_column(
+        ForeignKey('departments.id'),
+        nullable=True,
+        index=True,
+    )
+    party_id: Mapped[int] = mapped_column(
+        ForeignKey('formal_contract_parties.id'),
+        nullable=False,
+        index=True,
+    )
+    party_a_billing_address: Mapped[str] = mapped_column(String(255), nullable=True)
+    party_a_phone: Mapped[str] = mapped_column(String(50), nullable=True)
+    party_a_tax_no: Mapped[str] = mapped_column(String(100), nullable=True)
+    party_a_bank_name: Mapped[str] = mapped_column(String(150), nullable=True)
+    party_a_bank_account: Mapped[str] = mapped_column(String(100), nullable=True)
+    party_b_name: Mapped[str] = mapped_column(String(100), nullable=True)
+    party_b_billing_address: Mapped[str] = mapped_column(String(255), nullable=True)
+    party_b_phone: Mapped[str] = mapped_column(String(50), nullable=True)
+    party_b_tax_no: Mapped[str] = mapped_column(String(100), nullable=True)
+    party_b_bank_name: Mapped[str] = mapped_column(String(150), nullable=True)
+    party_b_bank_account: Mapped[str] = mapped_column(String(100), nullable=True)
+    contract_no: Mapped[str] = mapped_column(String(100), nullable=True, index=True)
+    sign_place: Mapped[str] = mapped_column(String(100), nullable=True)
+    sign_date: Mapped[Date] = mapped_column(Date, nullable=True)
+    quality_standard: Mapped[str] = mapped_column(Text, nullable=True)
+    delivery_terms: Mapped[str] = mapped_column(Text, nullable=True)
+    delivery_schedule: Mapped[str] = mapped_column(Text, nullable=True)
+    settlement_terms: Mapped[str] = mapped_column(Text, nullable=True)
+    breach_terms: Mapped[str] = mapped_column(Text, nullable=True)
+    dispute_terms: Mapped[str] = mapped_column(Text, nullable=True)
+    total_amount: Mapped[float] = mapped_column(Float, default=0, nullable=False)
+    total_amount_upper: Mapped[str] = mapped_column(String(100), nullable=True)
+    status: Mapped[str] = mapped_column(String(20), default='draft', nullable=False, index=True)
+    created_by_id: Mapped[int] = mapped_column(ForeignKey('users.id'), nullable=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now, onupdate=datetime.now)
+
+    party: Mapped['FormalContractParty'] = relationship(
+        'FormalContractParty',
+        back_populates='formal_contracts',
+    )
+    department: Mapped['Department'] = relationship(
+        'Department',
+        foreign_keys=[department_id],
+    )
+    created_by: Mapped['User'] = relationship('User', foreign_keys=[created_by_id])
+    items: Mapped[list['FormalContractItem']] = relationship(
+        'FormalContractItem',
+        back_populates='formal_contract',
+        cascade='all, delete-orphan',
+        order_by=lambda: (FormalContractItem.sort_order.asc(), FormalContractItem.id.asc()),
+    )
+    documents: Mapped[list['FormalContractDocument']] = relationship(
+        'FormalContractDocument',
+        back_populates='formal_contract',
+        cascade='all, delete-orphan',
+        order_by=lambda: (
+            FormalContractDocument.generated_at.desc(),
+            FormalContractDocument.id.desc(),
+        ),
+    )
+    sync_links: Mapped[list['FormalContractSync']] = relationship(
+        'FormalContractSync',
+        back_populates='formal_contract',
+        cascade='all, delete-orphan',
+        order_by=lambda: (FormalContractSync.synced_at.desc(), FormalContractSync.id.desc()),
+    )
+
+    def __repr__(self):
+        return f'<FormalContract {self.id}:{self.contract_no or "draft"}>'
+
+    @property
+    def is_generated(self) -> bool:
+        return self.status in {'generated', 'synced'}
+
+    @property
+    def is_synced(self) -> bool:
+        return self.status == 'synced' or any(
+            link.sync_status == 'success' for link in self.sync_links
+        )
+
+    @property
+    def latest_document(self):
+        return self.documents[0] if self.documents else None
+
+    @property
+    def sync_link(self):
+        return next(
+            (link for link in self.sync_links if link.sync_status == 'success'),
+            None,
+        )
+
+
+class FormalContractItem(db.Model):
+    """正式合同产品明细，同时保存产品快照。"""
+
+    __tablename__ = 'formal_contract_items'
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    formal_contract_id: Mapped[int] = mapped_column(
+        ForeignKey('formal_contracts.id'),
+        nullable=False,
+        index=True,
+    )
+    product_id: Mapped[int] = mapped_column(ForeignKey('products.id'), nullable=True, index=True)
+    product_code: Mapped[str] = mapped_column(String(50), nullable=True)
+    product_name: Mapped[str] = mapped_column(String(100), nullable=True)
+    product_model: Mapped[str] = mapped_column(String(100), nullable=True)
+    unit: Mapped[str] = mapped_column(String(20), default='个', nullable=False)
+    quantity: Mapped[float] = mapped_column(Float, default=0, nullable=False)
+    unit_price: Mapped[float] = mapped_column(Float, default=0, nullable=False)
+    total_amount: Mapped[float] = mapped_column(Float, default=0, nullable=False)
+    remark: Mapped[str] = mapped_column(Text, nullable=True)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+
+    formal_contract: Mapped['FormalContract'] = relationship(
+        'FormalContract',
+        back_populates='items',
+    )
+    product: Mapped['Product'] = relationship(
+        'Product',
+        foreign_keys=[product_id],
+        back_populates='formal_contract_items',
+    )
+
+    def __repr__(self):
+        return f'<FormalContractItem {self.product_code} x{self.quantity}>'
+
+
+class FormalContractTemplate(db.Model):
+    """管理员维护的 DOCX 模板版本。"""
+
+    __tablename__ = 'formal_contract_templates'
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    department_id: Mapped[int] = mapped_column(
+        ForeignKey('departments.id'),
+        nullable=True,
+        index=True,
+    )
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    version: Mapped[str] = mapped_column(String(50), nullable=False)
+    original_filename: Mapped[str] = mapped_column(String(255), nullable=False)
+    stored_path: Mapped[str] = mapped_column(String(500), nullable=False)
+    file_hash: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(20), default='inactive', nullable=False, index=True)
+    description: Mapped[str] = mapped_column(Text, nullable=True)
+    uploaded_by_id: Mapped[int] = mapped_column(ForeignKey('users.id'), nullable=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+    activated_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
+    deactivated_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
+
+    uploaded_by: Mapped['User'] = relationship('User', foreign_keys=[uploaded_by_id])
+    department: Mapped['Department'] = relationship(
+        'Department',
+        foreign_keys=[department_id],
+    )
+    documents: Mapped[list['FormalContractDocument']] = relationship(
+        'FormalContractDocument',
+        back_populates='template',
+    )
+
+    def __repr__(self):
+        return f'<FormalContractTemplate {self.name}:{self.version}>'
+
+    @property
+    def is_active(self) -> bool:
+        return self.status == 'active'
+
+
+class FormalContractDocument(db.Model):
+    """正式合同生成的 DOCX 文件和不可变数据快照。"""
+
+    __tablename__ = 'formal_contract_documents'
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    formal_contract_id: Mapped[int] = mapped_column(
+        ForeignKey('formal_contracts.id'),
+        nullable=False,
+        index=True,
+    )
+    template_id: Mapped[int] = mapped_column(
+        ForeignKey('formal_contract_templates.id'),
+        nullable=False,
+        index=True,
+    )
+    template_version: Mapped[str] = mapped_column(String(50), nullable=False)
+    docx_path: Mapped[str] = mapped_column(String(500), nullable=False)
+    snapshot_json: Mapped[str] = mapped_column(Text, nullable=False)
+    file_hash: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    generated_by_id: Mapped[int] = mapped_column(ForeignKey('users.id'), nullable=True, index=True)
+    generated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now, index=True)
+    print_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    last_printed_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
+
+    formal_contract: Mapped['FormalContract'] = relationship(
+        'FormalContract',
+        back_populates='documents',
+    )
+    template: Mapped['FormalContractTemplate'] = relationship(
+        'FormalContractTemplate',
+        back_populates='documents',
+    )
+    generated_by: Mapped['User'] = relationship('User', foreign_keys=[generated_by_id])
+
+    def __repr__(self):
+        return f'<FormalContractDocument {self.formal_contract_id}:{self.id}>'
+
+
+class FormalContractSync(db.Model):
+    """正式合同与交易合同的一对一同步关系。"""
+
+    __tablename__ = 'formal_contract_syncs'
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    formal_contract_id: Mapped[int] = mapped_column(
+        ForeignKey('formal_contracts.id'),
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    contract_id: Mapped[int] = mapped_column(
+        ForeignKey('contracts.id'),
+        nullable=True,
+        unique=True,
+        index=True,
+    )
+    synced_by_id: Mapped[int] = mapped_column(ForeignKey('users.id'), nullable=True, index=True)
+    synced_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now, index=True)
+    sync_status: Mapped[str] = mapped_column(String(20), default='success', nullable=False)
+    error_message: Mapped[str] = mapped_column(Text, nullable=True)
+
+    formal_contract: Mapped['FormalContract'] = relationship(
+        'FormalContract',
+        back_populates='sync_links',
+    )
+    contract: Mapped['Contract'] = relationship('Contract', foreign_keys=[contract_id])
+    synced_by: Mapped['User'] = relationship('User', foreign_keys=[synced_by_id])
+
+    def __repr__(self):
+        return f'<FormalContractSync {self.formal_contract_id}->{self.contract_id}>'
+
+
+Company.formal_contract_parties = relationship(
+    'FormalContractParty',
+    back_populates='company',
+    foreign_keys='FormalContractParty.company_id',
+)
+Product.formal_contract_items = relationship(
+    'FormalContractItem',
+    back_populates='product',
+    foreign_keys='FormalContractItem.product_id',
+)
+
+
 class Department(db.Model):
     """部门表 - v1.3"""
     __tablename__ = 'departments'
@@ -943,6 +1239,16 @@ ERP_PERMISSIONS = {
     'contract_edit': '编辑合同',
     'contract_delete': '删除合同',
     'contract_edit_delivery': '编辑发货记录',
+
+    # 正式合同生成器
+    'formal_contract_view': '查看正式合同',
+    'formal_contract_create': '创建正式合同',
+    'formal_contract_edit': '编辑正式合同',
+    'formal_contract_generate': '生成正式合同',
+    'formal_contract_print': '打印正式合同',
+    'formal_contract_sync': '同步到交易合同',
+    'formal_contract_template_manage': '管理正式合同模板',
+    'formal_contract_history_view': '查看正式合同历史',
     
     # 产品模块
     'product_view': '查看产品',
@@ -1280,6 +1586,9 @@ ROLE_PERMISSIONS = {
     
     'general_manager': [
         'contract_view', 'contract_create', 'contract_edit', 'contract_delete', 'contract_edit_delivery',
+        'formal_contract_view', 'formal_contract_create', 'formal_contract_edit',
+        'formal_contract_generate', 'formal_contract_print', 'formal_contract_sync',
+        'formal_contract_template_manage', 'formal_contract_history_view',
         'product_view', 'product_create', 'product_edit', 'product_delete',
         'statement_view', 'statement_create', 'statement_export', 'statement_delete',
         'transaction_view', 'transaction_create', 'transaction_edit', 'transaction_delete',
@@ -1288,6 +1597,9 @@ ROLE_PERMISSIONS = {
     
     'department_pm': [
         'contract_view', 'contract_create', 'contract_edit', 'contract_delete', 'contract_edit_delivery',
+        'formal_contract_view', 'formal_contract_create', 'formal_contract_edit',
+        'formal_contract_generate', 'formal_contract_print', 'formal_contract_sync',
+        'formal_contract_history_view',
         'product_view', 'product_create', 'product_edit', 'product_delete',
         'statement_view', 'statement_create', 'statement_export', 'statement_delete',
         'transaction_view', 'transaction_create', 'transaction_edit', 'transaction_delete',
@@ -1296,6 +1608,9 @@ ROLE_PERMISSIONS = {
     
     'sales_manager': [
         'contract_view', 'contract_create', 'contract_edit',
+        'formal_contract_view', 'formal_contract_create', 'formal_contract_edit',
+        'formal_contract_generate', 'formal_contract_print', 'formal_contract_sync',
+        'formal_contract_history_view',
         'product_view', 'product_create', 'product_edit',
         'statement_view', 'statement_create', 'statement_export',
         'transaction_view',
@@ -1311,6 +1626,9 @@ ROLE_PERMISSIONS = {
     
     'gm_assistant': [
         'contract_view', 'contract_edit',  # 可以查看和修改所有订单，但不能创建
+        'formal_contract_view', 'formal_contract_create', 'formal_contract_edit',
+        'formal_contract_generate', 'formal_contract_print', 'formal_contract_sync',
+        'formal_contract_history_view',
         'product_view',
         'statement_view', 'statement_export',  # 可以查看和打印对账单
         # 没有 'contract_create' - 不可以发起订单

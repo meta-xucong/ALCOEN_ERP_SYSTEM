@@ -22,6 +22,22 @@ def test_contract_related_tables_have_required_columns(db_session):
     assert "delivery_batch_no" in tx_cols
 
 
+def test_formal_contract_tables_have_party_snapshot_columns(db_session):
+    """Formal contracts must preserve the party-A data used at save time."""
+    formal_cols = _columns(db_session, "formal_contracts")
+    template_cols = _columns(db_session, "formal_contract_templates")
+    assert {
+        "party_id",
+        "department_id",
+        "party_a_billing_address",
+        "party_a_phone",
+        "party_a_tax_no",
+        "party_a_bank_name",
+        "party_a_bank_account",
+    } <= formal_cols
+    assert {"department_id"} <= template_cols
+
+
 def test_transaction_table_has_no_legacy_payment_date_column(db_session):
     """v1.3 split should keep payment date in payment_records, not transactions."""
     tx_cols = _columns(db_session, "transactions")

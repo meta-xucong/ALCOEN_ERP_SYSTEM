@@ -1,0 +1,202 @@
+{% extends 'base.html' %}
+
+{% block title %}正式合同 #{{ formal_contract.id }} - 正式合同生成器{% endblock %}
+
+{% block extra_css %}
+<style>
+    .official-detail {
+        max-width: 1280px;
+        margin: 0 auto;
+    }
+    .snapshot-box {
+        max-height: 260px;
+        overflow: auto;
+        font-size: .8rem;
+        background: #f7fafb;
+        border-radius: .5rem;
+        padding: .75rem;
+    }
+    .official-items-table th,
+    .official-items-table td {
+        white-space: nowrap;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4 official-detail">
+    <div class="d-flex justify-content-between align-items-start mb-4">
+        <div>
+            <div class="text-muted small mb-1">正式合同生成器</div>
+            <h1 class="h3 mb-1">{{ formal_contract.party.party_a_name }}</h1>
+            <div class="text-muted">
+                {{ formal_contract.contract_no or '合同编号未填写' }}
+                <span class="mx-2">·</span>
+                {{ formal_contract.party_b_name or '-' }}
+            </div>
+        </div>
+        <div class="d-flex gap-2 flex-wrap justify-content-end">
+            {% if current_user.has_permission('formal_contract_edit') and not formal_contract.is_synced %}
+            <a href="{{ url_for('official_contract.edit_formal_contract', formal_contract_id=formal_contract.id) }}"
+               class="btn btn-outline-primary">
+                <i class="bi bi-pencil"></i> 编辑
+            </a>
+            {% endif %}
+            {% if current_user.has_permission('formal_contract_generate') %}
+            <form method="post" action="{{ url_for('official_contract.generate_formal_contract', formal_contract_id=formal_contract.id) }}">
+                <button class="btn btn-primary" type="submit">
+                    <i class="bi bi-file-earmark-word"></i> 生成 DOCX
+                </button>
+            </form>
+            {% endif %}
+            {% if current_user.has_permission('formal_contract_print') %}
+            <a href="{{ url_for('official_contract.print_formal_contract', formal_contract_id=formal_contract.id, autoprint=1) }}"
+               target="_blank" class="btn btn-success">
+                <i class="bi bi-printer"></i> 打印正式合同
+            </a>
+            {% endif %}
+            <a href="{{ url_for('official_contract.list_formal_contracts') }}"
+               class="btn btn-outline-secondary">返回列表</a>
+        </div>
+    </div>
+
+    <div class="row g-4">
+        <div class="col-xl-8">
+            <div class="card mb-4">
+                <div class="card-header"><strong>合同基础信息</strong></div>
+                <div class="card-body">
+                    <div class="row g-3">
+                        <div class="col-md-6"><span class="text-muted">甲方名称</span><div class="fw-semibold">{{ formal_contract.party.party_a_name }}</div></div>
+                        <div class="col-md-6"><span class="text-muted">乙方名称</span><div>{{ formal_contract.party_b_name or '-' }}</div></div>
+                        <div class="col-md-4"><span class="text-muted">合同编号</span><div>{{ formal_contract.contract_no or '未填写' }}</div></div>
+                        <div class="col-md-4"><span class="text-muted">签订地点</span><div>{{ formal_contract.sign_place or '-' }}</div></div>
+                        <div class="col-md-4"><span class="text-muted">签订时间</span><div>{{ formal_contract.sign_date|format_date or '-' }}</div></div>
+                        <div class="col-md-4"><span class="text-muted">状态</span><div>
+                            {% if formal_contract.status == 'synced' %}
+                            <span class="badge bg-success">已同步交易合同</span>
+                            {% elif formal_contract.status == 'generated' %}
+                            <span class="badge bg-primary">已生成</span>
+                            {% else %}
+                            <span class="badge bg-secondary">草稿</span>
+                            {% endif %}
+                        </div></div>
+                        <div class="col-md-4"><span class="text-muted">合同金额</span><div class="fw-semibold">{{ formal_contract.total_amount|format_money }}</div></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card mb-4">
+                <div class="card-header"><strong>产品明细</strong></div>
+                <div class="table-responsive">
+                    <table class="table table-hover official-items-table mb-0">
+                        <thead>
+                            <tr>
+                                <th>序号</th>
+                                <th>产品编码</th>
+                                <th>品名</th>
+                                <th>规格型号</th>
+                                <th>数量</th>
+                                <th>单位</th>
+                                <th class="text-end">单价</th>
+                                <th class="text-end">金额</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                        {% for item in formal_contract.items %}
+                            <tr>
+                                <td>{{ loop.index }}</td>
+                                <td>{{ item.product_code or '-' }}</td>
+                                <td>{{ item.product_name or '-' }}</td>
+                                <td>{{ item.product_model or '-' }}</td>
+                                <td>{{ item.quantity }}</td>
+                                <td>{{ item.unit }}</td>
+                                <td class="text-end">{{ item.unit_price|format_money }}</td>
+                                <td class="text-end">{{ item.total_amount|format_money }}</td>
+                            </tr>
+                        {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="card mb-4">
+                <div class="card-header"><strong>合同条款</strong></div>
+                <div class="card-body">
+                    <dl class="row mb-0">
+                        <dt class="col-md-3">质量标准</dt><dd class="col-md-9">{{ formal_contract.quality_standard or '-' }}</dd>
+                        <dt class="col-md-3">交货方式及费用承担</dt><dd class="col-md-9">{{ formal_contract.delivery_terms or '-' }}</dd>
+                        <dt class="col-md-3">交货时间及地点</dt><dd class="col-md-9">{{ formal_contract.delivery_schedule or '-' }}</dd>
+                        <dt class="col-md-3">结算方式及期限</dt><dd class="col-md-9">{{ formal_contract.settlement_terms or '-' }}</dd>
+                        <dt class="col-md-3">违约责任</dt><dd class="col-md-9">{{ formal_contract.breach_terms or '-' }}</dd>
+                        <dt class="col-md-3">解决合同纠纷的方式</dt><dd class="col-md-9">{{ formal_contract.dispute_terms or '-' }}</dd>
+                    </dl>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-xl-4">
+            <div class="card mb-4">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <strong>生成文件</strong>
+                    <span class="badge bg-light text-dark">{{ history|length }}</span>
+                </div>
+                <div class="card-body">
+                    {% for document in history %}
+                    <div class="border rounded p-3 mb-2">
+                        <div class="fw-semibold">模板 v{{ document.template_version }}</div>
+                        <div class="small text-muted mb-2">
+                            {{ document.generated_at.strftime('%Y-%m-%d %H:%M') if document.generated_at else '-' }}
+                            · 打印 {{ document.print_count }} 次
+                        </div>
+                        <div class="d-flex gap-2">
+                            <a class="btn btn-sm btn-outline-success"
+                               target="_blank"
+                               href="{{ url_for('official_contract.print_formal_contract', formal_contract_id=formal_contract.id, document_id=document.id, autoprint=1) }}">打印</a>
+                            <a class="btn btn-sm btn-outline-primary"
+                               href="{{ url_for('official_contract.download_formal_contract', formal_contract_id=formal_contract.id, document_id=document.id) }}">下载 DOCX</a>
+                        </div>
+                    </div>
+                    {% else %}
+                    <div class="text-muted">尚未生成文件。</div>
+                    {% endfor %}
+                </div>
+            </div>
+
+            <div class="card mb-4">
+                <div class="card-header"><strong>同步交易合同</strong></div>
+                <div class="card-body">
+                    {% if formal_contract.sync_link and formal_contract.sync_link.contract %}
+                    <div class="alert alert-success mb-0">
+                        已同步为交易合同：
+                        <a href="{{ url_for('contract.view_contract', id=formal_contract.sync_link.contract_id) }}">
+                            {{ formal_contract.sync_link.contract.contract_no }}
+                        </a>
+                    </div>
+                    {% elif current_user.has_permission('formal_contract_sync') %}
+                    <p class="text-muted small">同步后会调用现有交易合同创建流程，不会自动生成发货或回款记录。</p>
+                    <form method="post" action="{{ url_for('official_contract.sync_formal_contract', formal_contract_id=formal_contract.id) }}"
+                          onsubmit="return confirm('确认将此正式合同同步到交易合同吗？');">
+                        <button type="submit" class="btn btn-outline-primary w-100">
+                            <i class="bi bi-arrow-repeat"></i> 一键同步到交易合同
+                        </button>
+                    </form>
+                    {% else %}
+                    <div class="text-muted">当前账号没有同步权限。</div>
+                    {% endif %}
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-header"><strong>生成快照</strong></div>
+                <div class="card-body">
+                    {% if history %}
+                    <pre class="snapshot-box mb-0">{{ history[0].snapshot_json }}</pre>
+                    {% else %}
+                    <div class="text-muted">生成文件后显示数据快照。</div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

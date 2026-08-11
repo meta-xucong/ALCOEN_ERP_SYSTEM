@@ -59,7 +59,11 @@ class ContractService:
         return total, actual, discount
     
     @staticmethod
-    def create_contract(contract_data: dict, products_data: list) -> Contract:
+    def create_contract(
+        contract_data: dict,
+        products_data: list,
+        auto_commit: bool = True,
+    ) -> Contract:
         """
         创建合同及发货产品计划
         
@@ -180,7 +184,8 @@ class ContractService:
                 )
                 db.session.add(cp)
             
-            db.session.commit()
+            if auto_commit:
+                db.session.commit()
             return contract
             
         except Exception as e:

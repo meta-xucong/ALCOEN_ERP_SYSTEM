@@ -35,6 +35,11 @@ class AuthService:
     """认证服务"""
 
     DEFAULT_PASSWORD = '1234.abcd'
+    DEPARTMENT_OPTIONAL_ROLE_CODES = {
+        'logistics_manager',
+        'general_manager',
+        'gm_assistant',
+    }
     QC_ROLE_DEFINITIONS = {
         'qc_controller': {
             'name': '\u8d28\u91cf\u63a7\u5236\u4eba',
@@ -157,8 +162,8 @@ class AuthService:
         if not role:
             return None, '角色不存在'
         
-        # 总经理和物流经理不需要部门（全部部门）
-        if role_code not in ['logistics_manager', 'general_manager'] and not department_id:
+        # 总经理、总经理助理和物流经理不绑定具体部门。
+        if role_code not in AuthService.DEPARTMENT_OPTIONAL_ROLE_CODES and not department_id:
             return None, '请选择所属部门'
         
         # 创建用户
@@ -167,7 +172,11 @@ class AuthService:
             password_hash=generate_password_hash(AuthService.DEFAULT_PASSWORD),
             real_name=real_name,
             role_id=role.id,
-            department_id=department_id if role_code not in ['logistics_manager', 'general_manager'] else None,
+            department_id=(
+                department_id
+                if role_code not in AuthService.DEPARTMENT_OPTIONAL_ROLE_CODES
+                else None
+            ),
             email=email,
             phone=phone,
             is_active=False,  # 需要审核
@@ -206,13 +215,15 @@ class AuthService:
         if not role:
             return None, '角色不存在'
 
-        if role_code not in ['logistics_manager', 'general_manager'] and not department_id:
+        if role_code not in AuthService.DEPARTMENT_OPTIONAL_ROLE_CODES and not department_id:
             return None, '请选择所属部门'
 
         existing_user.real_name = real_name or existing_user.real_name
         existing_user.role_id = role.id
         existing_user.department_id = (
-            department_id if role_code not in ['logistics_manager', 'general_manager'] else None
+            department_id
+            if role_code not in AuthService.DEPARTMENT_OPTIONAL_ROLE_CODES
+            else None
         )
         existing_user.email = email
         existing_user.phone = phone
