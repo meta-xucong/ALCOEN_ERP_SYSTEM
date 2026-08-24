@@ -50,14 +50,14 @@
                 <div class="fw-medium fs-5">{{ '{:g}'.format(order.quantity or 0) }}</div>
             </div>
             <div class="col-md-3 mb-3">
-                <label class="text-muted small">装配负责人</label>
+                <label class="text-muted small">质量控制人</label>
                 <div class="fw-medium fs-5">{{ order.controller.real_name or order.controller.username }}</div>
             </div>
         </div>
         {% if order.inspector %}
         <div class="row">
             <div class="col-md-3 mb-3">
-                <label class="text-muted small">指导 / 验收人员</label>
+                <label class="text-muted small">供应商</label>
                 <div class="fw-medium fs-5">{{ order.inspector.real_name or order.inspector.username }}</div>
             </div>
         </div>
@@ -150,7 +150,7 @@
         <form method="POST" action="{{ url_for('qc.assembly_launch_complete', order_id=order.id) }}">
             <div class="row align-items-end">
                 <div class="col-md-6 mb-3">
-                    <label class="form-label">选择指导 / 验收人员 <span class="text-danger">*</span></label>
+                    <label class="form-label">选择供应商 <span class="text-danger">*</span></label>
                     <select name="inspector_id" class="form-select" required>
                         <option value="">-- 请选择 --</option>
                         {% for reviewer in reviewers %}

@@ -82,12 +82,12 @@
                 <div class="fw-medium fs-5 text-success">{{ '{:g}'.format(order.actual_delivered_quantity or 0) }}</div>
             </div>
             <div class="col-md-3 mb-3">
-                <label class="text-muted small">装配负责人</label>
+                <label class="text-muted small">质量控制人</label>
                 <div class="fw-medium fs-5">{{ order.controller.real_name or order.controller.username }}</div>
             </div>
             {% if order.inspector %}
             <div class="col-md-3 mb-3">
-                <label class="text-muted small">指导 / 验收人员</label>
+                <label class="text-muted small">供应商</label>
                 <div class="fw-medium fs-5">{{ order.inspector.real_name or order.inspector.username }}</div>
             </div>
             {% endif %}
@@ -186,7 +186,7 @@
                             <div class="col-md-4"><div class="small text-muted">{% if batch.completed_at %}完成时间：{{ batch.completed_at.strftime('%Y-%m-%d %H:%M') }}{% elif batch_signatures %}数量已锁定，等待另一方确认。{% else %}填写数量后，由双方分别点击确认。{% endif %}</div></div>
                         </div>
                         <div class="row g-2">
-                            {% for role, title in [('qc_controller', '装配负责人确认'), ('qc_inspector', '指导 / 验收人员确认')] %}
+                            {% for role, title in [('qc_controller', '质量控制人确认'), ('qc_inspector', '供应商确认')] %}
                             <div class="col-md-6">
                                 <div class="acceptance-role-card {{ 'border-success' if role in batch_signatures else '' }}">
                                     <div class="d-flex align-items-center justify-content-between gap-2">
@@ -237,7 +237,7 @@
 {% endif %}
 
 {% if order.status in ['inspection_completed', 'accepted'] %}
-    {% if (current_user.ai_cats_is_controller and order.controller_id == current_user.id and current_user.has_ai_cats_permission('qc_acceptance_rollback')) or current_user.is_superadmin or (current_user.ai_cats_is_manager and current_user.has_ai_cats_permission('qc_acceptance_rollback')) %}
+    {% if (current_user.has_ai_cats_identity('controller', 'assembly') and order.controller_id == current_user.id and current_user.has_ai_cats_permission('qc_acceptance_rollback')) or current_user.is_superadmin or (current_user.ai_cats_is_manager and current_user.has_ai_cats_permission('qc_acceptance_rollback')) %}
     <div class="d-flex gap-2">
         <button type="button" class="btn btn-warning" data-bs-toggle="modal" data-bs-target="#rollbackModal"><i class="bi bi-arrow-counterclockwise"></i> 撤销验收并回退</button>
     </div>

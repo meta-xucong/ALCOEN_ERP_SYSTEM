@@ -7,10 +7,32 @@ from flask import Blueprint, render_template, request, redirect, url_for, flash,
 from app import db
 from app.services.auth_service import AuthService
 from app.services.email_service import EmailService
-from app.models import Role, User, Department, VerificationCode, QCUserBinding, QC_ROLE_CODES
+from app.models import (
+    AI_CATS_IDENTITY_DEFINITIONS,
+    AI_CATS_LEGACY_ROLE_IDENTITY_MAP,
+    AI_CATS_TECHNICAL_ROLE_CODE,
+    AICatsUserIdentity,
+    Role,
+    User,
+    Department,
+    VerificationCode,
+    QCUserBinding,
+    QC_ROLE_CODES,
+)
+from app.services.ai_cats_access_service import AICatsAccessService
 from app.utils.decorators import login_required
 
 auth_bp = Blueprint('auth', __name__, url_prefix='/auth')
+
+
+def _safe_local_next(next_url: str | None) -> str | None:
+    """Return a local redirect path and reject absolute or scheme-relative URLs."""
+    if not next_url:
+        return None
+    next_url = next_url.strip()
+    if not next_url.startswith('/') or next_url.startswith('//'):
+        return None
+    return next_url
 
 
 def _get_client_ip() -> str:
@@ -34,7 +56,7 @@ def _get_qc_roles():
 def _get_erp_roles():
     """Load ERP registration roles, excluding superadmin and QC-only roles."""
     return Role.query.filter(
-        Role.code.notin_(('superadmin',) + QC_ROLE_CODES)
+        Role.code.notin_(('superadmin', AI_CATS_TECHNICAL_ROLE_CODE) + QC_ROLE_CODES)
     ).order_by(Role.level.desc()).all()
 
 
@@ -338,10 +360,11 @@ def _get_device_name(user_agent: str) -> str:
 
 def _do_login(user, remember: bool, ip_address: str, next_url: str = None, subsystem: str = None):
     """Description."""
+    next_url = _safe_local_next(next_url)
     # QC-only 璐﹀彿涓嶈兘閫氳繃 ERP 鍏ュ彛鐧诲綍
-    if subsystem != 'qc' and user.role.code in ['qc_controller', 'qc_inspector']:
+    if subsystem != 'qc' and AICatsAccessService.is_ai_cats_only(user):
         session.clear()
-        flash('该账号仅可用于质量控制系统登录；如需使用 ERP，请在 ERP 入口重新注册同名账号。', 'warning')
+        flash('该账号仅可用于 AI CATS 登录；如需使用 ERP，请联系管理员开通 ERP 账号。', 'warning')
         return redirect(url_for('auth.login'))
 
     session['user_id'] = user.id
@@ -357,26 +380,19 @@ def _do_login(user, remember: bool, ip_address: str, next_url: str = None, subsy
     flash('登录成功！', 'success')
     
     if subsystem == 'qc':
-        # QC 子系统登录
-        if user.role.code in ['superadmin', 'general_manager', 'gm_assistant']:
+        if AICatsAccessService.can_enter(user):
             session['subsystem'] = 'qc'
             if next_url:
                 return redirect(next_url)
             return redirect(url_for('qc.index'))
-        
-        binding = QCUserBinding.query.filter_by(user_id=user.id).first()
-        if not binding:
+
+        identities = AICatsUserIdentity.query.filter_by(user_id=user.id).all()
+        if not identities:
             session['pending_qc_user_id'] = user.id
             return redirect(url_for('auth.qc_role_apply'))
-        if not binding.is_active:
-            flash('您的 QC 账号尚未通过审核，请联系管理员', 'warning')
-            session.clear()
-            return redirect(url_for('auth.qc_login'))
-        
-        session['subsystem'] = 'qc'
-        if next_url:
-            return redirect(next_url)
-        return redirect(url_for('qc.index'))
+        flash('您的 AI CATS 身份尚未通过审核或账号已停用，请联系管理员', 'warning')
+        session.clear()
+        return redirect(url_for('auth.qc_login'))
     
     if next_url:
         return redirect(next_url)
@@ -446,110 +462,155 @@ def register():
 
 @auth_bp.route('/register/qc', methods=['GET', 'POST'])
 def register_qc():
-    """Description."""
+    """Register an AI CATS-only account with multiple requested identities."""
     if 'user_id' in session:
         user = User.query.get(session['user_id'])
         if not user:
             session.clear()
             return redirect(url_for('auth.qc_login'))
 
-        if user.role.code in ['superadmin', 'general_manager', 'gm_assistant']:
-            return redirect(url_for('qc.index'))
-
-        binding = QCUserBinding.query.filter_by(user_id=user.id).first()
-        if binding and binding.is_active:
+        if AICatsAccessService.can_enter(user):
             return redirect(url_for('qc.index'))
         return redirect(url_for('auth.qc_role_apply'))
 
     roles = _get_qc_roles()
+    identity_definitions = AICatsAccessService.identity_definitions()
+    selected_identity_codes = request.form.getlist('identity_codes')
     
     if request.method == 'POST':
         username = request.form.get('username', '').strip()
         real_name = request.form.get('real_name', '').strip()
-        role_id = request.form.get('role_id', '').strip()
         email = request.form.get('email', '').strip()
         phone = request.form.get('phone', '').strip() or None
+
+        # Compatibility for older clients that still submit one legacy role ID.
+        legacy_role_code = None
+        if not selected_identity_codes:
+            role_id = request.form.get('role_id', '').strip()
+            role = Role.query.get(role_id) if role_id.isdigit() else None
+            if role and role.code in AI_CATS_LEGACY_ROLE_IDENTITY_MAP:
+                legacy_role_code = role.code
+                selected_identity_codes = list(
+                    AI_CATS_LEGACY_ROLE_IDENTITY_MAP[legacy_role_code]
+                )
+            elif role_id:
+                flash('角色不存在或无效', 'warning')
+                return render_template(
+                    'auth/register_qc.html',
+                    roles=roles,
+                    identity_definitions=identity_definitions,
+                    selected_identity_codes=selected_identity_codes,
+                )
         
         if not username:
             flash('请输入用户名', 'warning')
-            return render_template('auth/register_qc.html', roles=roles)
+            return render_template(
+                'auth/register_qc.html',
+                roles=roles,
+                identity_definitions=identity_definitions,
+                selected_identity_codes=selected_identity_codes,
+            )
         
         if not real_name:
             flash('请输入真实姓名', 'warning')
-            return render_template('auth/register_qc.html', roles=roles)
-        
-        if not role_id:
-            flash('请选择角色', 'warning')
-            return render_template('auth/register_qc.html', roles=roles)
-        
-        role = Role.query.get(role_id)
-        if not role or role.code not in QC_ROLE_CODES:
-            flash('角色不存在或无效', 'error')
-            return render_template('auth/register_qc.html', roles=roles)
+            return render_template(
+                'auth/register_qc.html',
+                roles=roles,
+                identity_definitions=identity_definitions,
+                selected_identity_codes=selected_identity_codes,
+            )
+
+        try:
+            selected_identity_codes = AICatsAccessService.normalize_identity_codes(
+                selected_identity_codes
+            )
+        except ValueError as exc:
+            flash(str(exc), 'warning')
+            return render_template(
+                'auth/register_qc.html',
+                roles=roles,
+                identity_definitions=identity_definitions,
+                selected_identity_codes=selected_identity_codes,
+            )
         
         user, error = AuthService.register_qc_user(
             username=username,
             real_name=real_name,
-            role_code=role.code,
+            role_code=legacy_role_code,
+            identity_codes=selected_identity_codes,
             email=email,
             phone=phone
         )
         
         if error:
             flash(error, 'error')
-            return render_template('auth/register_qc.html', roles=roles)
+            return render_template(
+                'auth/register_qc.html',
+                roles=roles,
+                identity_definitions=identity_definitions,
+                selected_identity_codes=selected_identity_codes,
+            )
         
         flash('注册成功！请等待管理员审核', 'success')
         return redirect(url_for('auth.pending'))
     
-    return render_template('auth/register_qc.html', roles=roles)
+    return render_template(
+        'auth/register_qc.html',
+        roles=roles,
+        identity_definitions=identity_definitions,
+        selected_identity_codes=selected_identity_codes,
+    )
 
 
 @auth_bp.route('/qc-role-apply', methods=['GET', 'POST'])
 @login_required
 def qc_role_apply():
-    """QC role apply page for ERP users."""
+    """Allow ERP users to incrementally request multiple AI CATS identities."""
     user = g.current_user
-    
-    existing = QCUserBinding.query.filter_by(user_id=user.id).first()
-    if existing:
-        if existing.is_active:
-            flash('您已拥有 QC 系统权限，请直接登录', 'success')
-            return redirect(url_for('auth.qc_login'))
-        else:
-            flash('您的 QC 角色申请正在审核中，请耐心等待', 'info')
-            return redirect(url_for('auth.qc_login'))
-    
-    if user.role.code in ['superadmin', 'general_manager', 'gm_assistant']:
-        flash('您已拥有 QC 系统访问权限', 'success')
+
+    if AICatsAccessService.is_manager(user):
+        flash('您已拥有 AI CATS 全部权限', 'success')
         return redirect(url_for('qc.index'))
-    
-    roles = _get_qc_roles()
-    
+
+    identity_definitions = AICatsAccessService.identity_definitions()
+    current_identities = AICatsUserIdentity.query.filter_by(user_id=user.id).order_by(
+        AICatsUserIdentity.id.asc()
+    ).all()
+    unavailable_codes = {
+        identity.identity_code
+        for identity in current_identities
+        if identity.status in {'active', 'pending'}
+    }
+    selected_identity_codes = request.form.getlist('identity_codes')
+
     if request.method == 'POST':
-        role_id = request.form.get('role_id', '').strip()
-        if not role_id:
-            flash('请选择 QC 角色', 'warning')
-            return render_template('auth/qc_role_apply.html', roles=roles)
-        
-        role = Role.query.get(role_id)
-        if not role or role.code not in QC_ROLE_CODES:
-            flash('无效的角色选择', 'error')
-            return render_template('auth/qc_role_apply.html', roles=roles)
-        
-        from app import db
-        binding = QCUserBinding(
-            user_id=user.id,
-            role_id=role.id,
-            is_active=False
-        )
-        db.session.add(binding)
-        db.session.commit()
-        
-        flash('QC 角色申请已提交，请等待管理员审核', 'success')
-        return redirect(url_for('auth.qc_login'))
-    
-    return render_template('auth/qc_role_apply.html', roles=roles)
+        try:
+            selected_identity_codes = AICatsAccessService.normalize_identity_codes(
+                selected_identity_codes
+            )
+            if any(code in unavailable_codes for code in selected_identity_codes):
+                raise ValueError('所选身份中包含已经生效或正在审核的身份')
+            AICatsAccessService.ensure_profile(user, 'shared', is_enabled=True)
+            AICatsAccessService.request_identities(
+                user,
+                selected_identity_codes,
+                source='erp_apply',
+                status='pending',
+            )
+            db.session.commit()
+            flash('AI CATS 身份申请已提交，请等待管理员审核', 'success')
+            return redirect(url_for('auth.qc_role_apply'))
+        except ValueError as exc:
+            db.session.rollback()
+            flash(str(exc), 'error')
+
+    return render_template(
+        'auth/qc_role_apply.html',
+        identity_definitions=identity_definitions,
+        current_identities=current_identities,
+        unavailable_codes=unavailable_codes,
+        selected_identity_codes=selected_identity_codes,
+    )
 
 
 @auth_bp.route('/pending')
@@ -571,8 +632,8 @@ def logout():
 def switch_to_erp():
     """Switch current session to ERP subsystem."""
     user = g.current_user
-    if user.role.code in ['qc_controller', 'qc_inspector']:
-        flash('当前账号仅可用于质量控制系统，不能切换到 ERP 系统', 'warning')
+    if AICatsAccessService.is_ai_cats_only(user):
+        flash('当前账号仅可用于 AI CATS，不能切换到 ERP 系统', 'warning')
         return redirect(url_for('qc.index'))
 
     session['subsystem'] = 'erp'
@@ -585,13 +646,8 @@ def switch_to_qc():
     """Switch current session to QC subsystem."""
     user = g.current_user
 
-    if user.role.code in ['superadmin', 'general_manager', 'gm_assistant']:
-        session['subsystem'] = 'qc'
-        return redirect(url_for('qc.index'))
-
-    binding = QCUserBinding.query.filter_by(user_id=user.id, is_active=True).first()
-    if not binding:
-        flash('您当前没有可用的 QC 系统权限', 'warning')
+    if not AICatsAccessService.can_enter(user):
+        flash('您当前没有可用的 AI CATS 身份', 'warning')
         return redirect(url_for('main.index'))
 
     session['subsystem'] = 'qc'

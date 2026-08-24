@@ -1,6 +1,6 @@
 from datetime import datetime
 from flask import current_app, has_app_context
-from sqlalchemy import String, Float, ForeignKey, DateTime, Text, Date, Integer, event
+from sqlalchemy import Boolean, String, Float, ForeignKey, DateTime, Text, Date, Integer, UniqueConstraint, event
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app import db
 
@@ -8,11 +8,11 @@ from app import db
 class Company(db.Model):
     """公司名称表 - 用于自动补全"""
     __tablename__ = 'companies'
-    
+
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(100), unique=True, nullable=False, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
-    
+
     def __repr__(self):
         return f'<Company {self.name}>'
 
@@ -20,7 +20,7 @@ class Company(db.Model):
 class Product(db.Model):
     """产品库 - 以产品编码为唯一标识"""
     __tablename__ = 'products'
-    
+
     id: Mapped[int] = mapped_column(primary_key=True)
     product_code: Mapped[str] = mapped_column(String(50), unique=True, nullable=False, index=True)
     product_name: Mapped[str] = mapped_column(String(100), nullable=True)
@@ -31,12 +31,12 @@ class Product(db.Model):
     image_path: Mapped[str] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now, onupdate=datetime.now)
-    
+
     transactions: Mapped[list['Transaction']] = relationship(back_populates='product')
-    
+
     def __repr__(self):
         return f'<Product {self.product_code}>'
-    
+
     def to_dict(self):
         return {
             'id': self.id,
@@ -350,14 +350,14 @@ Product.formal_contract_items = relationship(
 class Department(db.Model):
     """部门表 - v1.3"""
     __tablename__ = 'departments'
-    
+
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
-    
+
     # [v1.5] 移除 managers 关系，部门不再有预设负责人
     # 负责人直接在合同中填写，PM默认为自己但可改为部门任意成员
-    
+
     def __repr__(self):
         return f'<Department {self.name}>'
 
@@ -381,7 +381,7 @@ class UserDepartment(db.Model):
 class Contract(db.Model):
     """合同表 - v1.3 添加部门/负责人"""
     __tablename__ = 'contracts'
-    
+
     id: Mapped[int] = mapped_column(primary_key=True)
     contract_no: Mapped[str] = mapped_column(String(100), unique=True, nullable=False, index=True)
     company_name: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
@@ -402,10 +402,10 @@ class Contract(db.Model):
     remark: Mapped[str] = mapped_column(Text, nullable=True)  # 自动记录修改日志
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now, onupdate=datetime.now)
-    
+
     # 关联
     contract_products: Mapped[list['ContractProduct']] = relationship(
-        back_populates='contract', 
+        back_populates='contract',
         cascade='all, delete-orphan',
         order_by='ContractProduct.id'
     )
@@ -433,17 +433,17 @@ class Contract(db.Model):
         order_by='ContractFile.id'
     )
     created_by: Mapped['User'] = relationship(foreign_keys=[created_by_id])
-    
+
     def __repr__(self):
         return f'<Contract {self.contract_no}>'
-    
+
     def get_status_display(self):
         """获取状态显示"""
         if self.status == 'completed':
             return {'text': '已完成', 'class': 'success', 'badge': 'bg-success'}
         else:
             return {'text': '未完成', 'class': 'warning', 'badge': 'bg-warning'}
-    
+
     def get_delivery_status_display(self):
         """[v1.4] 获取发货状态显示：部分发货黄色，未发货红色"""
         status_map = {
@@ -452,7 +452,7 @@ class Contract(db.Model):
             'pending': {'text': '未发货', 'class': 'danger', 'badge': 'bg-danger'}
         }
         return status_map.get(self.delivery_status, status_map['pending'])
-    
+
     def get_payment_status_display(self):
         """[v1.4] 获取回款状态显示：部分回款黄色，未回款红色"""
         if any(record.is_zero_value_exemption for record in self.payment_records):
@@ -477,7 +477,7 @@ class Contract(db.Model):
         if has_invoice:
             return {'text': '已开票', 'class': 'success', 'badge': 'bg-success'}
         return {'text': '未开票', 'class': 'danger', 'badge': 'bg-danger'}
-    
+
     def append_remark(self, message: str):
         """追加备注记录"""
         from datetime import timezone, timedelta
@@ -493,7 +493,7 @@ class Contract(db.Model):
 class ContractProduct(db.Model):
     """合同产品计划 - 发货产品总数"""
     __tablename__ = 'contract_products'
-    
+
     id: Mapped[int] = mapped_column(primary_key=True)
     contract_id: Mapped[int] = mapped_column(ForeignKey('contracts.id'), nullable=False)
     product_id: Mapped[int] = mapped_column(ForeignKey('products.id'), nullable=True)
@@ -507,7 +507,7 @@ class ContractProduct(db.Model):
     total: Mapped[float] = mapped_column(Float, nullable=False)  # 总价
     remark: Mapped[str] = mapped_column(Text, nullable=True)  # [v1.3] 备注
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
-    
+
     # 关联
     contract: Mapped['Contract'] = relationship(back_populates='contract_products')
     product: Mapped['Product'] = relationship(back_populates='contract_products')
@@ -516,22 +516,22 @@ class ContractProduct(db.Model):
         order_by=lambda: Transaction.id.asc()
     )
     payment_records: Mapped[list['PaymentRecord']] = relationship(back_populates='contract_product')
-    
+
     def __repr__(self):
         return f'<ContractProduct {self.product_code} x{self.quantity}>'
-    
+
     def get_delivered_quantity(self):
         """获取已发货数量"""
         return sum(t.quantity for t in self.transactions if t.quantity)
-    
+
     def get_delivered_value(self):
         """获取已发货货值"""
         return sum(t.total_price_with_tax for t in self.transactions if t.total_price_with_tax)
-    
+
     def get_remaining_quantity(self):
         """获取未发货数量"""
         return self.quantity - self.get_delivered_quantity()
-    
+
     def get_remaining_value(self):
         """获取未发货货值"""
         return self.total - self.get_delivered_value()
@@ -544,49 +544,49 @@ Product.contract_products = relationship('ContractProduct', back_populates='prod
 class Transaction(db.Model):
     """发货记录 - v1.3 独立发货记录（不包含回款信息）"""
     __tablename__ = 'transactions'
-    
+
     id: Mapped[int] = mapped_column(primary_key=True)
-    
+
     # v1.2: 合同关联（核心变更）
     contract_id: Mapped[int] = mapped_column(ForeignKey('contracts.id'), nullable=True, index=True)
     contract_product_id: Mapped[int] = mapped_column(ForeignKey('contract_products.id'), nullable=True)
-    
+
     # 公司信息
     company_name: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
-    
+
     # 产品信息（冗余存储，便于查询）
     product_id: Mapped[int] = mapped_column(ForeignKey('products.id'), nullable=True)
     product_code: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
     product_name: Mapped[str] = mapped_column(String(100), nullable=True)
     product_model: Mapped[str] = mapped_column(String(100), nullable=True)
     product_type: Mapped[str] = mapped_column(String(50), nullable=True)
-    
+
     # 发货信息
     quantity: Mapped[float] = mapped_column(Float, nullable=False)
     unit: Mapped[str] = mapped_column(String(20), nullable=False)
     price_with_tax: Mapped[float] = mapped_column(Float, nullable=False)
     total_price_with_tax: Mapped[float] = mapped_column(Float, nullable=False)
-    
+
     # v1.3: 经手人（必填）
     handler: Mapped[str] = mapped_column(String(50), nullable=False)
-    
+
     # 日期
     delivery_date: Mapped[Date] = mapped_column(Date, nullable=False, index=True)
     delivery_batch_no: Mapped[str] = mapped_column(String(100), nullable=True, index=True)
     invoice_date: Mapped[Date] = mapped_column(Date, nullable=True)
-    
+
     # 其他
     contract_no: Mapped[str] = mapped_column(String(100), nullable=True)  # 兼容旧数据
     remark: Mapped[str] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now, onupdate=datetime.now)
-    
+
     # 关联
     contract: Mapped['Contract'] = relationship(back_populates='transactions')
     contract_product: Mapped['ContractProduct'] = relationship(back_populates='transactions')
     product: Mapped['Product'] = relationship(back_populates='transactions')
     payment_records: Mapped[list['PaymentRecord']] = relationship(back_populates='transaction')
-    
+
     def __repr__(self):
         return f'<Transaction {self.contract_id}-{self.id} {self.product_code}>'
 
@@ -594,39 +594,39 @@ class Transaction(db.Model):
 class PaymentRecord(db.Model):
     """回款记录 - v1.3 独立的回款记录表"""
     __tablename__ = 'payment_records'
-    
+
     id: Mapped[int] = mapped_column(primary_key=True)
-    
+
     # 关联合同
     contract_id: Mapped[int] = mapped_column(ForeignKey('contracts.id'), nullable=True, index=True)
-    
+
     # 公司信息
     company_name: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
-    
+
     # 回款信息
     payment_amount: Mapped[float] = mapped_column(Float, nullable=True)  # 回款金额
     invoice_amount: Mapped[float] = mapped_column(Float, nullable=True)  # 开票金额
     payment_date: Mapped[Date] = mapped_column(Date, nullable=True, index=True)  # 回款日期
-    invoice_date: Mapped[Date] = mapped_column(Date, nullable=True, index=True)  # 开票日期    
-    
+    invoice_date: Mapped[Date] = mapped_column(Date, nullable=True, index=True)  # 开票日期
+
     # 可选关联发货记录 [v1.3] 可选关联产品计划
     transaction_id: Mapped[int] = mapped_column(ForeignKey('transactions.id'), nullable=True)
     contract_product_id: Mapped[int] = mapped_column(ForeignKey('contract_products.id'), nullable=True)
-    
+
     # 经手人
     handler: Mapped[str] = mapped_column(String(50), nullable=True)
-    
+
     # 备注
     remark: Mapped[str] = mapped_column(Text, nullable=True)
-    
+
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now, onupdate=datetime.now)
-    
+
     # 关联
     contract: Mapped['Contract'] = relationship(back_populates='payment_records')
     transaction: Mapped['Transaction'] = relationship(back_populates='payment_records')
     contract_product: Mapped['ContractProduct'] = relationship(back_populates='payment_records')
-    
+
     def __repr__(self):
         return f'<PaymentRecord {self.contract_id}-{self.id} pay={self.payment_amount} invoice={self.invoice_amount}>'
 
@@ -659,7 +659,7 @@ class PaymentRecord(db.Model):
 class ContractImage(db.Model):
     """合同图片表 - v1.3 支持多张图片上传"""
     __tablename__ = 'contract_images'
-    
+
     id: Mapped[int] = mapped_column(primary_key=True)
     contract_id: Mapped[int] = mapped_column(ForeignKey('contracts.id'), nullable=False)
     filename: Mapped[str] = mapped_column(String(255), nullable=False)  # 原始文件名
@@ -667,18 +667,18 @@ class ContractImage(db.Model):
     file_type: Mapped[str] = mapped_column(String(50), nullable=True)  # 文件类型
     description: Mapped[str] = mapped_column(String(255), nullable=True)  # 图片描述
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
-    
+
     # 关联
     contract: Mapped['Contract'] = relationship(back_populates='images')
-    
+
     def __repr__(self):
         return f'<ContractImage {self.contract_id}-{self.id} {self.filename}>'
-    
+
     @property
     def image_url(self):
         """获取图片访问URL"""
         return f'/uploads/contracts/{self.contract_id}/{self.filename}'
-    
+
     @property
     def thumbnail_url(self):
         """获取缩略图URL"""
@@ -688,7 +688,7 @@ class ContractImage(db.Model):
 class ContractFile(db.Model):
     """[v1.4] 合同文件表 - 存储PDF、Word等合同文档"""
     __tablename__ = 'contract_files'
-    
+
     id: Mapped[int] = mapped_column(primary_key=True)
     contract_id: Mapped[int] = mapped_column(ForeignKey('contracts.id'), nullable=False)
     filename: Mapped[str] = mapped_column(String(255), nullable=False)  # 原始文件名
@@ -696,23 +696,23 @@ class ContractFile(db.Model):
     file_type: Mapped[str] = mapped_column(String(50), nullable=True)  # 文件类型
     file_size: Mapped[int] = mapped_column(Integer, nullable=True)  # 文件大小(字节)
     uploaded_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
-    
+
     # 关联
     contract: Mapped['Contract'] = relationship(back_populates='contract_files')
-    
+
     def __repr__(self):
         return f'<ContractFile {self.contract_id}-{self.id} {self.filename}>'
-    
+
     @property
     def file_url(self):
         """获取文件访问URL"""
         return f'/uploads/contract_documents/{self.contract_id}/{self.filepath}'
-    
+
     @property
     def is_pdf(self):
         """是否是PDF文件"""
         return self.file_type and self.file_type.lower() == 'pdf'
-    
+
     @property
     def is_image(self):
         """是否是图片文件"""
@@ -726,7 +726,7 @@ class ContractFile(db.Model):
 class Statement(db.Model):
     """对账单记录表 - [v1.4] 添加发起人和部门字段"""
     __tablename__ = 'statements'
-    
+
     id: Mapped[int] = mapped_column(primary_key=True)
     statement_no: Mapped[str] = mapped_column(String(20), unique=True, nullable=False, index=True)
     company_name: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
@@ -741,9 +741,9 @@ class Statement(db.Model):
     # [v1.4] 发起部门
     department: Mapped[str] = mapped_column(String(100), nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
-    
+
     items: Mapped[list['StatementItem']] = relationship(back_populates='statement', cascade='all, delete-orphan')
-    
+
     def __repr__(self):
         return f'<Statement {self.statement_no}>'
 
@@ -751,15 +751,15 @@ class Statement(db.Model):
 class StatementItem(db.Model):
     """对账单明细关联表 - 保留用于兼容"""
     __tablename__ = 'statement_items'
-    
+
     id: Mapped[int] = mapped_column(primary_key=True)
     statement_id: Mapped[int] = mapped_column(ForeignKey('statements.id'), nullable=False)
     transaction_id: Mapped[int] = mapped_column(ForeignKey('transactions.id'), nullable=False)
     display_seq: Mapped[int] = mapped_column(Integer, nullable=False)
-    
+
     statement: Mapped['Statement'] = relationship(back_populates='items')
     transaction: Mapped['Transaction'] = relationship(back_populates='statement_items')
-    
+
     def __repr__(self):
         return f'<StatementItem {self.display_seq}>'
 
@@ -790,13 +790,13 @@ def calculate_contract_product_total(mapper, connection, target):
 def auto_add_company_and_update_contract(mapper, connection, target):
     """添加公司到列表"""
     from sqlalchemy import select
-    
+
     # 添加公司
     stmt = select(Company).where(Company.name == target.company_name)
     result = connection.execute(stmt).scalar_one_or_none()
     if not result:
         connection.execute(Company.__table__.insert(), {'name': target.company_name})
-    
+
     # 注意：合同备注更新在 ContractService.add_transaction 中处理
     # 这里不重复处理，避免冲突
 
@@ -812,23 +812,23 @@ def check_contract_completion(mapper, connection, target):
 class Role(db.Model):
     """角色表 - 权限角色定义"""
     __tablename__ = 'roles'
-    
+
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(50), unique=True, nullable=False)
     code: Mapped[str] = mapped_column(String(50), unique=True, nullable=False, index=True)
     description: Mapped[str] = mapped_column(String(255), nullable=True)
-    
+
     # 权限配置 (JSON格式存储权限列表)
     permissions: Mapped[str] = mapped_column(Text, default='[]')
-    
+
     # 排序权重
     level: Mapped[int] = mapped_column(Integer, default=0)
-    
+
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
-    
+
     # 关联
     users: Mapped[list['User']] = relationship(back_populates='role')
-    
+
     def __repr__(self):
         return f'<Role {self.code}>'
 
@@ -856,7 +856,7 @@ class Role(db.Model):
     def has_qc_permission(self, permission_code: str) -> bool:
         """Check QC permissions strictly against the stored role configuration."""
         return permission_code in QC_PERMISSIONS and permission_code in self.get_permission_codes()
-    
+
     def has_permission(self, permission_code: str) -> bool:
         """检查角色是否有指定权限"""
         import json
@@ -875,41 +875,41 @@ class Role(db.Model):
 class User(db.Model):
     """用户表 - 账号登录系统"""
     __tablename__ = 'users'
-    
+
     id: Mapped[int] = mapped_column(primary_key=True)
     username: Mapped[str] = mapped_column(String(50), unique=True, nullable=False, index=True)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     real_name: Mapped[str] = mapped_column(String(50), nullable=True)
     email: Mapped[str] = mapped_column(String(100), nullable=True)
     phone: Mapped[str] = mapped_column(String(20), nullable=True)
-    
+
     # 角色关联
     role_id: Mapped[int] = mapped_column(ForeignKey('roles.id'), nullable=False)
-    
+
     # 部门关联（部门角色需要，物流经理不需要）
     department_id: Mapped[int] = mapped_column(ForeignKey('departments.id'), nullable=True)
-    
+
     # 状态
     is_active: Mapped[bool] = mapped_column(default=False)  # 需要审核后激活
     is_superadmin: Mapped[bool] = mapped_column(default=False)
     require_password_change: Mapped[bool] = mapped_column(default=True)  # 首次登录需改密码
-    
+
     # 登录记录
     last_login_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
     last_login_ip: Mapped[str] = mapped_column(String(50), nullable=True)
     login_count: Mapped[int] = mapped_column(Integer, default=0)
-    
+
     # 界面主题偏好 - JSON存储: {"background": "glass", "theme": "light", "style": "glass"}
     theme_preference: Mapped[str] = mapped_column(String(500), nullable=True, default='{"background": "glass", "theme": "light", "style": "glass"}')
-    
+
     # 审核信息
     approved_by: Mapped[int] = mapped_column(ForeignKey('users.id'), nullable=True)
     approved_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
-    
+
     # 时间戳
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now, onupdate=datetime.now)
-    
+
     # 关联
     role: Mapped['Role'] = relationship(back_populates='users')
     department: Mapped['Department'] = relationship(foreign_keys=[department_id])
@@ -920,7 +920,7 @@ class User(db.Model):
     )
     approver: Mapped['User'] = relationship(remote_side=[id], foreign_keys=[approved_by])
     created_contracts: Mapped[list['Contract']] = relationship(back_populates='created_by', foreign_keys='Contract.created_by_id')
-    
+
     def __repr__(self):
         return f'<User {self.username}>'
 
@@ -985,10 +985,10 @@ class User(db.Model):
                 self.department_links.append(UserDepartment(department_id=department_id))
 
         self.department_id = normalized_ids[0] if normalized_ids else None
-    
+
     def get_theme_preference(self) -> dict:
         """获取用户的界面主题偏好设置
-        
+
         Returns:
             {
                 'bg_type': 'video' | 'image' | 'solid',
@@ -1006,7 +1006,7 @@ class User(db.Model):
             return {**default_theme, **theme}
         except (json.JSONDecodeError, TypeError):
             return default_theme
-    
+
     def set_theme_preference(self, bg_type: str = None, bg_image: str = None, theme: str = None, style: str = None) -> None:
         """设置用户的界面主题偏好"""
         import json
@@ -1020,7 +1020,7 @@ class User(db.Model):
         if style is not None:
             current['style'] = style
         self.theme_preference = json.dumps(current)
-    
+
     def has_permission(self, permission_code: str) -> bool:
         """检查用户是否有指定权限"""
         if self.is_superadmin:
@@ -1028,10 +1028,10 @@ class User(db.Model):
         return self.role.has_permission(permission_code)
 
     def has_qc_permission(self, permission_code: str) -> bool:
-        """Check QC permissions without ERP-specific role shortcuts."""
-        if self.is_superadmin:
-            return True
-        return bool(self.role and self.role.has_qc_permission(permission_code))
+        """Check AI CATS permissions through the multi-identity access service."""
+        from app.services.ai_cats_access_service import AICatsAccessService
+
+        return AICatsAccessService.has_legacy_permission(self, permission_code)
 
     @staticmethod
     def _ai_cats_test_access_enabled() -> bool:
@@ -1053,40 +1053,53 @@ class User(db.Model):
 
     @property
     def ai_cats_effective_role_code(self) -> str:
-        """Return the effective AI CATS role code after applying the temporary test-access mapping."""
-        if self.is_superadmin:
-            return 'superadmin'
-        if self.role and self.role.code in QC_ADMIN_ROLE_CODES:
-            return self.role.code
-        if self.has_ai_cats_test_access:
-            return 'gm_assistant'
-        return self.role.code if self.role else ''
+        """Return one legacy-compatible role code for code paths not yet identity-aware."""
+        from app.services.ai_cats_access_service import AICatsAccessService
+
+        return AICatsAccessService.legacy_effective_role_code(self)
 
     @property
     def ai_cats_is_manager(self) -> bool:
-        """Return whether the effective AI CATS role should behave like a manager."""
-        return self.is_superadmin or self.ai_cats_effective_role_code in QC_MANAGER_ROLE_CODES
+        """Return whether the user has full AI CATS management access."""
+        from app.services.ai_cats_access_service import AICatsAccessService
+
+        return AICatsAccessService.is_manager(self)
 
     @property
     def ai_cats_is_controller(self) -> bool:
-        """Return whether the effective AI CATS role should behave like a controller."""
-        return self.ai_cats_effective_role_code == 'qc_controller'
+        """Return whether the user has the shared production/assembly controller identity."""
+        return self.has_ai_cats_identity('controller')
 
     @property
     def ai_cats_is_inspector(self) -> bool:
-        """Return whether the effective AI CATS role should behave like an inspector."""
-        return self.ai_cats_effective_role_code == 'qc_inspector'
+        """Return whether the user has the supplier identity."""
+        return self.has_ai_cats_identity('supplier')
+
+    def has_ai_cats_identity(self, identity_code: str, module_code: str | None = None) -> bool:
+        """Return whether one active AI CATS identity is enabled for an optional module."""
+        from app.services.ai_cats_access_service import AICatsAccessService
+
+        return AICatsAccessService.has_identity(self, identity_code, module_code)
+
+    def has_ai_cats_scope(self, module_code: str) -> bool:
+        """Return whether any active identity grants access to one AI CATS module."""
+        from app.services.ai_cats_access_service import AICatsAccessService
+
+        return AICatsAccessService.has_scope(self, module_code)
+
+    @property
+    def has_ai_cats_access(self) -> bool:
+        """Return whether the active account can enter AI CATS."""
+        from app.services.ai_cats_access_service import AICatsAccessService
+
+        return AICatsAccessService.can_enter(self)
 
     def has_ai_cats_permission(self, permission_code: str) -> bool:
-        """Return whether the user can perform one AI CATS action under current test-access rules."""
-        if self.is_superadmin:
-            return True
-        if permission_code not in QC_PERMISSIONS:
-            return False
-        if self.has_ai_cats_test_access:
-            return True
-        return self.has_qc_permission(permission_code)
-    
+        """Return whether the user can perform one legacy AI CATS permission."""
+        from app.services.ai_cats_access_service import AICatsAccessService
+
+        return AICatsAccessService.has_legacy_permission(self, permission_code)
+
     def can_view_financial(self) -> bool:
         """是否可以查看资金信息（物流经理脱敏）"""
         if self.is_superadmin:
@@ -1094,7 +1107,7 @@ class User(db.Model):
         if self.role.code == 'logistics_manager':
             return False
         return True
-    
+
     def can_access_department(self, dept_name: str) -> bool:
         """是否可以访问指定部门的数据"""
         # 超级管理员、总经理、物流经理可以访问所有部门
@@ -1102,7 +1115,7 @@ class User(db.Model):
             return True
         # 部门角色只能访问本部门
         return self.belongs_to_department(dept_name)
-    
+
     def can_edit_contract_delivery(self, contract=None) -> bool:
         """是否可以编辑合同的发货记录"""
         if self.is_superadmin:
@@ -1121,7 +1134,7 @@ class User(db.Model):
                 return contract.created_by_id == self.id
             return True
         return True
-    
+
     def can_view_contract(self, contract) -> bool:
         """是否可以查看合同"""
         if self.is_superadmin:
@@ -1138,7 +1151,7 @@ class User(db.Model):
         if self.role.code == 'sales_manager':
             return contract.created_by_id == self.id
         return True
-    
+
     def can_edit_contract(self, contract=None) -> bool:
         """是否可以编辑合同（进入编辑页面）"""
         if self.is_superadmin:
@@ -1162,7 +1175,7 @@ class User(db.Model):
                 return contract.created_by_id == self.id
             return True
         return True
-    
+
     def can_edit_contract_basic(self, contract=None) -> bool:
         """是否可以编辑合同基本信息（物流经理除外）"""
         if self.is_superadmin:
@@ -1213,15 +1226,15 @@ class User(db.Model):
         if not self.has_permission('contract_delete'):
             return False
         return self.can_edit_contract_basic(contract)
-    
+
     def is_logistics_manager(self) -> bool:
         """是否是物流经理"""
         return self.role.code == 'logistics_manager'
-    
+
     def is_department_pm(self) -> bool:
         """是否是部门PM"""
         return self.role.code == 'department_pm'
-    
+
     def is_sales_manager(self) -> bool:
         """是否是部门销售经理"""
         return self.role.code == 'sales_manager'
@@ -1249,30 +1262,30 @@ ERP_PERMISSIONS = {
     'formal_contract_sync': '同步到交易合同',
     'formal_contract_template_manage': '管理正式合同模板',
     'formal_contract_history_view': '查看正式合同历史',
-    
+
     # 产品模块
     'product_view': '查看产品',
     'product_create': '创建产品',
     'product_edit': '编辑产品',
     'product_delete': '删除产品',
-    
+
     # 对账单模块
     'statement_view': '查看对账单',
     'statement_create': '生成对账单',
     'statement_export': '导出对账单',
     'statement_delete': '删除对账单',
-    
+
     # 交易记录模块
     'transaction_view': '查看交易记录',
     'transaction_create': '录入交易',
     'transaction_edit': '编辑交易',
     'transaction_delete': '删除交易',
-    
+
     # 回款记录模块
     'payment_view': '查看回款记录',
     'payment_create': '录入回款',
     'payment_edit': '编辑回款',
-    
+
     # 用户管理模块
     'user_manage': '管理用户',
     'user_approve': '审核注册用户',
@@ -1300,6 +1313,41 @@ PERMISSIONS = {**ERP_PERMISSIONS, **QC_PERMISSIONS}
 QC_ROLE_CODES = ('qc_controller', 'qc_inspector')
 QC_MANAGER_ROLE_CODES = ('general_manager', 'gm_assistant')
 QC_ADMIN_ROLE_CODES = QC_MANAGER_ROLE_CODES + QC_ROLE_CODES
+
+AI_CATS_IDENTITY_DEFINITIONS = {
+    'controller': {
+        'name': '质量控制人',
+        'description': '负责配件生产和装配/出厂中的发起、管理与质控方确认',
+        'default_scopes': ('production', 'assembly'),
+    },
+    'supplier': {
+        'name': '供应商',
+        'description': '负责被指派订单的质量检测、材料上传、供应商确认与验收',
+        'default_scopes': ('production', 'assembly'),
+    },
+    'researcher': {
+        'name': '研究人员',
+        'description': '负责研究项目、研究批次和研究方验收',
+        'default_scopes': ('research',),
+    },
+    'research_reviewer': {
+        'name': '指导/验收人员',
+        'description': '负责被指派研究批次的指导审批和指导方验收',
+        'default_scopes': ('research',),
+    },
+}
+AI_CATS_IDENTITY_CODES = tuple(AI_CATS_IDENTITY_DEFINITIONS)
+AI_CATS_MODULE_CODES = ('production', 'assembly', 'research')
+AI_CATS_IDENTITY_STATUS_CODES = ('pending', 'active', 'rejected', 'revoked')
+AI_CATS_ACCOUNT_ACCESS_MODES = ('ai_cats_only', 'shared')
+AI_CATS_TECHNICAL_ROLE_CODE = 'ai_cats_user'
+
+AI_CATS_LEGACY_ROLE_IDENTITY_MAP = {
+    # Existing accounts used each legacy role across all three modules. Backfill
+    # both identities so current production data remains operable after cutover.
+    'qc_controller': ('controller', 'researcher'),
+    'qc_inspector': ('supplier', 'research_reviewer'),
+}
 
 QC_DEFAULT_PERMISSION_CODES = {
     'general_manager': (
@@ -1447,7 +1495,7 @@ def normalize_qc_guide_title(title: str | None, index: int | None = None) -> str
 class VerificationCode(db.Model):
     """验证码表 - 存储登录验证码"""
     __tablename__ = 'verification_codes'
-    
+
     id: Mapped[int] = mapped_column(primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey('users.id'), nullable=False, index=True)
     code: Mapped[str] = mapped_column(String(10), nullable=False)  # 验证码
@@ -1457,23 +1505,23 @@ class VerificationCode(db.Model):
     used_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)  # 使用时间
     expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)  # 过期时间
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
-    
+
     # 关联
     user: Mapped['User'] = relationship(foreign_keys=[user_id])
-    
+
     def __repr__(self):
         return f'<VerificationCode {self.user_id}:{self.code}>'
-    
+
     @property
     def is_expired(self) -> bool:
         """检查验证码是否已过期"""
         return datetime.now() > self.expires_at
-    
+
     @property
     def is_used(self) -> bool:
         """检查验证码是否已使用"""
         return self.used_at is not None
-    
+
     def mark_as_used(self):
         """标记为已使用"""
         self.used_at = datetime.now()
@@ -1482,7 +1530,7 @@ class VerificationCode(db.Model):
 class TrustedDevice(db.Model):
     """受信任设备表 - 记录用户信任的登录设备"""
     __tablename__ = 'trusted_devices'
-    
+
     id: Mapped[int] = mapped_column(primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey('users.id'), nullable=False, index=True)
     device_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False, index=True)  # 设备指纹
@@ -1491,18 +1539,18 @@ class TrustedDevice(db.Model):
     last_used_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)  # 最后使用时间
     expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)  # 过期时间
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
-    
+
     # 关联
     user: Mapped['User'] = relationship(foreign_keys=[user_id])
-    
+
     def __repr__(self):
         return f'<TrustedDevice {self.user_id}:{self.device_fingerprint[:8]}...>'
-    
+
     @property
     def is_expired(self) -> bool:
         """检查设备信任是否已过期"""
         return datetime.now() > self.expires_at
-    
+
     def update_last_used(self):
         """更新最后使用时间"""
         self.last_used_at = datetime.now()
@@ -1513,26 +1561,26 @@ class TrustedDevice(db.Model):
 class SystemSetting(db.Model):
     """系统设置表 - 存储系统级配置"""
     __tablename__ = 'system_settings'
-    
+
     id: Mapped[int] = mapped_column(primary_key=True)
     key: Mapped[str] = mapped_column(String(50), unique=True, nullable=False, index=True)
     value: Mapped[str] = mapped_column(Text, nullable=True)
     description: Mapped[str] = mapped_column(String(255), nullable=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now, onupdate=datetime.now)
     updated_by_id: Mapped[int] = mapped_column(ForeignKey('users.id'), nullable=True)
-    
+
     # 关联
     updated_by: Mapped['User'] = relationship(foreign_keys=[updated_by_id])
-    
+
     def __repr__(self):
         return f'<SystemSetting {self.key}>'
-    
+
     @staticmethod
     def get(key: str, default: str = None) -> str:
         """获取设置值"""
         setting = SystemSetting.query.filter_by(key=key).first()
         return setting.value if setting else default
-    
+
     @staticmethod
     def set(key: str, value: str, description: str = None, user_id: int = None):
         """设置值"""
@@ -1552,7 +1600,7 @@ class SystemSetting(db.Model):
             db.session.add(setting)
         db.session.commit()
         return setting
-    
+
     @staticmethod
     def get_email_config() -> dict:
         """获取系统邮箱配置"""
@@ -1564,7 +1612,7 @@ class SystemSetting(db.Model):
             'password': SystemSetting.get('mail_password', ''),
             'sender_name': SystemSetting.get('mail_sender_name', 'ERP系统'),
         }
-    
+
     @staticmethod
     def set_email_config(config: dict, user_id: int = None):
         """保存系统邮箱配置"""
@@ -1583,7 +1631,7 @@ class SystemSetting(db.Model):
 # 角色权限配置
 ROLE_PERMISSIONS = {
     'superadmin': list(PERMISSIONS.keys()),
-    
+
     'general_manager': [
         'contract_view', 'contract_create', 'contract_edit', 'contract_delete', 'contract_edit_delivery',
         'formal_contract_view', 'formal_contract_create', 'formal_contract_edit',
@@ -1594,7 +1642,7 @@ ROLE_PERMISSIONS = {
         'transaction_view', 'transaction_create', 'transaction_edit', 'transaction_delete',
         'payment_view', 'payment_create', 'payment_edit',
     ],
-    
+
     'department_pm': [
         'contract_view', 'contract_create', 'contract_edit', 'contract_delete', 'contract_edit_delivery',
         'formal_contract_view', 'formal_contract_create', 'formal_contract_edit',
@@ -1605,7 +1653,7 @@ ROLE_PERMISSIONS = {
         'transaction_view', 'transaction_create', 'transaction_edit', 'transaction_delete',
         'payment_view', 'payment_create', 'payment_edit',
     ],
-    
+
     'sales_manager': [
         'contract_view', 'contract_create', 'contract_edit',
         'formal_contract_view', 'formal_contract_create', 'formal_contract_edit',
@@ -1616,14 +1664,14 @@ ROLE_PERMISSIONS = {
         'transaction_view',
         'payment_view', 'payment_create', 'payment_edit',
     ],
-    
+
     'logistics_manager': [
         'contract_view', 'contract_edit_delivery',
         'product_view',
         # 'statement_view',  # [v1.4] 物流经理不能查看历史对账单
         'transaction_view', 'transaction_create', 'transaction_edit',
     ],
-    
+
     'gm_assistant': [
         'contract_view', 'contract_edit',  # 可以查看和修改所有订单，但不能创建
         'formal_contract_view', 'formal_contract_create', 'formal_contract_edit',
@@ -1665,7 +1713,7 @@ def get_qc_signer_role_display(role_code: str) -> str:
 class QCUserBinding(db.Model):
     """QC 用户角色绑定表 - 记录 ERP 账号在 QC 子系统中的角色及审核状态"""
     __tablename__ = 'qc_user_bindings'
-    
+
     id: Mapped[int] = mapped_column(primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey('users.id'), nullable=False)
     role_id: Mapped[int] = mapped_column(ForeignKey('roles.id'), nullable=False)
@@ -1674,13 +1722,150 @@ class QCUserBinding(db.Model):
     approved_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now, onupdate=datetime.now)
-    
+
     user: Mapped['User'] = relationship(foreign_keys=[user_id])
     role: Mapped['Role'] = relationship(foreign_keys=[role_id])
     approver: Mapped['User'] = relationship(foreign_keys=[approved_by])
-    
+
     def __repr__(self):
         return f'<QCUserBinding {self.user_id}:{self.role_id}>'
+
+
+class AICatsAccountProfile(db.Model):
+    """AI CATS account access settings, separate from global ERP activation."""
+
+    __tablename__ = 'ai_cats_account_profiles'
+
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey('users.id', ondelete='CASCADE'),
+        primary_key=True,
+    )
+    access_mode: Mapped[str] = mapped_column(String(20), nullable=False, default='shared')
+    is_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        default=datetime.now,
+        onupdate=datetime.now,
+    )
+
+    user: Mapped['User'] = relationship(foreign_keys=[user_id])
+
+    def __repr__(self):
+        return f'<AICatsAccountProfile {self.user_id}:{self.access_mode}>'
+
+
+class AICatsUserIdentity(db.Model):
+    """One independently reviewable AI CATS business identity for a user."""
+
+    __tablename__ = 'ai_cats_user_identities'
+    __table_args__ = (
+        UniqueConstraint('user_id', 'identity_code', name='uq_ai_cats_user_identity'),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey('users.id', ondelete='CASCADE'),
+        nullable=False,
+        index=True,
+    )
+    identity_code: Mapped[str] = mapped_column(String(40), nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default='pending', index=True)
+    source: Mapped[str] = mapped_column(String(20), nullable=False, default='registration')
+    requested_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+    approved_by: Mapped[int] = mapped_column(ForeignKey('users.id'), nullable=True)
+    approved_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
+    revoked_by: Mapped[int] = mapped_column(ForeignKey('users.id'), nullable=True)
+    revoked_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        default=datetime.now,
+        onupdate=datetime.now,
+    )
+
+    user: Mapped['User'] = relationship(foreign_keys=[user_id])
+    approver: Mapped['User'] = relationship(foreign_keys=[approved_by])
+    revoker: Mapped['User'] = relationship(foreign_keys=[revoked_by])
+    scopes: Mapped[list['AICatsUserIdentityScope']] = relationship(
+        back_populates='identity',
+        cascade='all, delete-orphan',
+        order_by='AICatsUserIdentityScope.module_code',
+    )
+
+    @property
+    def display_name(self) -> str:
+        definition = AI_CATS_IDENTITY_DEFINITIONS.get(self.identity_code, {})
+        return definition.get('name', self.identity_code)
+
+    @property
+    def enabled_module_codes(self) -> set[str]:
+        if self.scopes:
+            return {scope.module_code for scope in self.scopes if scope.is_enabled}
+        definition = AI_CATS_IDENTITY_DEFINITIONS.get(self.identity_code, {})
+        return set(definition.get('default_scopes', ()))
+
+    def __repr__(self):
+        return f'<AICatsUserIdentity {self.user_id}:{self.identity_code}:{self.status}>'
+
+
+class AICatsUserIdentityScope(db.Model):
+    """Enabled AI CATS module scope for one assigned identity."""
+
+    __tablename__ = 'ai_cats_user_identity_scopes'
+    __table_args__ = (
+        UniqueConstraint(
+            'user_identity_id',
+            'module_code',
+            name='uq_ai_cats_user_identity_scope',
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_identity_id: Mapped[int] = mapped_column(
+        ForeignKey('ai_cats_user_identities.id', ondelete='CASCADE'),
+        nullable=False,
+        index=True,
+    )
+    module_code: Mapped[str] = mapped_column(String(30), nullable=False, index=True)
+    is_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        default=datetime.now,
+        onupdate=datetime.now,
+    )
+
+    identity: Mapped['AICatsUserIdentity'] = relationship(back_populates='scopes')
+
+    def __repr__(self):
+        return f'<AICatsUserIdentityScope {self.user_identity_id}:{self.module_code}>'
+
+
+class AICatsIdentityAuditLog(db.Model):
+    """Immutable audit log for AI CATS identity and account changes."""
+
+    __tablename__ = 'ai_cats_identity_audit_logs'
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    target_user_id: Mapped[int] = mapped_column(
+        ForeignKey('users.id'),
+        nullable=False,
+        index=True,
+    )
+    identity_code: Mapped[str] = mapped_column(String(40), nullable=True, index=True)
+    action: Mapped[str] = mapped_column(String(40), nullable=False, index=True)
+    before_state: Mapped[str] = mapped_column(Text, nullable=True)
+    after_state: Mapped[str] = mapped_column(Text, nullable=True)
+    operator_id: Mapped[int] = mapped_column(ForeignKey('users.id'), nullable=False, index=True)
+    reason: Mapped[str] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now, index=True)
+
+    target_user: Mapped['User'] = relationship(foreign_keys=[target_user_id])
+    operator: Mapped['User'] = relationship(foreign_keys=[operator_id])
+
+    def __repr__(self):
+        return f'<AICatsIdentityAuditLog {self.target_user_id}:{self.action}>'
 
 
 class QCWorkpiece(db.Model):
@@ -1784,7 +1969,7 @@ class QCWorkpiece(db.Model):
 class QCWorkOrder(db.Model):
     """QC 工件订单主表"""
     __tablename__ = 'qc_work_orders'
-    
+
     id: Mapped[int] = mapped_column(primary_key=True)
     batch_no: Mapped[str] = mapped_column(String(100), unique=True, nullable=False, index=True)
     workpiece_id: Mapped[int] = mapped_column(ForeignKey('qc_workpieces.id', ondelete='SET NULL'), nullable=True, index=True)
@@ -1816,7 +2001,7 @@ class QCWorkOrder(db.Model):
     remark_note_original_name: Mapped[str] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now, onupdate=datetime.now)
-    
+
     workpiece: Mapped['QCWorkpiece'] = relationship(back_populates='work_orders')
     controller: Mapped['User'] = relationship(foreign_keys=[controller_id])
     inspector: Mapped['User'] = relationship(foreign_keys=[inspector_id])
@@ -1845,10 +2030,10 @@ class QCWorkOrder(db.Model):
         cascade='all, delete-orphan',
         order_by='QCWorkOrderHistory.created_at.desc(), QCWorkOrderHistory.id.desc()'
     )
-    
+
     def __repr__(self):
         return f'<QCWorkOrder {self.batch_no}>'
-    
+
     def get_status_display(self) -> dict:
         """获取状态显示信息"""
         return QC_STATUS_DISPLAY.get(self.status, QC_STATUS_DISPLAY['qc_pending'])
@@ -2005,14 +2190,14 @@ class QCWorkOrder(db.Model):
     @property
     def remark_note_filename(self) -> str:
         return self._display_filename(self.remark_note_original_name, self.remark_note_file_path)
-    
+
     def can_be_edited_by(self, user: 'User') -> bool:
         """判断指定用户是否可以编辑此订单"""
         if user.is_superadmin:
             return True
         if user.ai_cats_is_manager and user.has_ai_cats_permission('qc_work_order_edit'):
             return self.status in ['draft', 'qc_pending', 'rejected']
-        if user.ai_cats_is_controller and user.has_ai_cats_permission('qc_work_order_edit') and self.controller_id == user.id:
+        if user.has_ai_cats_identity('controller', 'production') and user.has_ai_cats_permission('qc_work_order_edit') and self.controller_id == user.id:
             return self.status in ['draft', 'qc_pending', 'rejected']
         return False
 
@@ -2021,16 +2206,16 @@ class QCWorkOrder(db.Model):
         if user.is_superadmin:
             return True
         if user.ai_cats_is_manager and user.has_ai_cats_permission('qc_work_order_delete'):
-            return True
-        if user.ai_cats_is_controller and user.has_ai_cats_permission('qc_work_order_delete') and self.controller_id == user.id:
-            return True
+            return self.status in ['draft', 'qc_pending', 'rejected']
+        if user.has_ai_cats_identity('controller', 'production') and user.has_ai_cats_permission('qc_work_order_delete') and self.controller_id == user.id:
+            return self.status in ['draft', 'qc_pending', 'rejected']
         return False
-    
+
     def can_be_viewed_by(self, user: 'User') -> bool:
         """判断指定用户是否有权查看此订单"""
         if self.status == 'draft':
             return user.is_superadmin or (
-                user.ai_cats_is_controller
+                user.has_ai_cats_identity('controller', 'production')
                 and self.controller_id == user.id
                 and any(
                     user.has_ai_cats_permission(permission_code)
@@ -2058,7 +2243,7 @@ class QCWorkOrder(db.Model):
                     'qc_acceptance_rollback',
                 )
             )
-        if user.ai_cats_is_controller and self.controller_id == user.id:
+        if user.has_ai_cats_identity('controller', 'production') and self.controller_id == user.id:
             return any(
                 user.has_ai_cats_permission(permission_code)
                 for permission_code in (
@@ -2071,7 +2256,7 @@ class QCWorkOrder(db.Model):
                     'qc_acceptance_rollback',
                 )
             )
-        if user.ai_cats_is_inspector and self.inspector_id == user.id:
+        if user.has_ai_cats_identity('supplier', 'production') and self.inspector_id == user.id:
             return any(
                 user.has_ai_cats_permission(permission_code)
                 for permission_code in (
@@ -2188,7 +2373,7 @@ class QCWorkpieceAttachment(db.Model):
 class QCWorkOrderAttachment(db.Model):
     """QC 工件订单附件表 - 图纸、作业指导书、备注"""
     __tablename__ = 'qc_work_order_attachments'
-    
+
     id: Mapped[int] = mapped_column(primary_key=True)
     work_order_id: Mapped[int] = mapped_column(ForeignKey('qc_work_orders.id', ondelete='CASCADE'), nullable=False)
     attach_type: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
@@ -2199,20 +2384,20 @@ class QCWorkOrderAttachment(db.Model):
     is_required: Mapped[bool] = mapped_column(default=True)
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
-    
+
     work_order: Mapped['QCWorkOrder'] = relationship(back_populates='attachments')
     inspection_records: Mapped[list['QCInspectionRecord']] = relationship(
         back_populates='attachment',
         cascade='all, delete-orphan'
     )
-    
+
     @property
     def file_url(self) -> str:
         """获取文件访问URL"""
         if not self.file_path:
             return ''
         return f'/uploads/qc/{self.work_order_id}/{self.file_path}'
-    
+
     @property
     def is_image(self) -> bool:
         """是否是图片文件"""
@@ -2255,7 +2440,7 @@ class QCWorkOrderAttachment(db.Model):
         if self.attach_type in QC_GUIDE_ATTACHMENT_TYPES:
             return '生产凭证'
         return '批注信息'
-    
+
     def __repr__(self):
         return f'<QCWorkOrderAttachment {self.work_order_id}:{self.attach_type}>'
 
@@ -2263,7 +2448,7 @@ class QCWorkOrderAttachment(db.Model):
 class QCInspectionRecord(db.Model):
     """QC 质检记录表"""
     __tablename__ = 'qc_inspection_records'
-    
+
     id: Mapped[int] = mapped_column(primary_key=True)
     work_order_id: Mapped[int] = mapped_column(ForeignKey('qc_work_orders.id', ondelete='CASCADE'), nullable=False)
     inspector_id: Mapped[int] = mapped_column(ForeignKey('users.id'), nullable=False)
@@ -2275,18 +2460,18 @@ class QCInspectionRecord(db.Model):
     report_original_name: Mapped[str] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now, onupdate=datetime.now)
-    
+
     work_order: Mapped['QCWorkOrder'] = relationship(back_populates='inspection_records')
     inspector: Mapped['User'] = relationship(foreign_keys=[inspector_id])
     attachment: Mapped['QCWorkOrderAttachment'] = relationship(back_populates='inspection_records')
-    
+
     def __repr__(self):
         return f'<QCInspectionRecord {self.work_order_id}:{self.attachment_id}:{self.result}>'
-    
+
     @property
     def is_pass(self) -> bool:
         return self.result == 'pass'
-    
+
     @property
     def is_fail(self) -> bool:
         return self.result == 'fail'
@@ -2349,18 +2534,18 @@ class QCAcceptanceBatch(db.Model):
 class QCAcceptanceSignature(db.Model):
     """QC 验收签字记录表"""
     __tablename__ = 'qc_acceptance_signatures'
-    
+
     id: Mapped[int] = mapped_column(primary_key=True)
     work_order_id: Mapped[int] = mapped_column(ForeignKey('qc_work_orders.id', ondelete='CASCADE'), nullable=False)
     acceptance_batch_id: Mapped[int] = mapped_column(ForeignKey('qc_acceptance_batches.id', ondelete='CASCADE'), nullable=True, index=True)
     signer_id: Mapped[int] = mapped_column(ForeignKey('users.id'), nullable=False)
     signer_role: Mapped[str] = mapped_column(String(50), nullable=False)
     signed_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
-    
+
     work_order: Mapped['QCWorkOrder'] = relationship(back_populates='signatures')
     acceptance_batch: Mapped['QCAcceptanceBatch'] = relationship(back_populates='signatures')
     signer: Mapped['User'] = relationship(foreign_keys=[signer_id])
-    
+
     @property
     def signer_role_display(self) -> str:
         return get_qc_signer_role_display(self.signer_role)
@@ -3322,9 +3507,9 @@ class AssemblyAcceptanceSignature(db.Model):
     @property
     def signer_role_display(self) -> str:
         if self.signer_role == 'qc_controller':
-            return '装配负责人'
+            return '质量控制人'
         if self.signer_role == 'qc_inspector':
-            return '指导 / 验收人员'
+            return '供应商'
         return self.signer_role
 
 

@@ -1,0 +1,77 @@
+{% extends 'qc/base.html' %}
+
+{% block title %}{{ user.real_name or user.username }} - AI CATS 身份管理{% endblock %}
+
+{% block content %}
+{% set ai_cats_enabled = profile.is_enabled if profile else user.has_ai_cats_access %}
+<div class="d-flex justify-content-between align-items-start mb-4">
+    <div><h1 class="mb-1"><i class="bi bi-person-gear"></i> {{ user.real_name or user.username }}</h1><div class="text-muted">{{ user.username }} · {{ user.email or '未填写邮箱' }}</div></div>
+    <a href="{{ url_for('qc.qc_admin_users') }}" class="btn btn-outline-secondary"><i class="bi bi-arrow-left"></i> 返回用户管理</a>
+</div>
+
+<div class="row g-4">
+    <div class="col-xl-8">
+        <div class="card mb-4">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">身份与模块范围</h5>
+                <span class="badge {{ 'bg-success' if ai_cats_enabled else 'bg-secondary' }}">AI CATS {{ '已启用' if ai_cats_enabled else '已停用' }}</span>
+            </div>
+            <div class="card-body">
+                {% for identity in identities %}
+                <div class="border rounded-3 p-3 mb-3">
+                    <div class="d-flex justify-content-between align-items-center gap-3 mb-3">
+                        <div><strong class="fs-5">{{ identity.display_name }}</strong><span class="badge ms-2 {% if identity.status == 'active' %}bg-success{% elif identity.status == 'pending' %}bg-warning text-dark{% else %}bg-secondary{% endif %}">{% if identity.status == 'active' %}已生效{% elif identity.status == 'pending' %}审核中{% elif identity.status == 'revoked' %}已撤销{% else %}未通过{% endif %}</span></div>
+                        <div class="text-nowrap">
+                            {% if identity.status == 'active' %}
+                            <form method="POST" action="{{ url_for('qc.qc_admin_identity_action', identity_id=identity.id, action='revoke') }}" class="d-inline" onsubmit="return confirm('确认撤销该身份？系统会先检查未完成任务。');"><input type="hidden" name="next" value="{{ url_for('qc.qc_admin_user_detail', user_id=user.id) }}"><button class="btn btn-sm btn-outline-danger" type="submit">撤销身份</button></form>
+                            {% elif identity.status in ['rejected', 'revoked'] %}
+                            <form method="POST" action="{{ url_for('qc.qc_admin_identity_action', identity_id=identity.id, action='restore') }}" class="d-inline"><input type="hidden" name="next" value="{{ url_for('qc.qc_admin_user_detail', user_id=user.id) }}"><button class="btn btn-sm btn-outline-success" type="submit">恢复身份</button></form>
+                            {% endif %}
+                        </div>
+                    </div>
+                    <div class="small text-muted mb-2">{{ identity_definitions[identity.identity_code].description }}</div>
+                    <div class="d-flex flex-wrap gap-2">
+                        {% for module_code in identity_definitions[identity.identity_code].default_scopes %}
+                        {% set enabled = module_code in identity.enabled_module_codes and identity.status == 'active' %}
+                        <form method="POST" action="{{ url_for('qc.qc_admin_toggle_identity_scope', identity_id=identity.id, module_code=module_code) }}">
+                            <input type="hidden" name="is_enabled" value="{{ '0' if enabled else '1' }}">
+                            <button type="submit" class="btn btn-sm {{ 'btn-success' if enabled else 'btn-outline-secondary' }}" {% if identity.status != 'active' %}disabled{% endif %}><i class="bi {{ 'bi-check-circle' if enabled else 'bi-circle' }}"></i> {% if module_code == 'production' %}配件生产{% elif module_code == 'assembly' %}装配/出厂{% else %}研究/实验{% endif %}</button>
+                        </form>
+                        {% endfor %}
+                    </div>
+                </div>
+                {% else %}<div class="text-center text-muted py-4">暂无 AI CATS 身份</div>{% endfor %}
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header"><h5 class="mb-0">变更记录</h5></div>
+            <div class="card-body p-0" style="max-height: 420px; overflow-y: auto;">
+                <div class="list-group list-group-flush">
+                    {% for audit in audits %}
+                    <div class="list-group-item">
+                        <div class="d-flex justify-content-between gap-3"><strong>{{ audit.action }}</strong><span class="small text-muted text-nowrap">{{ audit.created_at.strftime('%Y-%m-%d %H:%M:%S') }}</span></div>
+                        <div class="small text-muted">操作人：{{ audit.operator.real_name or audit.operator.username }}{% if audit.identity_code %} · 身份：{{ identity_definitions.get(audit.identity_code, {}).get('name', audit.identity_code) }}{% endif %}</div>
+                        {% if audit.reason %}<div class="small mt-1">原因：{{ audit.reason }}</div>{% endif %}
+                    </div>
+                    {% else %}<div class="text-center text-muted py-4">暂无变更记录</div>{% endfor %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-xl-4">
+        <div class="card">
+            <div class="card-header"><h5 class="mb-0">添加身份</h5></div>
+            <div class="card-body">
+                {% set existing_codes = identities|map(attribute='identity_code')|list %}
+                <form method="POST" action="{{ url_for('qc.qc_admin_add_identity', user_id=user.id) }}">
+                    <select name="identity_code" class="form-select mb-3" required><option value="">请选择身份</option>{% for code, definition in identity_definitions.items() %}{% if code not in existing_codes %}<option value="{{ code }}">{{ definition.name }}</option>{% endif %}{% endfor %}</select>
+                    <button type="submit" class="btn btn-primary w-100" {% if existing_codes|length == identity_definitions|length %}disabled{% endif %}><i class="bi bi-plus-circle"></i> 添加并立即生效</button>
+                </form>
+                <hr><div class="small text-muted">撤销身份或关闭模块前会校验未完成任务。质量控制人和供应商默认覆盖配件生产、装配/出厂，研究身份保持独立。</div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

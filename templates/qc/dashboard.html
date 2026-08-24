@@ -5,7 +5,7 @@
 {% block content %}
 <div class="row mb-4 animate-fade-in">
     <div class="col-12">
-        {% set can_access_qc_orders = current_user.is_superadmin or (current_user.role.code in ['general_manager', 'gm_assistant', 'qc_controller'] and (
+        {% set can_access_qc_orders = current_user.is_superadmin or ((current_user.ai_cats_is_manager or current_user.has_ai_cats_identity('controller', 'production')) and (
             current_user.has_qc_permission('qc_work_order_view')
             or current_user.has_qc_permission('qc_work_order_create')
             or current_user.has_qc_permission('qc_work_order_edit')
@@ -122,7 +122,7 @@
                 <div class="empty-state text-center py-5">
                     <i class="bi bi-inbox" style="font-size: 2rem; color: rgba(30, 58, 95, 0.3);"></i>
                     <p class="mt-2 text-muted">暂无工件订单</p>
-                    {% if current_user.is_superadmin or (current_user.role.code in ['general_manager', 'gm_assistant', 'qc_controller'] and current_user.has_qc_permission('qc_work_order_create')) %}
+                    {% if current_user.is_superadmin or ((current_user.ai_cats_is_manager or current_user.has_ai_cats_identity('controller', 'production')) and current_user.has_qc_permission('qc_work_order_create')) %}
                     <a href="{{ url_for('qc.quality_control_new') }}" class="btn btn-primary btn-sm">创建第一份工件订单</a>
                     {% endif %}
                 </div>

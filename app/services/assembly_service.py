@@ -284,7 +284,7 @@ class AssemblyService:
         query = AssemblyProduct.query
         if user.is_superadmin or user.ai_cats_is_manager:
             return query
-        if user.ai_cats_is_controller:
+        if user.has_ai_cats_identity('controller', 'assembly'):
             return query.filter(AssemblyProduct.creator_id == user.id)
         return query.filter(False)
 
@@ -293,9 +293,9 @@ class AssemblyService:
         query = AssemblyOrder.query
         if user.is_superadmin or user.ai_cats_is_manager:
             return query
-        if user.ai_cats_is_controller:
+        if user.has_ai_cats_identity('controller', 'assembly'):
             return query.filter(AssemblyOrder.controller_id == user.id)
-        if user.ai_cats_is_inspector:
+        if user.has_ai_cats_identity('supplier', 'assembly'):
             return query.filter(AssemblyOrder.inspector_id == user.id)
         return query.filter(False)
 
@@ -305,7 +305,7 @@ class AssemblyService:
             return True
         if user.ai_cats_is_manager:
             return AssemblyService._has_any_permission(user, AssemblyService.PRODUCT_PERMISSION_CODES)
-        if user.ai_cats_is_controller:
+        if user.has_ai_cats_identity('controller', 'assembly'):
             return AssemblyService._has_any_permission(user, AssemblyService.PRODUCT_PERMISSION_CODES)
         return False
 
@@ -315,7 +315,7 @@ class AssemblyService:
             return True
         if user.ai_cats_is_manager:
             return user.has_ai_cats_permission('qc_workpiece_create')
-        return user.ai_cats_is_controller and user.has_ai_cats_permission('qc_workpiece_create')
+        return user.has_ai_cats_identity('controller', 'assembly') and user.has_ai_cats_permission('qc_workpiece_create')
 
     @staticmethod
     def can_edit_product(user: User, product: AssemblyProduct) -> bool:
@@ -323,7 +323,7 @@ class AssemblyService:
             return True
         if user.ai_cats_is_manager:
             return user.has_ai_cats_permission('qc_workpiece_edit')
-        return user.ai_cats_is_controller and product.creator_id == user.id and user.has_ai_cats_permission('qc_workpiece_edit')
+        return user.has_ai_cats_identity('controller', 'assembly') and product.creator_id == user.id and user.has_ai_cats_permission('qc_workpiece_edit')
 
     @staticmethod
     def can_delete_product(user: User, product: AssemblyProduct) -> bool:
@@ -331,7 +331,7 @@ class AssemblyService:
             return True
         if user.ai_cats_is_manager:
             return user.has_ai_cats_permission('qc_workpiece_delete')
-        return user.ai_cats_is_controller and product.creator_id == user.id and user.has_ai_cats_permission('qc_workpiece_delete')
+        return user.has_ai_cats_identity('controller', 'assembly') and product.creator_id == user.id and user.has_ai_cats_permission('qc_workpiece_delete')
 
     @staticmethod
     def can_access_assembly_launch(user: User) -> bool:
@@ -339,7 +339,7 @@ class AssemblyService:
             return True
         if user.ai_cats_is_manager:
             return AssemblyService._has_any_permission(user, AssemblyService.ORDER_PERMISSION_CODES)
-        return user.ai_cats_is_controller and AssemblyService._has_any_permission(user, AssemblyService.ORDER_PERMISSION_CODES)
+        return user.has_ai_cats_identity('controller', 'assembly') and AssemblyService._has_any_permission(user, AssemblyService.ORDER_PERMISSION_CODES)
 
     @staticmethod
     def can_create_order(user: User) -> bool:
@@ -347,7 +347,7 @@ class AssemblyService:
             return True
         if user.ai_cats_is_manager:
             return user.has_ai_cats_permission('qc_work_order_create')
-        return user.ai_cats_is_controller and user.has_ai_cats_permission('qc_work_order_create')
+        return user.has_ai_cats_identity('controller', 'assembly') and user.has_ai_cats_permission('qc_work_order_create')
 
     @staticmethod
     def can_edit_order(user: User, order: AssemblyOrder) -> bool:
@@ -357,7 +357,7 @@ class AssemblyService:
             return False
         if user.ai_cats_is_manager:
             return user.has_ai_cats_permission('qc_work_order_edit')
-        return user.ai_cats_is_controller and order.controller_id == user.id and user.has_ai_cats_permission('qc_work_order_edit')
+        return user.has_ai_cats_identity('controller', 'assembly') and order.controller_id == user.id and user.has_ai_cats_permission('qc_work_order_edit')
 
     @staticmethod
     def can_delete_order(user: User, order: AssemblyOrder) -> bool:
@@ -365,7 +365,7 @@ class AssemblyService:
             return True
         if user.ai_cats_is_manager:
             return user.has_ai_cats_permission('qc_work_order_delete')
-        return user.ai_cats_is_controller and order.controller_id == user.id and user.has_ai_cats_permission('qc_work_order_delete')
+        return user.has_ai_cats_identity('controller', 'assembly') and order.controller_id == user.id and user.has_ai_cats_permission('qc_work_order_delete')
 
     @staticmethod
     def can_view_order(user: User, order: AssemblyOrder) -> bool:
@@ -374,10 +374,10 @@ class AssemblyService:
         if user.ai_cats_is_manager:
             return True
         if order.status == 'draft':
-            return user.ai_cats_is_controller and order.controller_id == user.id and AssemblyService.can_access_assembly_launch(user)
-        if user.ai_cats_is_controller and order.controller_id == user.id:
+            return user.has_ai_cats_identity('controller', 'assembly') and order.controller_id == user.id and AssemblyService.can_access_assembly_launch(user)
+        if user.has_ai_cats_identity('controller', 'assembly') and order.controller_id == user.id:
             return True
-        if user.ai_cats_is_inspector and order.inspector_id == user.id:
+        if user.has_ai_cats_identity('supplier', 'assembly') and order.inspector_id == user.id:
             return True
         return False
 
@@ -387,9 +387,9 @@ class AssemblyService:
             return True
         if user.ai_cats_is_manager:
             return AssemblyService._has_any_permission(user, AssemblyService.INSPECTION_PERMISSION_CODES)
-        if user.ai_cats_is_controller:
+        if user.has_ai_cats_identity('controller', 'assembly'):
             return user.has_ai_cats_permission('qc_inspection_view')
-        if user.ai_cats_is_inspector:
+        if user.has_ai_cats_identity('supplier', 'assembly'):
             return AssemblyService._has_any_permission(user, AssemblyService.INSPECTION_PERMISSION_CODES)
         return False
 
@@ -399,7 +399,7 @@ class AssemblyService:
             return True
         if user.ai_cats_is_manager and user.has_ai_cats_permission('qc_inspection_perform'):
             return order.status in ['assembly_completed', 'inspection_pending']
-        if user.ai_cats_is_inspector and order.inspector_id == user.id:
+        if user.has_ai_cats_identity('supplier', 'assembly') and order.inspector_id == user.id:
             return user.has_ai_cats_permission('qc_inspection_perform') and order.status in ['assembly_completed', 'inspection_pending']
         return False
 
@@ -409,9 +409,9 @@ class AssemblyService:
             return True
         if user.ai_cats_is_manager:
             return AssemblyService._has_any_permission(user, AssemblyService.ACCEPTANCE_PERMISSION_CODES)
-        if user.ai_cats_is_controller:
+        if user.has_ai_cats_identity('controller', 'assembly'):
             return AssemblyService._has_any_permission(user, AssemblyService.ACCEPTANCE_PERMISSION_CODES)
-        if user.ai_cats_is_inspector:
+        if user.has_ai_cats_identity('supplier', 'assembly'):
             return user.has_ai_cats_permission('qc_acceptance_perform')
         return False
 
@@ -420,11 +420,10 @@ class AssemblyService:
         """Return whether the user can access outbound shipping."""
         if not user or not user.is_active:
             return False
-        if user.ai_cats_effective_role_code == AssemblyService.INSPECTOR_ROLE_CODE:
-            return False
-        if user.is_superadmin:
-            return True
-        return True
+        return bool(
+            user.ai_cats_is_manager
+            or user.has_ai_cats_identity('controller', 'assembly')
+        )
 
     @staticmethod
     def can_create_outbound(user: User) -> bool:
@@ -444,10 +443,10 @@ class AssemblyService:
         if user.ai_cats_is_manager and user.has_ai_cats_permission('qc_acceptance_perform'):
             return ['qc_controller', 'qc_inspector']
         signer_roles: list[str] = []
-        if user.ai_cats_is_controller and order.controller_id == user.id:
+        if user.has_ai_cats_identity('controller', 'assembly') and order.controller_id == user.id:
             if user.has_ai_cats_permission('qc_acceptance_perform'):
                 signer_roles.append('qc_controller')
-        if user.ai_cats_is_inspector and order.inspector_id == user.id:
+        if user.has_ai_cats_identity('supplier', 'assembly') and order.inspector_id == user.id:
             if user.has_ai_cats_permission('qc_acceptance_perform'):
                 signer_roles.append('qc_inspector')
         return signer_roles
@@ -458,7 +457,7 @@ class AssemblyService:
             return True
         if user.ai_cats_is_manager and user.has_ai_cats_permission('qc_acceptance_rollback'):
             return order.status in ['inspection_completed', 'accepted']
-        if user.ai_cats_is_controller and order.controller_id == user.id:
+        if user.has_ai_cats_identity('controller', 'assembly') and order.controller_id == user.id:
             return user.has_ai_cats_permission('qc_acceptance_rollback') and order.status in ['inspection_completed', 'accepted']
         return False
 
@@ -470,9 +469,9 @@ class AssemblyService:
             return True
         if user.ai_cats_is_manager and user.has_ai_cats_permission('qc_acceptance_rollback'):
             return signer_role in ['qc_controller', 'qc_inspector']
-        if signer_role == 'qc_controller' and user.ai_cats_is_controller and order.controller_id == user.id:
+        if signer_role == 'qc_controller' and user.has_ai_cats_identity('controller', 'assembly') and order.controller_id == user.id:
             return user.has_ai_cats_permission('qc_acceptance_perform')
-        if signer_role == 'qc_inspector' and user.ai_cats_is_inspector and order.inspector_id == user.id:
+        if signer_role == 'qc_inspector' and user.has_ai_cats_identity('supplier', 'assembly') and order.inspector_id == user.id:
             return user.has_ai_cats_permission('qc_acceptance_perform')
         return False
 
@@ -543,7 +542,7 @@ class AssemblyService:
             return None
         if user.is_superadmin or user.ai_cats_is_manager:
             return product
-        if user.ai_cats_is_controller and product.creator_id == user.id:
+        if user.has_ai_cats_identity('controller', 'assembly') and product.creator_id == user.id:
             return product
         return None
 
@@ -625,9 +624,9 @@ class AssemblyService:
         if not user.is_superadmin:
             if user.ai_cats_is_manager and AssemblyService.can_access_inspection(user):
                 query = query
-            elif user.ai_cats_is_inspector and AssemblyService.can_access_inspection(user):
+            elif user.has_ai_cats_identity('supplier', 'assembly') and AssemblyService.can_access_inspection(user):
                 query = query.filter(AssemblyOrder.inspector_id == user.id)
-            elif user.ai_cats_is_controller and AssemblyService.can_access_inspection(user):
+            elif user.has_ai_cats_identity('controller', 'assembly') and AssemblyService.can_access_inspection(user):
                 query = query.filter(AssemblyOrder.controller_id == user.id)
             else:
                 query = query.filter(False)
@@ -654,9 +653,9 @@ class AssemblyService:
         if not user.is_superadmin:
             if user.ai_cats_is_manager and AssemblyService.can_access_acceptance(user):
                 query = query
-            elif user.ai_cats_is_controller and AssemblyService.can_access_acceptance(user):
+            elif user.has_ai_cats_identity('controller', 'assembly') and AssemblyService.can_access_acceptance(user):
                 query = query.filter(AssemblyOrder.controller_id == user.id)
-            elif user.ai_cats_is_inspector and AssemblyService.can_access_acceptance(user):
+            elif user.has_ai_cats_identity('supplier', 'assembly') and AssemblyService.can_access_acceptance(user):
                 query = query.filter(AssemblyOrder.inspector_id == user.id)
             else:
                 query = query.filter(False)
@@ -1526,9 +1525,11 @@ class AssemblyService:
 
         inspector = User.query.get(inspector_id)
         if not inspector or not inspector.is_active:
-            raise ValueError('请选择有效的指导 / 验收人员')
-        if inspector.ai_cats_effective_role_code != AssemblyService.INSPECTOR_ROLE_CODE and not inspector.ai_cats_is_manager:
-            raise ValueError('请选择指导 / 验收人员角色用户')
+            raise ValueError('请选择有效的供应商')
+        if not inspector.has_ai_cats_identity('supplier', 'assembly'):
+            raise ValueError('请选择具有装配/出厂权限的供应商')
+        if inspector.id == order.controller_id:
+            raise ValueError('质量控制人与供应商必须由不同用户担任')
         if not order.product_id or not order.components:
             raise ValueError('请先选择产品并生成装配结构快照')
         if not order.assembly_record_attachments:
@@ -1890,11 +1891,16 @@ class AssemblyService:
 
     @staticmethod
     def eligible_outbound_signer_roles(user: User, order: AssemblyOutboundOrder) -> list[str]:
+        """Return the one outbound role this user may sign as.
+
+        The initiator and approver must always be different people, including
+        when a manager has full module permissions.
+        """
         if order.status != 'confirming' or not AssemblyService.can_access_outbound(user):
             return []
-        # During the assembly/outbound test period, every non-supplier AI CATS
-        # operator can click both confirmation roles separately.
-        return ['initiator', 'approver']
+        if user.id == order.initiator_id:
+            return ['initiator']
+        return ['approver']
 
     @staticmethod
     def _validate_outbound_quantity(order: AssemblyOutboundOrder, outbound_quantity) -> float:

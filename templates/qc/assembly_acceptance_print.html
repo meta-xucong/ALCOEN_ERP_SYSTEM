@@ -96,11 +96,11 @@
             <div>{{ order.accepted_at.strftime('%Y年%m月%d日') if order.accepted_at else '-' }}</div>
         </div>
         <div class="info-item">
-            <label>装配负责人</label>
+            <label>质量控制人</label>
             <div>{{ order.controller.real_name or order.controller.username }}</div>
         </div>
         <div class="info-item">
-            <label>指导 / 验收人员</label>
+            <label>供应商</label>
             <div>{{ order.inspector.real_name or order.inspector.username if order.inspector else '-' }}</div>
         </div>
     </div>
@@ -162,12 +162,12 @@
     <div class="section-title">签字确认区</div>
     <div class="signature-area">
         <div>
-            <p><strong>装配负责人签字：</strong></p>
+            <p><strong>质量控制人签字：</strong></p>
             <div class="signature-box"></div>
             <p class="text-muted small">日期：_________</p>
         </div>
         <div>
-            <p><strong>指导 / 验收人员签字：</strong></p>
+            <p><strong>供应商签字：</strong></p>
             <div class="signature-box"></div>
             <p class="text-muted small">日期：_________</p>
         </div>

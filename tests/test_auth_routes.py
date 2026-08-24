@@ -7,6 +7,7 @@ from werkzeug.security import generate_password_hash
 
 from app import db
 from app.models import Role, User, Department, TrustedDevice, QCUserBinding
+from app.routes.auth import _safe_local_next
 from app.services.email_service import EmailService
 
 
@@ -15,6 +16,14 @@ def test_register_page_loads(client):
     resp = client.get("/auth/register")
     assert resp.status_code == 200
     assert b"<form" in resp.data
+
+
+def test_login_next_redirect_accepts_only_local_paths():
+    """Login redirects must not send an authenticated user to an external site."""
+    assert _safe_local_next('/qc/production/') == '/qc/production/'
+    assert _safe_local_next(' https://example.com/steal ') is None
+    assert _safe_local_next('//example.com/steal') is None
+    assert _safe_local_next('javascript:alert(1)') is None
 
 
 def test_register_creates_pending_user(app, client, base_data):

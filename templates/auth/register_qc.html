@@ -17,7 +17,7 @@
         }
         .register-container {
             width: 100%;
-            max-width: 520px;
+            max-width: 760px;
             padding: 20px;
         }
         .register-card {
@@ -109,6 +109,74 @@
             content: ' *';
             color: #dc3545;
         }
+        .identity-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 12px;
+        }
+        .identity-option {
+            position: relative;
+        }
+        .identity-option input {
+            position: absolute;
+            opacity: 0;
+            pointer-events: none;
+        }
+        .identity-card {
+            display: block;
+            min-height: 128px;
+            padding: 16px;
+            border: 2px solid #e6e8ef;
+            border-radius: 12px;
+            cursor: pointer;
+            transition: border-color .18s ease, background-color .18s ease, transform .18s ease;
+        }
+        .identity-card:hover {
+            border-color: #aab5ed;
+            transform: translateY(-1px);
+        }
+        .identity-option input:checked + .identity-card {
+            border-color: #667eea;
+            background: #f5f6ff;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, .1);
+        }
+        .identity-title {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+            margin-bottom: 7px;
+            color: #30334a;
+            font-weight: 700;
+        }
+        .identity-title .bi-check-circle-fill {
+            opacity: 0;
+            transform: scale(.75);
+            transition: opacity .18s ease, transform .18s ease;
+        }
+        .identity-option input:checked + .identity-card .bi-check-circle-fill {
+            opacity: 1;
+            transform: scale(1);
+        }
+        .identity-description {
+            min-height: 40px;
+            color: #6b7280;
+            font-size: 13px;
+            line-height: 1.55;
+        }
+        .scope-badge {
+            display: inline-block;
+            margin: 6px 4px 0 0;
+            padding: 3px 8px;
+            border-radius: 999px;
+            background: #eef1ff;
+            color: #5364be;
+            font-size: 12px;
+        }
+        @media (max-width: 640px) {
+            .register-card { padding: 26px 20px; }
+            .identity-grid { grid-template-columns: 1fr; }
+        }
     </style>
 </head>
 <body>
@@ -133,43 +201,51 @@
             <form method="POST" action="" id="registerForm">
                 <div class="mb-3">
                     <label for="username" class="form-label required">用户名</label>
-                    <input type="text" class="form-control" id="username" name="username" required>
+                    <input type="text" class="form-control" id="username" name="username" value="{{ request.form.get('username', '') }}" required>
                     <small class="text-muted">如果该用户名已经存在于 ERP，请直接从 AI CATS 登录入口登录，首次进入后申请 AI CATS 身份。</small>
                 </div>
 
                 <div class="mb-3">
                     <label for="real_name" class="form-label required">真实姓名</label>
-                    <input type="text" class="form-control" id="real_name" name="real_name" required>
+                    <input type="text" class="form-control" id="real_name" name="real_name" value="{{ request.form.get('real_name', '') }}" required>
                 </div>
 
                 <div class="mb-3">
-                    <label for="role_id" class="form-label required">申请角色</label>
-                    <select class="form-select" id="role_id" name="role_id" required>
-                        <option value="">-- 请选择角色 --</option>
-                        {% for role in roles %}
-                        <option value="{{ role.id }}" data-code="{{ role.code }}">
-                            {% if role.code == 'qc_controller' %}
-                                质量控制人
-                            {% elif role.code == 'qc_inspector' %}
-                                供应商
-                            {% else %}
-                                {{ role.name }}
-                            {% endif %}
-                        </option>
+                    <label class="form-label required">申请身份（可多选）</label>
+                    <div class="identity-grid" id="identityGrid">
+                        {% for code, definition in identity_definitions.items() %}
+                        <div class="identity-option">
+                            <input type="checkbox" id="identity_{{ code }}" name="identity_codes" value="{{ code }}"
+                                   {% if code in selected_identity_codes %}checked{% endif %}>
+                            <label class="identity-card" for="identity_{{ code }}">
+                                <span class="identity-title">
+                                    <span>{{ definition.name }}</span>
+                                    <i class="bi bi-check-circle-fill text-primary"></i>
+                                </span>
+                                <span class="identity-description">{{ definition.description }}</span>
+                                <span>
+                                    {% for module_code in definition.default_scopes %}
+                                    <span class="scope-badge">
+                                        {% if module_code == 'production' %}配件生产{% elif module_code == 'assembly' %}装配/出厂{% else %}研究/实验{% endif %}
+                                    </span>
+                                    {% endfor %}
+                                </span>
+                            </label>
+                        </div>
                         {% endfor %}
-                    </select>
-                    <small class="text-muted">系统内部仍沿用质控人与供应商两类 AI CATS 权限，这里展示的是实际业务身份名称。</small>
+                    </div>
+                    <small class="text-muted d-block mt-2">质量控制人和供应商身份默认同时适用于配件生产、装配/出厂；研究身份单独管理。</small>
                 </div>
 
                 <div class="mb-3">
                     <label for="email" class="form-label required">邮箱</label>
-                    <input type="email" class="form-control" id="email" name="email" required>
+                    <input type="email" class="form-control" id="email" name="email" value="{{ request.form.get('email', '') }}" required>
                     <small class="text-muted">用于登录时接收验证码，请填写真实有效的邮箱。</small>
                 </div>
 
                 <div class="mb-3">
                     <label for="phone" class="form-label">电话</label>
-                    <input type="tel" class="form-control" id="phone" name="phone">
+                    <input type="tel" class="form-control" id="phone" name="phone" value="{{ request.form.get('phone', '') }}">
                 </div>
 
                 <button type="submit" class="btn btn-primary btn-register">
@@ -194,6 +270,16 @@
     </div>
 
     <script src="{{ url_for('static', filename='vendor/bootstrap/js/bootstrap.bundle.min.js') }}"></script>
+    <script>
+        document.getElementById('registerForm').addEventListener('submit', function (event) {
+            const checked = document.querySelectorAll('input[name="identity_codes"]:checked');
+            if (!checked.length) {
+                event.preventDefault();
+                document.getElementById('identityGrid').scrollIntoView({ behavior: 'smooth', block: 'center' });
+                alert('请至少选择一个 AI CATS 身份');
+            }
+        });
+    </script>
 </body>
 </html>
 

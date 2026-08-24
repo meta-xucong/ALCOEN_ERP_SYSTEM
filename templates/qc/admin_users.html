@@ -1,37 +1,41 @@
-﻿{% extends 'qc/base.html' %}
+{% extends 'qc/base.html' %}
 
 {% block title %}AI CATS 用户管理 - ALCOEN AI CATS{% endblock %}
 
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-4">
-    <h1 class="mb-0"><i class="bi bi-people"></i> AI CATS 用户管理</h1>
+    <div>
+        <h1 class="mb-1"><i class="bi bi-people"></i> AI CATS 用户管理</h1>
+        <div class="text-muted">账号开关、身份和模块范围均独立于 ERP 权限。</div>
+    </div>
     <a href="{{ url_for('qc.qc_admin_pending') }}" class="btn btn-warning">
-        <i class="bi bi-hourglass-split"></i> 待审核用户
+        <i class="bi bi-hourglass-split"></i> 待审核身份
     </a>
 </div>
 
 <div class="card mb-4">
     <div class="card-body">
         <form method="GET" class="row g-2">
-            <div class="col-md-4">
-                <input type="text" name="keyword" class="form-control" placeholder="用户名 / 姓名 / 邮箱" value="{{ keyword }}">
-            </div>
-            <div class="col-md-3">
+            <div class="col-lg-4"><input type="text" name="keyword" class="form-control" placeholder="用户名 / 姓名 / 邮箱" value="{{ keyword }}"></div>
+            <div class="col-lg-3">
                 <select name="role" class="form-select">
-                    <option value="">全部角色</option>
+                    <option value="">全部身份</option>
+                    {% for code, definition in identity_definitions.items() %}
+                    <option value="{{ code }}" {% if role == code %}selected{% endif %}>{{ definition.name }}</option>
+                    {% endfor %}
                     {% for r in roles %}
-                    <option value="{{ r.code }}" {% if role == r.code %}selected{% endif %}>{{ r.name }}</option>
+                    <option value="{{ r.code }}" {% if role == r.code %}selected{% endif %}>{{ r.name }}（全部权限）</option>
                     {% endfor %}
                 </select>
             </div>
-            <div class="col-md-2">
+            <div class="col-lg-2">
                 <select name="status" class="form-select">
                     <option value="">全部状态</option>
-                    <option value="active" {% if status == 'active' %}selected{% endif %}>启用</option>
-                    <option value="inactive" {% if status == 'inactive' %}selected{% endif %}>禁用</option>
+                    <option value="active" {% if status == 'active' %}selected{% endif %}>AI CATS 已启用</option>
+                    <option value="inactive" {% if status == 'inactive' %}selected{% endif %}>AI CATS 已停用</option>
                 </select>
             </div>
-            <div class="col-md-3 d-flex gap-2">
+            <div class="col-lg-3 d-flex gap-2">
                 <button type="submit" class="btn btn-outline-primary flex-fill"><i class="bi bi-search"></i> 查询</button>
                 <a href="{{ url_for('qc.qc_admin_users') }}" class="btn btn-outline-secondary"><i class="bi bi-x-circle"></i></a>
             </div>
@@ -43,91 +47,49 @@
     <div class="card-body p-0">
         <div class="table-responsive">
             <table class="table table-hover mb-0 align-middle">
-                <thead class="table-light">
-                    <tr>
-                        <th>用户名</th>
-                        <th>姓名</th>
-                        <th>角色</th>
-                        <th>邮箱</th>
-                        <th class="text-center">状态</th>
-                        <th class="text-end">创建时间</th>
-                        <th class="text-center">操作</th>
-                    </tr>
-                </thead>
+                <thead class="table-light"><tr><th>用户</th><th>账号类型</th><th style="min-width: 250px;">AI CATS 身份</th><th>邮箱</th><th class="text-center">AI CATS 状态</th><th class="text-center">操作</th></tr></thead>
                 <tbody>
                     {% for user in users %}
+                    {% set profile = profile_map.get(user.id) %}
+                    {% set user_identities = identity_map.get(user.id, []) %}
+                    {% set ai_cats_enabled = (profile.is_enabled if profile else user.has_ai_cats_access) and user.is_active %}
                     <tr>
+                        <td><strong>{{ user.real_name or user.username }}</strong><div class="small text-muted">{{ user.username }}</div></td>
                         <td>
-                            <strong>{{ user.username }}</strong>
-                            {% if user.is_superadmin %}
-                            <span class="badge bg-danger">超管</span>
-                            {% endif %}
+                            {% if user.is_superadmin %}<span class="badge bg-danger">超级管理员</span>
+                            {% elif user.ai_cats_is_manager %}<span class="badge bg-primary">{{ user.role.name }} / 全部权限</span>
+                            {% elif profile and profile.access_mode == 'ai_cats_only' %}<span class="badge bg-info text-dark">仅 AI CATS</span>
+                            {% else %}<span class="badge bg-light text-dark border">ERP 共用账号</span>{% endif %}
                         </td>
-                        <td>{{ user.real_name or '-' }}</td>
-                        <td><span class="badge bg-info">{{ user.role.name }}</span></td>
+                        <td>
+                            {% if user.ai_cats_is_manager %}<span class="badge bg-primary">全部业务身份</span>{% endif %}
+                            {% for identity in user_identities %}
+                            <span class="badge {% if identity.status == 'active' %}bg-success{% elif identity.status == 'pending' %}bg-warning text-dark{% else %}bg-secondary{% endif %} me-1 mb-1">
+                                {{ identity.display_name }}{% if identity.status == 'pending' %} / 审核中{% elif identity.status == 'revoked' %} / 已撤销{% elif identity.status == 'rejected' %} / 未通过{% endif %}
+                            </span>
+                            {% else %}{% if not user.ai_cats_is_manager %}<span class="text-muted">暂无身份</span>{% endif %}{% endfor %}
+                        </td>
                         <td>{{ user.email or '-' }}</td>
-                        <td class="text-center">
-                            {% if user.is_active %}
-                            <span class="badge bg-success">启用</span>
-                            {% else %}
-                            <span class="badge bg-secondary">禁用</span>
+                        <td class="text-center"><span class="badge {{ 'bg-success' if ai_cats_enabled else 'bg-secondary' }}">{{ '已启用' if ai_cats_enabled else '已停用' }}</span></td>
+                        <td class="text-center text-nowrap">
+                            <a href="{{ url_for('qc.qc_admin_user_detail', user_id=user.id) }}" class="btn btn-sm btn-outline-primary"><i class="bi bi-sliders"></i> 身份管理</a>
+                            {% if not user.is_superadmin and user.id != current_user.id %}
+                            <form method="POST" action="{{ url_for('qc.qc_admin_toggle_user', user_id=user.id) }}" class="d-inline"><button type="submit" class="btn btn-sm btn-outline-{{ 'warning' if ai_cats_enabled else 'success' }}">{{ '停用 AI CATS' if ai_cats_enabled else '启用 AI CATS' }}</button></form>
                             {% endif %}
-                        </td>
-                        <td class="text-end">{{ user.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
-                        <td class="text-center">
-                            {% if not user.is_superadmin %}
-                            <form method="POST" action="{{ url_for('qc.qc_admin_toggle_user', user_id=user.id) }}" class="d-inline">
-                                <button type="submit" class="btn btn-sm btn-outline-{{ 'warning' if user.is_active else 'success' }}">
-                                    {% if user.is_active %}禁用{% else %}启用{% endif %}
-                                </button>
-                            </form>
-                            {% endif %}
-                            <form method="POST" action="{{ url_for('qc.qc_admin_reset_password', user_id=user.id) }}" class="d-inline"
-                                  onsubmit="return confirm('确认重置该用户密码为默认值？');">
-                                <button type="submit" class="btn btn-sm btn-outline-info">
-                                    <i class="bi bi-key"></i> 重置密码
-                                </button>
-                            </form>
+                            <form method="POST" action="{{ url_for('qc.qc_admin_reset_password', user_id=user.id) }}" class="d-inline" onsubmit="return confirm('确认重置该用户密码为默认值？');"><button type="submit" class="btn btn-sm btn-outline-info"><i class="bi bi-key"></i></button></form>
                         </td>
                     </tr>
-                    {% else %}
-                    <tr>
-                        <td colspan="7" class="text-center py-5 text-muted">暂无 AI CATS 相关用户</td>
-                    </tr>
-                    {% endfor %}
+                    {% else %}<tr><td colspan="6" class="text-center py-5 text-muted">暂无 AI CATS 相关用户</td></tr>{% endfor %}
                 </tbody>
             </table>
         </div>
         {% if pagination and pagination.pages > 1 %}
-        <div class="card-footer">
-            <nav>
-                <ul class="pagination justify-content-center mb-0">
-                    {% if pagination.has_prev %}
-                    <li class="page-item"><a class="page-link" href="{{ url_for('qc.qc_admin_users', page=pagination.prev_num, role=role, status=status, keyword=keyword) }}">上一页</a></li>
-                    {% else %}
-                    <li class="page-item disabled"><span class="page-link">上一页</span></li>
-                    {% endif %}
-                    {% for p in pagination.iter_pages(left_edge=1, right_edge=1, left_current=2, right_current=2) %}
-                        {% if p %}
-                            {% if p == pagination.page %}
-                            <li class="page-item active"><span class="page-link">{{ p }}</span></li>
-                            {% else %}
-                            <li class="page-item"><a class="page-link" href="{{ url_for('qc.qc_admin_users', page=p, role=role, status=status, keyword=keyword) }}">{{ p }}</a></li>
-                            {% endif %}
-                        {% else %}
-                            <li class="page-item disabled"><span class="page-link">...</span></li>
-                        {% endif %}
-                    {% endfor %}
-                    {% if pagination.has_next %}
-                    <li class="page-item"><a class="page-link" href="{{ url_for('qc.qc_admin_users', page=pagination.next_num, role=role, status=status, keyword=keyword) }}">下一页</a></li>
-                    {% else %}
-                    <li class="page-item disabled"><span class="page-link">下一页</span></li>
-                    {% endif %}
-                </ul>
-            </nav>
-        </div>
+        <div class="card-footer"><nav><ul class="pagination justify-content-center mb-0">
+            <li class="page-item {{ 'disabled' if not pagination.has_prev }}"><a class="page-link" href="{{ url_for('qc.qc_admin_users', page=pagination.prev_num if pagination.has_prev else 1, role=role, status=status, keyword=keyword) }}">上一页</a></li>
+            {% for p in pagination.iter_pages(left_edge=1, right_edge=1, left_current=2, right_current=2) %}{% if p %}<li class="page-item {{ 'active' if p == pagination.page }}"><a class="page-link" href="{{ url_for('qc.qc_admin_users', page=p, role=role, status=status, keyword=keyword) }}">{{ p }}</a></li>{% else %}<li class="page-item disabled"><span class="page-link">...</span></li>{% endif %}{% endfor %}
+            <li class="page-item {{ 'disabled' if not pagination.has_next }}"><a class="page-link" href="{{ url_for('qc.qc_admin_users', page=pagination.next_num if pagination.has_next else pagination.pages, role=role, status=status, keyword=keyword) }}">下一页</a></li>
+        </ul></nav></div>
         {% endif %}
     </div>
 </div>
 {% endblock %}
-

@@ -27,27 +27,24 @@ from app.models import (
 from app.services.assembly_service import AssemblyService
 
 
-def test_assembly_module_pages_load_for_temporary_erp_test_access(client, login, base_data):
-    """Ordinary ERP users should be able to smoke-test assembly pages during the test period."""
+def test_assembly_module_pages_reject_unassigned_erp_users(client, login, base_data):
+    """Ordinary ERP users must not retain retired test-period broad access."""
     login(base_data["owner_user_id"])
 
     pages = [
-        ("/qc/assembly/", "装配/出厂"),
-        ("/qc/assembly/products/", "产品库"),
-        ("/qc/assembly/products/new", "新增产品"),
-        ("/qc/assembly/launch/", "发起装配"),
-        ("/qc/assembly/launch/new", "新增装配单"),
-        ("/qc/assembly/inspection/", "质量检测"),
-        ("/qc/assembly/acceptance/", "验收"),
-        ("/qc/assembly/outbound/", "出厂"),
+        "/qc/assembly/",
+        "/qc/assembly/products/",
+        "/qc/assembly/products/new",
+        "/qc/assembly/launch/",
+        "/qc/assembly/launch/new",
+        "/qc/assembly/inspection/",
+        "/qc/assembly/acceptance/",
+        "/qc/assembly/outbound/",
     ]
 
-    for path, expected_text in pages:
-        response = client.get(path)
-        assert response.status_code == 200
-        page_text = response.get_data(as_text=True)
-        assert expected_text in page_text
-        assert "\ufffd" not in page_text
+    for path in pages:
+        response = client.get(path, follow_redirects=False)
+        assert response.status_code == 302
 
 
 def _seed_assembly_users_and_workpieces() -> tuple[int, int, int, int]:
@@ -567,7 +564,7 @@ def test_assembly_outbound_batches_deduct_stock_and_generate_coa(app, client, lo
     """Outbound flow should require two users, deduct stock per batch, and generate COA docx."""
     with app.app_context():
         controller_id, inspector_id, wp1_id, _ = _seed_assembly_users_and_workpieces()
-        approver_id = base_data["owner_user_id"]
+        approver_id = base_data["superadmin_id"]
         wp1 = QCWorkpiece.query.get(wp1_id)
         template_dir = os.path.join(app.root_path, "..", "static", "uploads", "qc", "workpieces", str(wp1_id), "coa_templates")
         os.makedirs(template_dir, exist_ok=True)
@@ -616,7 +613,7 @@ def test_assembly_outbound_batches_deduct_stock_and_generate_coa(app, client, lo
     initiator_text = initiator_page.get_data(as_text=True)
     assert initiator_page.status_code == 200
     assert 'name="signer_role" value="initiator"' in initiator_text
-    assert 'name="signer_role" value="approver"' in initiator_text
+    assert 'name="signer_role" value="approver"' not in initiator_text
 
     initiator_sign = client.post(
         f"/qc/assembly/outbound/{order_id}/sign",
@@ -627,7 +624,7 @@ def test_assembly_outbound_batches_deduct_stock_and_generate_coa(app, client, lo
     same_user_page = client.get(f"/qc/assembly/outbound/{order_id}", follow_redirects=False)
     same_user_text = same_user_page.get_data(as_text=True)
     assert same_user_page.status_code == 200
-    assert 'name="signer_role" value="approver"' in same_user_text
+    assert 'name="signer_role" value="approver"' not in same_user_text
 
     login(approver_id)
     approver_page = client.get(f"/qc/assembly/outbound/{order_id}", follow_redirects=False)
@@ -774,7 +771,7 @@ def test_assembly_product_outbound_writes_product_stock_history(app, client, log
         data={"signer_role": "initiator", "outbound_quantity": "4"},
         follow_redirects=False,
     ).status_code == 302
-    login(base_data["owner_user_id"])
+    login(base_data["superadmin_id"])
     assert client.post(
         f"/qc/assembly/outbound/{order_id}/sign",
         data={"signer_role": "approver", "outbound_quantity": "4"},

@@ -362,7 +362,7 @@
             {% endif %}
         </div>
 
-        {% if current_user.is_superadmin or current_user.role.code in ['general_manager', 'gm_assistant'] %}
+        {% if current_user.is_superadmin or current_user.ai_cats_is_manager %}
         <div class="alert alert-info mt-3 mb-0">
             <i class="bi bi-info-circle"></i> 管理员、总经理、总经理助理可分别代两方确认，但需要逐项点击。
         </div>
@@ -372,7 +372,7 @@
 {% endif %}
 
 {% if order.status in ['inspection_completed', 'accepted'] %}
-    {% if (current_user.role.code == 'qc_controller' and order.controller_id == current_user.id and current_user.has_qc_permission('qc_acceptance_rollback')) or current_user.is_superadmin or (current_user.role.code in ['general_manager', 'gm_assistant'] and current_user.has_qc_permission('qc_acceptance_rollback')) %}
+    {% if (current_user.has_ai_cats_identity('controller', 'production') and order.controller_id == current_user.id and current_user.has_qc_permission('qc_acceptance_rollback')) or current_user.is_superadmin or (current_user.ai_cats_is_manager and current_user.has_qc_permission('qc_acceptance_rollback')) %}
     <div class="d-flex gap-2">
         <button type="button" class="btn btn-warning" data-bs-toggle="modal" data-bs-target="#rollbackModal">
             <i class="bi bi-arrow-counterclockwise"></i> 撤销验收并回退

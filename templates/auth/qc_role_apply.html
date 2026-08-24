@@ -17,7 +17,7 @@
         }
         .apply-container {
             width: 100%;
-            max-width: 520px;
+            max-width: 760px;
             padding: 20px;
         }
         .apply-card {
@@ -105,6 +105,69 @@
             color: rgba(255, 255, 255, 0.8);
             font-size: 13px;
         }
+        .identity-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 12px;
+        }
+        .identity-option { position: relative; }
+        .identity-option input {
+            position: absolute;
+            opacity: 0;
+            pointer-events: none;
+        }
+        .identity-card {
+            display: block;
+            min-height: 128px;
+            padding: 16px;
+            border: 2px solid #e6e8ef;
+            border-radius: 12px;
+            cursor: pointer;
+            transition: border-color .18s ease, background-color .18s ease, transform .18s ease;
+        }
+        .identity-card:hover { border-color: #aab5ed; transform: translateY(-1px); }
+        .identity-option input:checked + .identity-card {
+            border-color: #667eea;
+            background: #f5f6ff;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, .1);
+        }
+        .identity-option input:disabled + .identity-card {
+            cursor: not-allowed;
+            opacity: .62;
+            background: #f6f7f9;
+        }
+        .identity-title {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+            margin-bottom: 7px;
+            color: #30334a;
+            font-weight: 700;
+        }
+        .identity-description { color: #6b7280; font-size: 13px; line-height: 1.55; }
+        .scope-badge {
+            display: inline-block;
+            margin: 6px 4px 0 0;
+            padding: 3px 8px;
+            border-radius: 999px;
+            background: #eef1ff;
+            color: #5364be;
+            font-size: 12px;
+        }
+        .current-identity {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            padding: 10px 12px;
+            border-bottom: 1px solid #eceef4;
+        }
+        .current-identity:last-child { border-bottom: 0; }
+        @media (max-width: 640px) {
+            .apply-card { padding: 26px 20px; }
+            .identity-grid { grid-template-columns: 1fr; }
+        }
     </style>
 </head>
 <body>
@@ -132,31 +195,69 @@
                 <p><i class="bi bi-envelope"></i> <strong>邮箱：</strong>{{ current_user.email or '未绑定' }}</p>
             </div>
 
-            <form method="POST" action="">
+            {% if current_identities %}
+            <div class="mb-4">
+                <label class="form-label">已有身份</label>
+                <div class="border rounded-3 overflow-hidden">
+                    {% for identity in current_identities %}
+                    <div class="current-identity">
+                        <span>{{ identity.display_name }}</span>
+                        {% if identity.status == 'active' %}
+                        <span class="badge bg-success">已生效</span>
+                        {% elif identity.status == 'pending' %}
+                        <span class="badge bg-warning text-dark">审核中</span>
+                        {% elif identity.status == 'revoked' %}
+                        <span class="badge bg-secondary">已撤销</span>
+                        {% else %}
+                        <span class="badge bg-danger">未通过</span>
+                        {% endif %}
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
+
+            <form method="POST" action="" id="identityApplyForm">
                 <div class="mb-3">
-                    <label for="role_id" class="form-label">选择 AI CATS 角色</label>
-                    <select class="form-select" id="role_id" name="role_id" required>
-                        <option value="">-- 请选择角色 --</option>
-                        {% for role in roles %}
-                        <option value="{{ role.id }}" data-code="{{ role.code }}">
-                            {% if role.code == 'qc_controller' %}
-                                质量控制人
-                            {% elif role.code == 'qc_inspector' %}
-                                供应商
-                            {% else %}
-                                {{ role.name }}
-                            {% endif %}
-                        </option>
+                    <label class="form-label">继续申请身份（可多选）</label>
+                    <div class="identity-grid" id="identityGrid">
+                        {% for code, definition in identity_definitions.items() %}
+                        <div class="identity-option">
+                            <input type="checkbox" id="identity_{{ code }}" name="identity_codes" value="{{ code }}"
+                                   {% if code in selected_identity_codes %}checked{% endif %}
+                                   {% if code in unavailable_codes %}disabled{% endif %}>
+                            <label class="identity-card" for="identity_{{ code }}">
+                                <span class="identity-title">
+                                    <span>{{ definition.name }}</span>
+                                    {% if code in unavailable_codes %}<span class="badge bg-secondary">已申请</span>{% else %}<i class="bi bi-plus-circle"></i>{% endif %}
+                                </span>
+                                <span class="identity-description">{{ definition.description }}</span>
+                                <span>
+                                    {% for module_code in definition.default_scopes %}
+                                    <span class="scope-badge">
+                                        {% if module_code == 'production' %}配件生产{% elif module_code == 'assembly' %}装配/出厂{% else %}研究/实验{% endif %}
+                                    </span>
+                                    {% endfor %}
+                                </span>
+                            </label>
+                        </div>
                         {% endfor %}
-                    </select>
-                    <small class="text-muted">提交后将进入管理员审核。系统内部权限会严格按质控人与供应商配置执行。</small>
+                    </div>
+                    <small class="text-muted d-block mt-2">仅新申请的身份进入审核，已有身份不会被覆盖。</small>
                 </div>
 
+                {% if unavailable_codes|length < identity_definitions|length %}
                 <button type="submit" class="btn btn-primary btn-submit">
                     <i class="bi bi-check-circle"></i> 提交申请
                 </button>
+                {% endif %}
             </form>
 
+            {% if current_user.has_ai_cats_access %}
+            <a href="{{ url_for('qc.index') }}" class="btn btn-back">
+                <i class="bi bi-grid"></i> 进入 AI CATS
+            </a>
+            {% endif %}
             <a href="{{ url_for('auth.logout') }}" class="btn btn-back">
                 <i class="bi bi-box-arrow-right"></i> 退出登录
             </a>
@@ -168,6 +269,18 @@
     </div>
 
     <script src="{{ url_for('static', filename='vendor/bootstrap/js/bootstrap.bundle.min.js') }}"></script>
+    <script>
+        const form = document.getElementById('identityApplyForm');
+        if (form) {
+            form.addEventListener('submit', function (event) {
+                const checked = document.querySelectorAll('input[name="identity_codes"]:checked:not(:disabled)');
+                if (!checked.length) {
+                    event.preventDefault();
+                    alert('请至少选择一个尚未申请的 AI CATS 身份');
+                }
+            });
+        }
+    </script>
 </body>
 </html>
 

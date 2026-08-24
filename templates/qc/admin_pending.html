@@ -1,101 +1,40 @@
-﻿{% extends 'qc/base.html' %}
+{% extends 'qc/base.html' %}
 
-{% block title %}AI CATS 待审核用户 - ALCOEN AI CATS{% endblock %}
+{% block title %}AI CATS 身份审核 - ALCOEN AI CATS{% endblock %}
 
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-4">
-    <h1 class="mb-0"><i class="bi bi-hourglass-split"></i> AI CATS 待审核用户</h1>
-    <a href="{{ url_for('qc.qc_admin_users') }}" class="btn btn-outline-secondary">
-        <i class="bi bi-arrow-left"></i> 返回用户管理户管理户管理
-    </a>
-</div>
-
-<div class="card mb-4">
-    <div class="card-header bg-light">
-        <h5 class="mb-0"><i class="bi bi-person-plus"></i> AI CATS 新注册账号审核</h5>
-    </div>
-    <div class="card-body p-0">
-        <div class="table-responsive">
-            <table class="table table-hover mb-0 align-middle">
-                <thead class="table-light">
-                    <tr>
-                        <th>用户名</th>
-                        <th>姓名</th>
-                        <th>角色</th>
-                        <th>邮箱</th>
-                        <th>申请时间</th>
-                        <th class="text-center">操作</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for user in pending_qc_users %}
-                    <tr>
-                        <td><strong>{{ user.username }}</strong></td>
-                        <td>{{ user.real_name or '-' }}</td>
-                        <td><span class="badge bg-info">{{ user.role.name }}</span></td>
-                        <td>{{ user.email or '-' }}</td>
-                        <td>{{ user.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
-                        <td class="text-center">
-                            <form method="POST" action="{{ url_for('qc.qc_admin_approve_user', user_id=user.id) }}" class="d-inline">
-                                <button type="submit" class="btn btn-sm btn-success"><i class="bi bi-check-circle"></i> 通过</button>
-                            </form>
-                            <form method="POST" action="{{ url_for('qc.qc_admin_reject_user', user_id=user.id) }}" class="d-inline"
-                                  onsubmit="return confirm('确认拒绝该注册申请？');">
-                                <button type="submit" class="btn btn-sm btn-danger"><i class="bi bi-x-circle"></i> 拒绝</button>
-                            </form>
-                        </td>
-                    </tr>
-                    {% else %}
-                    <tr><td colspan="6" class="text-center py-4 text-muted">暂无待审核的 AI CATS 新注册账号</td></tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
-    </div>
+    <div><h1 class="mb-1"><i class="bi bi-hourglass-split"></i> AI CATS 身份审核</h1><div class="text-muted">同一用户申请的每个身份均独立审核。</div></div>
+    <a href="{{ url_for('qc.qc_admin_users') }}" class="btn btn-outline-secondary"><i class="bi bi-arrow-left"></i> 返回用户管理</a>
 </div>
 
 <div class="card">
-    <div class="card-header bg-light">
-        <h5 class="mb-0"><i class="bi bi-link-45deg"></i> ERP 用户申请 AI CATS 角色审核</h5>
-    </div>
     <div class="card-body p-0">
         <div class="table-responsive">
             <table class="table table-hover mb-0 align-middle">
-                <thead class="table-light">
-                    <tr>
-                        <th>用户名</th>
-                        <th>姓名</th>
-                        <th>ERP 角色</th>
-                        <th>申请 AI CATS 角色</th>
-                        <th>申请时间</th>
-                        <th class="text-center">操作</th>
-                    </tr>
-                </thead>
+                <thead class="table-light"><tr><th>申请人</th><th>账号来源</th><th>申请身份</th><th>默认适用模块</th><th>申请时间</th><th class="text-center">操作</th></tr></thead>
                 <tbody>
-                    {% for binding in pending_qc_bindings %}
+                    {% for identity in pending_identities %}
+                    {% set profile = pending_profiles.get(identity.user_id) %}
                     <tr>
-                        <td><strong>{{ binding.user.username }}</strong></td>
-                        <td>{{ binding.user.real_name or '-' }}</td>
-                        <td><span class="badge bg-secondary">{{ binding.user.role.name }}</span></td>
-                        <td><span class="badge bg-primary">{{ binding.role.name }}</span></td>
-                        <td>{{ binding.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
-                        <td class="text-center">
-                            <form method="POST" action="{{ url_for('qc.qc_admin_approve_binding', binding_id=binding.id) }}" class="d-inline">
-                                <button type="submit" class="btn btn-sm btn-success"><i class="bi bi-check-circle"></i> 通过</button>
-                            </form>
-                            <form method="POST" action="{{ url_for('qc.qc_admin_reject_binding', binding_id=binding.id) }}" class="d-inline"
-                                  onsubmit="return confirm('确认拒绝该 AI CATS 角色申请？');">
-                                <button type="submit" class="btn btn-sm btn-danger"><i class="bi bi-x-circle"></i> 拒绝</button>
-                            </form>
+                        <td><strong>{{ identity.user.real_name or identity.user.username }}</strong><div class="small text-muted">{{ identity.user.username }} / {{ identity.user.email or '未填写邮箱' }}</div></td>
+                        <td>{% if profile and profile.access_mode == 'ai_cats_only' %}<span class="badge bg-info text-dark">AI CATS 注册</span>{% else %}<span class="badge bg-light text-dark border">ERP 账号申请</span>{% endif %}</td>
+                        <td><span class="badge bg-primary">{{ identity.display_name }}</span></td>
+                        <td>
+                            {% for module_code in identity.enabled_module_codes|sort %}
+                            <span class="badge bg-light text-dark border">{% if module_code == 'production' %}配件生产{% elif module_code == 'assembly' %}装配/出厂{% else %}研究/实验{% endif %}</span>
+                            {% endfor %}
+                        </td>
+                        <td>{{ identity.requested_at.strftime('%Y-%m-%d %H:%M') }}</td>
+                        <td class="text-center text-nowrap">
+                            <form method="POST" action="{{ url_for('qc.qc_admin_identity_action', identity_id=identity.id, action='approve') }}" class="d-inline"><input type="hidden" name="next" value="{{ url_for('qc.qc_admin_pending') }}"><button type="submit" class="btn btn-sm btn-success"><i class="bi bi-check-circle"></i> 通过</button></form>
+                            <form method="POST" action="{{ url_for('qc.qc_admin_identity_action', identity_id=identity.id, action='reject') }}" class="d-inline" onsubmit="return confirm('确认拒绝这个身份申请？其他身份不会受影响。');"><input type="hidden" name="next" value="{{ url_for('qc.qc_admin_pending') }}"><button type="submit" class="btn btn-sm btn-danger"><i class="bi bi-x-circle"></i> 拒绝</button></form>
                         </td>
                     </tr>
-                    {% else %}
-                    <tr><td colspan="6" class="text-center py-4 text-muted">暂无待审核的 AI CATS 角色申请</td></tr>
-                    {% endfor %}
+                    {% else %}<tr><td colspan="6" class="text-center py-5 text-muted">暂无待审核的 AI CATS 身份申请</td></tr>{% endfor %}
                 </tbody>
             </table>
         </div>
     </div>
 </div>
 {% endblock %}
-

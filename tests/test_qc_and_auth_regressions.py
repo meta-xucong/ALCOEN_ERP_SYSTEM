@@ -815,8 +815,8 @@ def test_rejected_records_remain_after_controller_resubmit(app):
         assert len(refreshed.inspection_records) == record_count_before
 
 
-def test_qc_managers_are_read_only_for_qc_work_orders(app):
-    """GM and GM assistant can view all QC work orders but cannot edit them."""
+def test_completed_qc_orders_stay_locked_for_managers(app):
+    """Full manager access must still respect completed-order locks."""
     with app.app_context():
         dept = Department(name="GM")
         db.session.add(dept)
@@ -900,7 +900,7 @@ def test_qc_managers_are_read_only_for_qc_work_orders(app):
 
 
 def test_qc_delete_permissions_match_role_rules(app):
-    """QC delete permissions should follow admin/GM/GM assistant/all, controller own-only, inspector none."""
+    """Draft deletion follows roles while progressed orders remain locked."""
     with app.app_context():
         dept = Department(name="QC Delete")
         db.session.add(dept)
@@ -978,7 +978,7 @@ def test_qc_delete_permissions_match_role_rules(app):
             quantity=1,
             controller_id=owner.id,
             inspector_id=inspector.id,
-            status="inspection_completed",
+            status="draft",
         )
         db.session.add(order)
         db.session.commit()
@@ -992,7 +992,7 @@ def test_qc_delete_permissions_match_role_rules(app):
 
 
 def test_qc_delete_route_honors_role_permissions(app, client, login):
-    """QC delete route should allow managers and owner controller, but block inspector."""
+    """Delete route allows managers for drafts but locks progressed orders."""
     with app.app_context():
         dept = Department(name="QC Delete Route")
         db.session.add(dept)
@@ -1040,7 +1040,7 @@ def test_qc_delete_route_honors_role_permissions(app, client, login):
             quantity=2,
             controller_id=owner.id,
             inspector_id=inspector.id,
-            status="qc_completed",
+            status="draft",
         )
         blocked = QCWorkOrder(
             batch_no="BATCH-DELETE-BLOCKED",
@@ -1048,20 +1048,37 @@ def test_qc_delete_route_honors_role_permissions(app, client, login):
             quantity=2,
             controller_id=owner.id,
             inspector_id=inspector.id,
+            status="draft",
+        )
+        locked = QCWorkOrder(
+            batch_no="BATCH-DELETE-LOCKED",
+            workpiece_name="Delete Locked",
+            quantity=2,
+            controller_id=owner.id,
+            inspector_id=inspector.id,
             status="qc_completed",
         )
-        db.session.add_all([deletable, blocked])
+        db.session.add_all([deletable, blocked, locked])
         db.session.commit()
         gm_id = gm.id
         inspector_id = inspector.id
         deletable_id = deletable.id
         blocked_id = blocked.id
+        locked_id = locked.id
 
     login(gm_id)
     gm_response = client.post(f"/qc/quality-control/{deletable_id}/delete", follow_redirects=False)
     assert gm_response.status_code == 302
     with app.app_context():
         assert QCWorkOrder.query.get(deletable_id) is None
+
+    gm_locked_response = client.post(
+        f"/qc/quality-control/{locked_id}/delete",
+        follow_redirects=False,
+    )
+    assert gm_locked_response.status_code == 302
+    with app.app_context():
+        assert QCWorkOrder.query.get(locked_id) is not None
 
     login(inspector_id)
     inspector_response = client.post(f"/qc/quality-control/{blocked_id}/delete", follow_redirects=False)
@@ -1071,7 +1088,7 @@ def test_qc_delete_route_honors_role_permissions(app, client, login):
 
 
 def test_gm_assistant_dashboard_links_to_qc_order_list_and_detail(app, client, login):
-    """GM assistant should see QC order entry points from the dashboard, but stay read-only."""
+    """GM assistant should receive full QC workflow access."""
     with app.app_context():
         dept = Department(name="GM Dashboard")
         db.session.add(dept)
@@ -1135,8 +1152,8 @@ def test_gm_assistant_dashboard_links_to_qc_order_list_and_detail(app, client, l
     detail = client.get(f"/qc/quality-control/{order_id}")
     assert detail.status_code == 200
     assert b"/qc/quality-control/" in detail.data
-    assert b"/edit" not in detail.data
-    assert b"/complete" not in detail.data
+    assert b"/edit" in detail.data
+    assert b"/complete" in detail.data
 
 
 def test_qc_detail_pages_handle_empty_inspection_records(app, client, login):
@@ -1414,7 +1431,7 @@ def test_complete_quality_control_requires_active_qc_inspector(app):
         controller = User.query.get(controller_id)
         valid_inspector = User.query.get(inspector_id)
 
-        with pytest.raises(ValueError, match="供应商角色"):
+        with pytest.raises(ValueError, match="供应商"):
             QCService.complete_quality_control(order.id, wrong_role_user.id, controller)
 
         with pytest.raises(ValueError, match="已激活"):
@@ -1765,7 +1782,7 @@ def test_qc_admin_users_only_shows_qc_scope_users(app, client, login):
 
 
 def test_qc_manager_navigation_and_admin_visibility(app, client, login):
-    """GM can access QC system management, while GM assistant remains read-only without admin entry."""
+    """GM and GM assistant both receive full AI CATS administration access."""
     with app.app_context():
         dept = Department(name="QC Managers")
         db.session.add(dept)
@@ -1826,13 +1843,12 @@ def test_qc_manager_navigation_and_admin_visibility(app, client, login):
     assert b"/qc/quality-control/" in assistant_dashboard.data
     assert b"/qc/quality-inspection/" in assistant_dashboard.data
     assert b"/qc/acceptance/" in assistant_dashboard.data
-    assert b"/qc/admin/users" not in assistant_dashboard.data
+    assert b"/qc/admin/users" in assistant_dashboard.data
     assert client.get("/qc/quality-inspection/", follow_redirects=False).status_code == 200
     assert client.get("/qc/acceptance/", follow_redirects=False).status_code == 200
 
     admin_resp = client.get("/qc/admin/users", follow_redirects=False)
-    assert admin_resp.status_code == 302
-    assert "/qc/" in admin_resp.headers.get("Location", "")
+    assert admin_resp.status_code == 200
 
 
 def test_logout_redirects_back_to_system_portal(client):
@@ -2215,14 +2231,33 @@ def test_workpiece_library_snapshot_populates_new_work_order(app, client, login,
         assert guide.file_path == "inspection_points/copied_workpiece_guide.png"
 
 
-def test_qc_upload_route_serves_workpiece_files(app, client):
-    """Uploaded QC files should be reachable through the /uploads route."""
-    relative_path = Path("qc/workpieces/999/drawings/route-test.png")
+def test_qc_upload_route_serves_only_authorized_workpiece_files(app, client, login):
+    """Uploaded QC files require login and access to their parent resource."""
+    with app.app_context():
+        controller_id, inspector_id, _ = _seed_qc_users()
+        workpiece = QCWorkpiece(
+            workpiece_code="WP-UPLOAD-001",
+            workpiece_name="受保护附件工件",
+            creator_id=controller_id,
+        )
+        db.session.add(workpiece)
+        db.session.commit()
+        workpiece_id = workpiece.id
+
+    relative_path = Path(f"qc/workpieces/{workpiece_id}/drawings/route-test.png")
     target_path = Path(app.static_folder) / "uploads" / relative_path
     target_path.parent.mkdir(parents=True, exist_ok=True)
     target_path.write_bytes(b"route-test-bytes")
 
     try:
+        anonymous_response = client.get(f"/uploads/{relative_path.as_posix()}")
+        assert anonymous_response.status_code == 403
+
+        login(inspector_id)
+        unauthorized_response = client.get(f"/uploads/{relative_path.as_posix()}")
+        assert unauthorized_response.status_code == 403
+
+        login(controller_id)
         response = client.get(f"/uploads/{relative_path.as_posix()}")
         assert response.status_code == 200
         assert response.data == b"route-test-bytes"

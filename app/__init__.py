@@ -1,5 +1,5 @@
 import os
-from flask import Flask, send_from_directory
+from flask import Flask, abort, send_from_directory, session
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import inspect
 from config import config
@@ -1396,6 +1396,41 @@ def create_app(config_name='default'):
     @app.route('/uploads/<path:filename>')
     def uploaded_file(filename):
         """Serve uploaded files stored under the static/uploads directory."""
+        path_parts = filename.replace('\\', '/').split('/')
+        ai_cats_root = path_parts[0] if path_parts else ''
+        if ai_cats_root in {'qc', 'research', 'assembly'}:
+            from app.models import User
+            from app.services.assembly_service import AssemblyService
+            from app.services.qc_service import QCService
+            from app.services.research_service import ResearchService
+
+            user_id = session.get('user_id')
+            user = User.query.get(user_id) if user_id else None
+            if not user or not user.is_active:
+                abort(403)
+
+            resource = None
+            try:
+                if ai_cats_root == 'qc' and len(path_parts) >= 3:
+                    if path_parts[1] == 'workpieces':
+                        resource = QCService.get_workpiece(int(path_parts[2]), user)
+                    else:
+                        resource = QCService.get_work_order(int(path_parts[1]), user)
+                elif ai_cats_root == 'research' and len(path_parts) >= 3:
+                    if path_parts[1] == 'projects':
+                        resource = ResearchService.get_project(int(path_parts[2]), user)
+                    elif path_parts[1] == 'batches':
+                        resource = ResearchService.get_batch(int(path_parts[2]), user)
+                elif ai_cats_root == 'assembly' and len(path_parts) >= 3:
+                    if path_parts[1] == 'products':
+                        resource = AssemblyService.get_product(int(path_parts[2]), user)
+                    elif path_parts[1] == 'orders':
+                        resource = AssemblyService.get_order(int(path_parts[2]), user)
+            except (TypeError, ValueError):
+                abort(404)
+
+            if resource is None:
+                abort(403)
         return send_from_directory(uploads_root, filename)
     
     # 注册模板全局变量
@@ -1460,6 +1495,8 @@ def create_app(config_name='default'):
         _run_lightweight_schema_upgrades()
         from app.services.auth_service import AuthService
         AuthService.ensure_qc_roles()
+        from app.services.ai_cats_access_service import AICatsAccessService
+        AICatsAccessService.ensure_ready()
         from app.services.official_contract_service import OfficialContractService
         OfficialContractService.ensure_builtin_template()
     

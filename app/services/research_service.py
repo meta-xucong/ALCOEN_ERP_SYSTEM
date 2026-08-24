@@ -137,7 +137,7 @@ class ResearchService:
         query = ResearchProject.query
         if user.is_superadmin or user.ai_cats_is_manager:
             return query
-        if user.ai_cats_effective_role_code == ResearchService.RESEARCH_CREATOR_ROLE_CODE:
+        if user.has_ai_cats_identity('researcher', 'research'):
             return query.filter(ResearchProject.creator_id == user.id)
         return query.filter(False)
 
@@ -147,9 +147,9 @@ class ResearchService:
         query = ResearchBatch.query
         if user.is_superadmin or user.ai_cats_is_manager:
             return query
-        if user.ai_cats_effective_role_code == ResearchService.RESEARCH_CREATOR_ROLE_CODE:
+        if user.has_ai_cats_identity('researcher', 'research'):
             return query.filter(ResearchBatch.researcher_id == user.id)
-        if user.ai_cats_effective_role_code == ResearchService.RESEARCH_REVIEWER_ROLE_CODE:
+        if user.has_ai_cats_identity('research_reviewer', 'research'):
             return query.filter(ResearchBatch.reviewer_id == user.id)
         return query.filter(False)
 
@@ -288,7 +288,7 @@ class ResearchService:
             return True
         if user.ai_cats_is_manager:
             return ResearchService._has_any_permission(user, ResearchService.RESEARCH_PROJECT_PERMISSION_CODES)
-        if user.ai_cats_effective_role_code == ResearchService.RESEARCH_CREATOR_ROLE_CODE:
+        if user.has_ai_cats_identity('researcher', 'research'):
             return ResearchService._has_any_permission(user, ResearchService.RESEARCH_PROJECT_PERMISSION_CODES)
         return False
 
@@ -300,7 +300,7 @@ class ResearchService:
         if user.ai_cats_is_manager:
             return user.has_ai_cats_permission('qc_workpiece_create')
         return (
-            user.ai_cats_effective_role_code == ResearchService.RESEARCH_CREATOR_ROLE_CODE
+            user.has_ai_cats_identity('researcher', 'research')
             and user.has_ai_cats_permission('qc_workpiece_create')
         )
 
@@ -312,7 +312,7 @@ class ResearchService:
         if user.ai_cats_is_manager:
             return user.has_ai_cats_permission('qc_workpiece_edit')
         return (
-            user.ai_cats_effective_role_code == ResearchService.RESEARCH_CREATOR_ROLE_CODE
+            user.has_ai_cats_identity('researcher', 'research')
             and project.creator_id == user.id
             and user.has_ai_cats_permission('qc_workpiece_edit')
         )
@@ -325,7 +325,7 @@ class ResearchService:
         if user.ai_cats_is_manager:
             return user.has_ai_cats_permission('qc_workpiece_delete')
         return (
-            user.ai_cats_effective_role_code == ResearchService.RESEARCH_CREATOR_ROLE_CODE
+            user.has_ai_cats_identity('researcher', 'research')
             and project.creator_id == user.id
             and user.has_ai_cats_permission('qc_workpiece_delete')
         )
@@ -338,7 +338,7 @@ class ResearchService:
         if user.ai_cats_is_manager:
             return ResearchService._has_any_permission(user, ResearchService.RESEARCH_BATCH_PERMISSION_CODES)
         return (
-            user.ai_cats_effective_role_code == ResearchService.RESEARCH_CREATOR_ROLE_CODE
+            user.has_ai_cats_identity('researcher', 'research')
             and ResearchService._has_any_permission(user, ResearchService.RESEARCH_BATCH_PERMISSION_CODES)
         )
 
@@ -350,7 +350,7 @@ class ResearchService:
         if user.ai_cats_is_manager:
             return user.has_ai_cats_permission('qc_work_order_create')
         return (
-            user.ai_cats_effective_role_code == ResearchService.RESEARCH_CREATOR_ROLE_CODE
+            user.has_ai_cats_identity('researcher', 'research')
             and user.has_ai_cats_permission('qc_work_order_create')
         )
 
@@ -364,7 +364,7 @@ class ResearchService:
         if user.ai_cats_is_manager:
             return user.has_ai_cats_permission('qc_work_order_edit')
         return (
-            user.ai_cats_effective_role_code == ResearchService.RESEARCH_CREATOR_ROLE_CODE
+            user.has_ai_cats_identity('researcher', 'research')
             and batch.researcher_id == user.id
             and user.has_ai_cats_permission('qc_work_order_edit')
         )
@@ -376,9 +376,9 @@ class ResearchService:
             return True
         if user.ai_cats_is_manager:
             return True
-        if user.ai_cats_effective_role_code == ResearchService.RESEARCH_CREATOR_ROLE_CODE and batch.researcher_id == user.id:
+        if user.has_ai_cats_identity('researcher', 'research') and batch.researcher_id == user.id:
             return True
-        if user.ai_cats_effective_role_code == ResearchService.RESEARCH_REVIEWER_ROLE_CODE and batch.reviewer_id == user.id:
+        if user.has_ai_cats_identity('research_reviewer', 'research') and batch.reviewer_id == user.id:
             return True
         return False
 
@@ -389,9 +389,9 @@ class ResearchService:
             return True
         if user.ai_cats_is_manager:
             return ResearchService._has_any_permission(user, ResearchService.RESEARCH_REVIEW_PERMISSION_CODES)
-        if user.ai_cats_effective_role_code == ResearchService.RESEARCH_REVIEWER_ROLE_CODE:
+        if user.has_ai_cats_identity('research_reviewer', 'research'):
             return ResearchService._has_any_permission(user, ResearchService.RESEARCH_REVIEW_PERMISSION_CODES)
-        if user.ai_cats_effective_role_code == ResearchService.RESEARCH_CREATOR_ROLE_CODE:
+        if user.has_ai_cats_identity('researcher', 'research'):
             return user.has_ai_cats_permission('qc_inspection_view')
         return False
 
@@ -405,7 +405,7 @@ class ResearchService:
         if user.ai_cats_is_manager:
             return user.has_ai_cats_permission('qc_inspection_perform')
         return (
-            user.ai_cats_effective_role_code == ResearchService.RESEARCH_REVIEWER_ROLE_CODE
+            user.has_ai_cats_identity('research_reviewer', 'research')
             and batch.reviewer_id == user.id
             and user.has_ai_cats_permission('qc_inspection_perform')
         )
@@ -417,9 +417,9 @@ class ResearchService:
             return True
         if user.ai_cats_is_manager:
             return ResearchService._has_any_permission(user, ResearchService.RESEARCH_ACCEPTANCE_PERMISSION_CODES)
-        if user.ai_cats_effective_role_code == ResearchService.RESEARCH_CREATOR_ROLE_CODE:
+        if user.has_ai_cats_identity('researcher', 'research'):
             return ResearchService._has_any_permission(user, ResearchService.RESEARCH_ACCEPTANCE_PERMISSION_CODES)
-        if user.ai_cats_effective_role_code == ResearchService.RESEARCH_REVIEWER_ROLE_CODE:
+        if user.has_ai_cats_identity('research_reviewer', 'research'):
             return user.has_ai_cats_permission('qc_acceptance_perform')
         return False
 
@@ -473,7 +473,7 @@ class ResearchService:
             return True
         if user.ai_cats_is_manager and user.has_ai_cats_permission('qc_acceptance_rollback'):
             return batch.status in ['review_completed', 'accepted']
-        if user.ai_cats_effective_role_code == ResearchService.RESEARCH_CREATOR_ROLE_CODE and batch.researcher_id == user.id:
+        if user.has_ai_cats_identity('researcher', 'research') and batch.researcher_id == user.id:
             return user.has_ai_cats_permission('qc_acceptance_rollback') and batch.status in ['review_completed', 'accepted']
         return False
 
@@ -564,9 +564,9 @@ class ResearchService:
             return None
         if not ResearchService.can_access_project_library(user):
             return None
-        if user.is_superadmin or user.role.code in ResearchService.RESEARCH_MANAGER_ROLE_CODES:
+        if user.ai_cats_is_manager:
             return project
-        if user.role.code == ResearchService.RESEARCH_CREATOR_ROLE_CODE and project.creator_id == user.id:
+        if user.has_ai_cats_identity('researcher', 'research') and project.creator_id == user.id:
             return project
         return None
 
@@ -923,8 +923,14 @@ class ResearchService:
             raise ValueError('没有权限提交该研究批次')
 
         reviewer = User.query.get(reviewer_id)
-        if not reviewer or reviewer.role.code != ResearchService.RESEARCH_REVIEWER_ROLE_CODE or not reviewer.is_active:
+        if (
+            not reviewer
+            or not reviewer.is_active
+            or not reviewer.has_ai_cats_identity('research_reviewer', 'research')
+        ):
             raise ValueError('请选择有效的指导/验收人员')
+        if reviewer.id == batch.researcher_id:
+            raise ValueError('研究人员与指导/验收人员必须由不同用户担任')
         if not batch.attachments:
             raise ValueError('请先选择研究项目并生成项目资料快照')
 

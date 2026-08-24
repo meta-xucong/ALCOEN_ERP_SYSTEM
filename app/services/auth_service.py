@@ -12,6 +12,9 @@ from app.models import (
     VerificationCode,
     TrustedDevice,
     QCUserBinding,
+    AICatsUserIdentity,
+    AI_CATS_LEGACY_ROLE_IDENTITY_MAP,
+    AI_CATS_TECHNICAL_ROLE_CODE,
     QC_ROLE_CODES,
     QC_ROLE_PERMISSION_CODES,
 )
@@ -115,6 +118,12 @@ class AuthService:
         if changed:
             db.session.commit()
 
+        from app.services.ai_cats_access_service import AICatsAccessService
+
+        AICatsAccessService.ensure_technical_role()
+        if db.session.new:
+            db.session.commit()
+
         return sorted(existing_roles, key=lambda role: role.level, reverse=True)
     
     @staticmethod
@@ -134,7 +143,7 @@ class AuthService:
         Returns:
             (user, error_message)
         """
-        if role_code in ('superadmin',) + QC_ROLE_CODES:
+        if role_code in ('superadmin', AI_CATS_TECHNICAL_ROLE_CODE) + QC_ROLE_CODES:
             return None, '请选择 ERP 系统角色进行注册'
 
         # 检查用户名是否已存在
@@ -390,12 +399,22 @@ class AuthService:
         user.approved_by = approver.id
         user.approved_at = datetime.now()
         
-        # 同步激活 QC 绑定
-        binding = QCUserBinding.query.filter_by(user_id=user.id).first()
-        if binding:
+        # 同步激活旧绑定，供迁移期客户端兼容。
+        for binding in QCUserBinding.query.filter_by(user_id=user.id).all():
             binding.is_active = True
             binding.approved_by = approver.id
             binding.approved_at = datetime.now()
+
+        from app.services.ai_cats_access_service import AICatsAccessService
+
+        profile = AICatsAccessService.get_profile(user)
+        if profile:
+            profile.is_enabled = True
+        for identity in AICatsUserIdentity.query.filter_by(
+            user_id=user.id,
+            status='pending',
+        ).all():
+            AICatsAccessService.set_identity_status(identity, 'active', approver)
         
         db.session.commit()
         return True
@@ -411,7 +430,19 @@ class AuthService:
         Returns:
             是否成功
         """
-        # 先删除关联 QC 绑定，避免外键约束错误
+        # 先删除关联 AI CATS 数据，避免外键约束错误。
+        from app.models import AICatsAccountProfile, AICatsIdentityAuditLog, AICatsUserIdentityScope
+
+        identity_ids = [
+            row.id for row in AICatsUserIdentity.query.filter_by(user_id=user.id).all()
+        ]
+        if identity_ids:
+            AICatsUserIdentityScope.query.filter(
+                AICatsUserIdentityScope.user_identity_id.in_(identity_ids)
+            ).delete(synchronize_session=False)
+        AICatsUserIdentity.query.filter_by(user_id=user.id).delete()
+        AICatsIdentityAuditLog.query.filter_by(target_user_id=user.id).delete()
+        AICatsAccountProfile.query.filter_by(user_id=user.id).delete()
         QCUserBinding.query.filter_by(user_id=user.id).delete()
         db.session.delete(user)
         db.session.commit()
@@ -430,21 +461,40 @@ class AuthService:
         """
         user.is_active = not user.is_active
         
-        binding = QCUserBinding.query.filter_by(user_id=user.id).first()
-        if binding:
+        for binding in QCUserBinding.query.filter_by(user_id=user.id).all():
             binding.is_active = user.is_active
+
+        from app.services.ai_cats_access_service import AICatsAccessService
+
+        profile = AICatsAccessService.get_profile(user)
+        if profile and profile.access_mode == 'ai_cats_only':
+            profile.is_enabled = user.is_active
         
         db.session.commit()
         return True
 
 
     @staticmethod
-    def register_qc_user(username: str, real_name: str, role_code: str = 'qc_inspector',
-                        email: str = None, phone: str = None) -> tuple:
-        """Register a QC account or create a pending QC binding for an ERP user."""
-        from app.models import QCUserBinding
+    def register_qc_user(
+        username: str,
+        real_name: str,
+        role_code: str | None = None,
+        identity_codes=None,
+        email: str = None,
+        phone: str = None,
+    ) -> tuple:
+        """Register a pending AI CATS-only account with one or more identities."""
+        from app.services.ai_cats_access_service import AICatsAccessService
 
         AuthService.ensure_qc_roles()
+        if identity_codes is None:
+            if role_code not in AI_CATS_LEGACY_ROLE_IDENTITY_MAP:
+                return None, '角色不存在或无效'
+            identity_codes = AI_CATS_LEGACY_ROLE_IDENTITY_MAP[role_code]
+        try:
+            normalized_identities = AICatsAccessService.normalize_identity_codes(identity_codes)
+        except ValueError as exc:
+            return None, str(exc)
         existing_user = User.query.filter_by(username=username).first()
 
         if existing_user:
@@ -461,15 +511,21 @@ class AuthService:
         if User.query.filter_by(email=email).first():
             return None, '\u8be5\u90ae\u7bb1\u5df2\u88ab\u6ce8\u518c'
 
-        role = Role.query.filter_by(code=role_code).first()
-        if not role:
-            return None, '\u89d2\u8272\u4e0d\u5b58\u5728'
+        # Calls using a legacy role code remain compatible with old clients and
+        # tests. New multi-identity registrations use a permissionless shell role.
+        account_role = (
+            Role.query.filter_by(code=role_code).first()
+            if role_code in AI_CATS_LEGACY_ROLE_IDENTITY_MAP
+            else AICatsAccessService.ensure_technical_role()
+        )
+        if not account_role:
+            return None, '角色不存在或无效'
 
         user = User(
             username=username,
             password_hash=generate_password_hash(AuthService.DEFAULT_PASSWORD),
             real_name=real_name,
-            role_id=role.id,
+            role_id=account_role.id,
             email=email,
             phone=phone,
             is_active=False,
@@ -478,11 +534,31 @@ class AuthService:
         db.session.add(user)
         db.session.flush()
 
-        binding = QCUserBinding(
-            user_id=user.id,
-            role_id=role.id,
-            is_active=False
+        AICatsAccessService.ensure_profile(
+            user,
+            'ai_cats_only',
+            is_enabled=True,
         )
-        db.session.add(binding)
-        db.session.commit()
+        AICatsAccessService.request_identities(
+            user,
+            normalized_identities,
+            source='registration',
+            status='pending',
+        )
+
+        # Keep one legacy binding only for legacy single-role clients. New
+        # multi-identity flows never depend on this compatibility record.
+        if role_code in AI_CATS_LEGACY_ROLE_IDENTITY_MAP:
+            db.session.add(
+                QCUserBinding(
+                    user_id=user.id,
+                    role_id=account_role.id,
+                    is_active=False,
+                )
+            )
+        try:
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+            return None, '注册失败，请稍后重试'
         return user, None

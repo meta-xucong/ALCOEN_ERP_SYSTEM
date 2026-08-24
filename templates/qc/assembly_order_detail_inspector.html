@@ -84,7 +84,7 @@
                 <div class="fw-medium fs-5">{{ '{:g}'.format(order.quantity or 0) }}</div>
             </div>
             <div class="col-md-3 mb-3">
-                <label class="text-muted small">装配负责人</label>
+                <label class="text-muted small">质量控制人</label>
                 <div class="fw-medium fs-5">{{ order.controller.real_name or order.controller.username }}</div>
             </div>
         </div>
@@ -94,7 +94,7 @@
 {% set can_inspect = current_user.is_superadmin or (
     current_user.ai_cats_is_manager and current_user.has_ai_cats_permission('qc_inspection_perform') and order.status in ['assembly_completed', 'inspection_pending']
 ) or (
-    current_user.ai_cats_is_inspector and current_user.has_ai_cats_permission('qc_inspection_perform') and order.inspector_id == current_user.id and order.status in ['assembly_completed', 'inspection_pending']
+    current_user.has_ai_cats_identity('supplier', 'assembly') and current_user.has_ai_cats_permission('qc_inspection_perform') and order.inspector_id == current_user.id and order.status in ['assembly_completed', 'inspection_pending']
 ) %}
 
 <form method="POST" enctype="multipart/form-data" id="assemblyInspectionForm">

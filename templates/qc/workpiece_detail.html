@@ -21,12 +21,12 @@
         <span class="text-gradient" style="font-weight: 700; font-size: 2rem;">工件详情</span>
     </h1>
     <div class="d-flex gap-2">
-        {% if current_user and (current_user.is_superadmin or (current_user.role.code in ['general_manager', 'gm_assistant'] and current_user.has_qc_permission('qc_workpiece_edit')) or (current_user.role.code == 'qc_controller' and current_user.has_qc_permission('qc_workpiece_edit') and workpiece.creator_id == current_user.id)) %}
+        {% if current_user and (current_user.is_superadmin or (current_user.ai_cats_is_manager and current_user.has_qc_permission('qc_workpiece_edit')) or (current_user.has_ai_cats_identity('controller', 'production') and current_user.has_qc_permission('qc_workpiece_edit') and workpiece.creator_id == current_user.id)) %}
         <a href="{{ url_for('qc.workpiece_edit', workpiece_id=workpiece.id) }}" class="btn btn-info">
             <i class="bi bi-pencil"></i> 编辑
         </a>
         {% endif %}
-        {% if current_user and (current_user.is_superadmin or (current_user.role.code in ['general_manager', 'gm_assistant'] and current_user.has_qc_permission('qc_workpiece_delete')) or (current_user.role.code == 'qc_controller' and current_user.has_qc_permission('qc_workpiece_delete') and workpiece.creator_id == current_user.id)) %}
+        {% if current_user and (current_user.is_superadmin or (current_user.ai_cats_is_manager and current_user.has_qc_permission('qc_workpiece_delete')) or (current_user.has_ai_cats_identity('controller', 'production') and current_user.has_qc_permission('qc_workpiece_delete') and workpiece.creator_id == current_user.id)) %}
         <form method="POST" action="{{ url_for('qc.workpiece_delete', workpiece_id=workpiece.id) }}" onsubmit="return confirm('确定要删除这个工件吗？');">
             <button type="submit" class="btn btn-outline-danger">
                 <i class="bi bi-trash"></i> 删除

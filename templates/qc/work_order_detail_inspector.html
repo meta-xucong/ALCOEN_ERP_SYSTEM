@@ -146,9 +146,9 @@
 {% endif %}
 
 {% set can_inspect = current_user.is_superadmin or (
-    current_user.role.code in ['general_manager', 'gm_assistant'] and current_user.has_qc_permission('qc_inspection_perform') and order.status in ['qc_completed', 'inspection_pending']
+    current_user.ai_cats_is_manager and current_user.has_qc_permission('qc_inspection_perform') and order.status in ['qc_completed', 'inspection_pending']
 ) or (
-    current_user.role.code == 'qc_inspector' and current_user.has_qc_permission('qc_inspection_perform') and order.inspector_id == current_user.id and order.status in ['qc_completed', 'inspection_pending']
+    current_user.has_ai_cats_identity('supplier', 'production') and current_user.has_qc_permission('qc_inspection_perform') and order.inspector_id == current_user.id and order.status in ['qc_completed', 'inspection_pending']
 ) %}
 
 {% if not can_inspect and order.status in ['qc_completed', 'inspection_pending'] %}

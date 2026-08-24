@@ -123,3 +123,30 @@ def test_assembly_module_tables_have_required_columns(db_session):
     assert {"order_id", "inspector_id", "attachment_id", "result"} <= inspection_cols
     assert {"order_id", "signer_id", "signer_role", "signed_at"} <= signature_cols
     assert {"order_id", "operator_id", "action", "detail", "created_at"} <= history_cols
+
+
+def test_ai_cats_multi_identity_tables_have_required_columns(db_session):
+    """AI CATS identity tables must support accounts, scopes, and auditing."""
+    profile_cols = _columns(db_session, "ai_cats_account_profiles")
+    identity_cols = _columns(db_session, "ai_cats_user_identities")
+    scope_cols = _columns(db_session, "ai_cats_user_identity_scopes")
+    audit_cols = _columns(db_session, "ai_cats_identity_audit_logs")
+
+    assert {"user_id", "access_mode", "is_enabled"} <= profile_cols
+    assert {
+        "user_id",
+        "identity_code",
+        "status",
+        "source",
+        "requested_at",
+        "approved_by",
+        "revoked_by",
+    } <= identity_cols
+    assert {"user_identity_id", "module_code", "is_enabled"} <= scope_cols
+    assert {
+        "target_user_id",
+        "identity_code",
+        "action",
+        "operator_id",
+        "created_at",
+    } <= audit_cols

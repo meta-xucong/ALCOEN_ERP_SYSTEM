@@ -506,7 +506,7 @@ class QCService:
                     'qc_workpiece_delete',
                 )
             )
-        if user.ai_cats_is_controller:
+        if user.has_ai_cats_identity('controller', 'production'):
             return any(
                 user.has_ai_cats_permission(permission_code)
                 for permission_code in (
@@ -533,7 +533,7 @@ class QCService:
                     'qc_work_order_delete',
                 )
             )
-        if user.ai_cats_is_controller:
+        if user.has_ai_cats_identity('controller', 'production'):
             return any(
                 user.has_ai_cats_permission(permission_code)
                 for permission_code in (
@@ -681,7 +681,7 @@ class QCService:
             return True
         if user.ai_cats_is_manager:
             return user.has_ai_cats_permission('qc_workpiece_create')
-        return user.ai_cats_is_controller and user.has_ai_cats_permission('qc_workpiece_create')
+        return user.has_ai_cats_identity('controller', 'production') and user.has_ai_cats_permission('qc_workpiece_create')
 
     @staticmethod
     def can_edit_workpiece(user: User, workpiece: QCWorkpiece) -> bool:
@@ -690,7 +690,7 @@ class QCService:
             return True
         if user.ai_cats_is_manager:
             return user.has_ai_cats_permission('qc_workpiece_edit')
-        if user.ai_cats_is_controller and workpiece.creator_id == user.id:
+        if user.has_ai_cats_identity('controller', 'production') and workpiece.creator_id == user.id:
             return user.has_ai_cats_permission('qc_workpiece_edit')
         return False
 
@@ -701,7 +701,7 @@ class QCService:
             return True
         if user.ai_cats_is_manager:
             return user.has_ai_cats_permission('qc_workpiece_delete')
-        if user.ai_cats_is_controller and workpiece.creator_id == user.id:
+        if user.has_ai_cats_identity('controller', 'production') and workpiece.creator_id == user.id:
             return user.has_ai_cats_permission('qc_workpiece_delete')
         return False
 
@@ -717,7 +717,7 @@ class QCService:
             return True
         if user.ai_cats_is_manager:
             return user.has_ai_cats_permission('qc_work_order_create')
-        return user.ai_cats_is_controller and user.has_ai_cats_permission('qc_work_order_create')
+        return user.has_ai_cats_identity('controller', 'production') and user.has_ai_cats_permission('qc_work_order_create')
 
     @staticmethod
     def can_access_inspection(user: User) -> bool:
@@ -726,9 +726,9 @@ class QCService:
             return True
         if user.ai_cats_is_manager:
             return user.has_ai_cats_permission('qc_inspection_view') or user.has_ai_cats_permission('qc_inspection_perform')
-        if user.ai_cats_is_controller:
+        if user.has_ai_cats_identity('controller', 'production'):
             return user.has_ai_cats_permission('qc_inspection_view')
-        if user.ai_cats_is_inspector:
+        if user.has_ai_cats_identity('supplier', 'production'):
             return user.has_ai_cats_permission('qc_inspection_view') or user.has_ai_cats_permission('qc_inspection_perform')
         return False
 
@@ -739,9 +739,9 @@ class QCService:
             return True
         if user.ai_cats_is_manager:
             return user.has_ai_cats_permission('qc_acceptance_perform') or user.has_ai_cats_permission('qc_acceptance_rollback')
-        if user.ai_cats_is_controller:
+        if user.has_ai_cats_identity('controller', 'production'):
             return user.has_ai_cats_permission('qc_acceptance_perform') or user.has_ai_cats_permission('qc_acceptance_rollback')
-        if user.ai_cats_is_inspector:
+        if user.has_ai_cats_identity('supplier', 'production'):
             return user.has_ai_cats_permission('qc_acceptance_perform')
         return False
 
@@ -750,7 +750,7 @@ class QCService:
         """Return whether the user can view the work order."""
         if work_order.status == 'draft':
             return user.is_superadmin or (
-                user.ai_cats_is_controller
+                user.has_ai_cats_identity('controller', 'production')
                 and work_order.controller_id == user.id
                 and QCService._can_access_work_order_scope(user)
             )
@@ -773,7 +773,7 @@ class QCService:
             return True
         if user.ai_cats_is_manager and user.has_ai_cats_permission('qc_inspection_perform'):
             return work_order.status in ['qc_completed', 'inspection_pending']
-        if user.ai_cats_is_inspector and work_order.inspector_id == user.id:
+        if user.has_ai_cats_identity('supplier', 'production') and work_order.inspector_id == user.id:
             return user.has_ai_cats_permission('qc_inspection_perform') and work_order.status in ['qc_completed', 'inspection_pending']
         return False
 
@@ -794,10 +794,10 @@ class QCService:
         if user.ai_cats_is_manager and user.has_ai_cats_permission('qc_acceptance_perform'):
             return ['qc_controller', 'qc_inspector']
         signer_roles: list[str] = []
-        if user.ai_cats_is_controller and work_order.controller_id == user.id:
+        if user.has_ai_cats_identity('controller', 'production') and work_order.controller_id == user.id:
             if user.has_ai_cats_permission('qc_acceptance_perform'):
                 signer_roles.append('qc_controller')
-        if user.ai_cats_is_inspector and work_order.inspector_id == user.id:
+        if user.has_ai_cats_identity('supplier', 'production') and work_order.inspector_id == user.id:
             if user.has_ai_cats_permission('qc_acceptance_perform'):
                 signer_roles.append('qc_inspector')
         return signer_roles
@@ -809,7 +809,7 @@ class QCService:
             return True
         if user.ai_cats_is_manager and user.has_ai_cats_permission('qc_acceptance_rollback'):
             return work_order.status in ['inspection_completed', 'accepted']
-        if user.ai_cats_is_controller and work_order.controller_id == user.id:
+        if user.has_ai_cats_identity('controller', 'production') and work_order.controller_id == user.id:
             return user.has_ai_cats_permission('qc_acceptance_rollback') and work_order.status in ['inspection_completed', 'accepted']
         return False
 
@@ -940,9 +940,9 @@ class QCService:
             return True
         if user.ai_cats_is_manager and user.has_ai_cats_permission('qc_acceptance_rollback'):
             return signer_role in ['qc_controller', 'qc_inspector']
-        if signer_role == 'qc_controller' and user.ai_cats_is_controller and work_order.controller_id == user.id:
+        if signer_role == 'qc_controller' and user.has_ai_cats_identity('controller', 'production') and work_order.controller_id == user.id:
             return user.has_ai_cats_permission('qc_acceptance_perform')
-        if signer_role == 'qc_inspector' and user.ai_cats_is_inspector and work_order.inspector_id == user.id:
+        if signer_role == 'qc_inspector' and user.has_ai_cats_identity('supplier', 'production') and work_order.inspector_id == user.id:
             return user.has_ai_cats_permission('qc_acceptance_perform')
         return False
 
@@ -997,7 +997,7 @@ class QCService:
         elif user.ai_cats_is_manager and QCService.can_access_quality_control(user):
             query = query.filter(QCWorkOrder.status != 'draft')
         else:
-            if user.ai_cats_is_controller and QCService.can_access_quality_control(user):
+            if user.has_ai_cats_identity('controller', 'production') and QCService.can_access_quality_control(user):
                 query = query.filter(QCWorkOrder.controller_id == user.id)
             else:
                 query = query.filter(False)
@@ -1031,9 +1031,9 @@ class QCService:
         if not user.is_superadmin:
             if user.ai_cats_is_manager and QCService.can_access_inspection(user):
                 query = query
-            elif user.ai_cats_is_inspector and QCService.can_access_inspection(user):
+            elif user.has_ai_cats_identity('supplier', 'production') and QCService.can_access_inspection(user):
                 query = query.filter(QCWorkOrder.inspector_id == user.id)
-            elif user.ai_cats_is_controller and QCService.can_access_inspection(user):
+            elif user.has_ai_cats_identity('controller', 'production') and QCService.can_access_inspection(user):
                 query = query.filter(QCWorkOrder.controller_id == user.id)
             else:
                 query = query.filter(False)
@@ -1064,9 +1064,9 @@ class QCService:
         if not user.is_superadmin:
             if user.ai_cats_is_manager and QCService.can_access_acceptance(user):
                 query = query
-            elif user.ai_cats_is_controller and QCService.can_access_acceptance(user):
+            elif user.has_ai_cats_identity('controller', 'production') and QCService.can_access_acceptance(user):
                 query = query.filter(QCWorkOrder.controller_id == user.id)
-            elif user.ai_cats_is_inspector and QCService.can_access_acceptance(user):
+            elif user.has_ai_cats_identity('supplier', 'production') and QCService.can_access_acceptance(user):
                 query = query.filter(QCWorkOrder.inspector_id == user.id)
             else:
                 query = query.filter(False)
@@ -1885,8 +1885,10 @@ class QCService:
             raise ValueError('请选择有效的供应商')
         if not inspector.is_active:
             raise ValueError('请选择已激活的供应商')
-        if not inspector.role or inspector.role.code != 'qc_inspector':
-            raise ValueError('请选择供应商角色用户')
+        if not inspector.has_ai_cats_identity('supplier', 'production'):
+            raise ValueError('请选择具有配件生产权限的供应商')
+        if inspector.id == work_order.controller_id:
+            raise ValueError('质量控制人与供应商必须由不同用户担任')
 
         primary_materials = work_order.primary_material_attachments
         guides = work_order.guide_attachments
@@ -2251,15 +2253,15 @@ class QCService:
         base_query = QCWorkOrder.query
 
         if not user.is_superadmin:
-            if user.role.code in QC_MANAGER_ROLE_CODES and (
+            if user.ai_cats_is_manager and (
                 QCService.can_access_quality_control(user)
                 or QCService.can_access_inspection(user)
                 or QCService.can_access_acceptance(user)
             ):
                 base_query = base_query.filter(QCWorkOrder.status != 'draft')
-            elif user.role.code == 'qc_controller':
+            elif user.has_ai_cats_identity('controller', 'production'):
                 base_query = base_query.filter(QCWorkOrder.controller_id == user.id)
-            elif user.role.code == 'qc_inspector':
+            elif user.has_ai_cats_identity('supplier', 'production'):
                 base_query = base_query.filter(QCWorkOrder.inspector_id == user.id)
             else:
                 return {
@@ -2284,15 +2286,15 @@ class QCService:
 
         if user.is_superadmin:
             query = query
-        elif user.role.code in QC_MANAGER_ROLE_CODES and (
+        elif user.ai_cats_is_manager and (
             QCService.can_access_quality_control(user)
             or QCService.can_access_inspection(user)
             or QCService.can_access_acceptance(user)
         ):
             query = query.filter(QCWorkOrder.status != 'draft')
-        elif user.role.code == 'qc_controller':
+        elif user.has_ai_cats_identity('controller', 'production'):
             query = query.filter(QCWorkOrder.controller_id == user.id)
-        elif user.role.code == 'qc_inspector':
+        elif user.has_ai_cats_identity('supplier', 'production'):
             query = query.filter(QCWorkOrder.inspector_id == user.id)
         else:
             return []

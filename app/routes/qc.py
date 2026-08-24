@@ -11,6 +11,8 @@ from sqlalchemy import or_
 
 from app import db
 from app.models import (
+    AI_CATS_IDENTITY_DEFINITIONS,
+    AI_CATS_LEGACY_ROLE_IDENTITY_MAP,
     QC_ADMIN_ROLE_CODES,
     QC_MANAGER_ROLE_CODES,
     QC_ROLE_CODES,
@@ -18,6 +20,9 @@ from app.models import (
     QC_WORKPIECE_TYPE_DISPLAY,
     QCAcceptanceSignature,
     AssemblyOrder,
+    AICatsAccountProfile,
+    AICatsIdentityAuditLog,
+    AICatsUserIdentity,
     QCUserBinding,
     QCWorkOrder,
     QCWorkOrderAttachment,
@@ -27,6 +32,7 @@ from app.models import (
 )
 from app.services.auth_service import AuthService
 from app.services.assembly_service import AssemblyService
+from app.services.ai_cats_access_service import AICatsAccessService
 from app.services.qc_service import QCService
 from app.services.research_service import ResearchService
 from app.services.user_service import UserService
@@ -55,28 +61,19 @@ def _extract_dynamic_indexes(form_data, prefix: str) -> list[int]:
     return sorted(set(indexes))
 
 
-def _active_suppliers() -> list[User]:
-    """Return active supplier users."""
-    return User.query.join(Role).filter(
-        User.is_active.is_(True),
-        Role.code == 'qc_inspector',
-    ).order_by(User.real_name.asc(), User.username.asc()).all()
+def _active_suppliers(module_code: str = 'production') -> list[User]:
+    """Return active supplier users for one operational module."""
+    return AICatsAccessService.eligible_users('supplier', module_code)
 
 
 def _active_research_reviewers() -> list[User]:
     """Return active reviewer users for the research module."""
-    return User.query.join(Role).filter(
-        User.is_active.is_(True),
-        or_(
-            Role.code == ResearchService.RESEARCH_REVIEWER_ROLE_CODE,
-            Role.code.in_(QC_MANAGER_ROLE_CODES),
-        ),
-    ).all()
+    return AICatsAccessService.eligible_users('research_reviewer', 'research')
 
 
 def _active_assembly_reviewers() -> list[User]:
     """Return active inspector/reviewer candidates for the assembly module."""
-    return _active_suppliers()
+    return _active_suppliers('assembly')
 
 
 def _can_sign_research_acceptance_as(user: User, batch, signer_role: str) -> bool:
@@ -353,16 +350,12 @@ def _send_docx_text_report(lines: list[str], filename: str):
 
 def _is_qc_admin(user) -> bool:
     """Return whether the user can access QC admin pages."""
-    return bool(user and (user.is_superadmin or user.ai_cats_effective_role_code == 'general_manager'))
+    return AICatsAccessService.is_qc_admin(user)
 
 
 def _require_qc_access(user):
     """Enforce access to the AI CATS subsystem."""
-    if user.is_superadmin or user.ai_cats_is_manager or user.has_ai_cats_test_access:
-        return None
-
-    binding = QCUserBinding.query.filter_by(user_id=user.id, is_active=True).first()
-    if binding:
+    if AICatsAccessService.can_enter(user):
         return None
 
     flash('当前账号尚未绑定 AI CATS 权限，请先登录或申请权限', 'warning')
@@ -374,6 +367,14 @@ def _require_qc_admin():
     if _is_qc_admin(g.current_user):
         return None
     flash('需要 AI CATS 管理员权限', 'error')
+    return redirect(url_for('qc.index'))
+
+
+def _require_module_scope(user: User, module_code: str):
+    """Enforce one AI CATS module scope before rendering its dashboard."""
+    if AICatsAccessService.has_scope(user, module_code):
+        return None
+    flash('当前身份未开通该 AI CATS 模块', 'warning')
     return redirect(url_for('qc.index'))
 
 
@@ -579,6 +580,9 @@ def index():
     if blocked:
         return blocked
 
+    production_enabled = AICatsAccessService.has_scope(user, 'production')
+    assembly_enabled = AICatsAccessService.has_scope(user, 'assembly')
+    research_enabled = AICatsAccessService.has_scope(user, 'research')
     modules = [
         {
             'title': '配件生产',
@@ -586,8 +590,8 @@ def index():
             'description': '承接当前 AI CATS 生产质量追溯流程，管理配件从工件建档到验收闭环。',
             'icon': 'bi-box-seam',
             'tone': 'production',
-            'href': url_for('qc.production_home'),
-            'disabled': False,
+            'href': url_for('qc.production_home') if production_enabled else None,
+            'disabled': not production_enabled,
         },
         {
             'title': '装配/出厂',
@@ -595,8 +599,8 @@ def index():
             'description': '管理产品库、装配发起、质量检测和最终出厂验收。',
             'icon': 'bi-tools',
             'tone': 'assembly',
-            'href': url_for('qc.assembly_home'),
-            'disabled': False,
+            'href': url_for('qc.assembly_home') if assembly_enabled else None,
+            'disabled': not assembly_enabled,
         },
         {
             'title': '研究/实验',
@@ -604,8 +608,8 @@ def index():
             'description': '管理研究项目立项、指导审批、实验验证和共同验收。',
             'icon': 'bi-lightbulb',
             'tone': 'research',
-            'href': url_for('qc.research_home'),
-            'disabled': False,
+            'href': url_for('qc.research_home') if research_enabled else None,
+            'disabled': not research_enabled,
         },
         {
             'title': 'coming soon',
@@ -629,6 +633,9 @@ def production_home():
     blocked = _require_qc_access(user)
     if blocked:
         return blocked
+    blocked = _require_module_scope(user, 'production')
+    if blocked:
+        return blocked
 
     stats = QCService.get_dashboard_stats(user)
     recent_orders = QCService.get_recent_work_orders(user, limit=5)
@@ -650,6 +657,9 @@ def assembly_home():
     blocked = _require_qc_access(user)
     if blocked:
         return blocked
+    blocked = _require_module_scope(user, 'assembly')
+    if blocked:
+        return blocked
 
     stats = AssemblyService.get_dashboard_stats(user)
     recent_orders = AssemblyService.get_recent_orders(user, limit=5)
@@ -667,6 +677,9 @@ def research_home():
     """Research and experiment dashboard."""
     user = g.current_user
     blocked = _require_qc_access(user)
+    if blocked:
+        return blocked
+    blocked = _require_module_scope(user, 'research')
     if blocked:
         return blocked
 
@@ -1041,7 +1054,7 @@ def assembly_launch_new():
             if not product:
                 raise ValueError('请选择有效产品')
             if strict_submit and not reviewer_id:
-                raise ValueError('请选择质量检测人员')
+                raise ValueError('请选择供应商')
 
             order = AssemblyService.create_order(
                 data={
@@ -1432,8 +1445,8 @@ def assembly_acceptance_print_download(order_id: int):
         f'计划装配数量：{float(order.quantity or 0):g}',
         f'实际合格数量：{float(order.actual_delivered_quantity or 0):g}',
         f"验收日期：{order.accepted_at.strftime('%Y-%m-%d') if order.accepted_at else '-'}",
-        f'装配负责人：{order.controller.real_name or order.controller.username if order.controller else "-"}',
-        f'指导 / 验收人员：{order.inspector.real_name or order.inspector.username if order.inspector else "-"}',
+        f'质量控制人：{order.controller.real_name or order.controller.username if order.controller else "-"}',
+        f'供应商：{order.inspector.real_name or order.inspector.username if order.inspector else "-"}',
         '',
         '装配结构',
     ]
@@ -1451,7 +1464,7 @@ def assembly_acceptance_print_download(order_id: int):
             f'报告：{record.report_filename if record and record.report_file_path else "-"}；'
             f'备注：{record.remark or "" if record else ""}'
         )
-    lines.extend(['', '签字确认区', '装配负责人签字：', '指导 / 验收人员签字：'])
+    lines.extend(['', '签字确认区', '质量控制人签字：', '供应商签字：'])
     return _send_docx_text_report(lines, f'装配验收报告_{order.batch_no}.docx')
 
 
@@ -1459,6 +1472,9 @@ def assembly_acceptance_print_download(order_id: int):
 @login_required
 def assembly_acceptance_coa_print(order_id: int):
     """Deprecated acceptance COA entry; COA is now printed from outbound batches."""
+    blocked = _block_assembly_acceptance_access(g.current_user)
+    if blocked:
+        return blocked
     flash('COA 报告已移动到出厂模块，请在已完成的出厂批次中打印。', 'info')
     return redirect(url_for('qc.assembly_outbound_list'))
 
@@ -2276,16 +2292,43 @@ def qc_admin_users():
     status = request.args.get('status', '').strip()
     keyword = request.args.get('keyword', '').strip()
 
-    query = User.query.join(Role).outerjoin(QCUserBinding, QCUserBinding.user_id == User.id).filter(
-        or_(Role.code.in_(QC_ADMIN_MANAGED_ROLE_CODES), QCUserBinding.id.isnot(None))
+    identity_user_ids = AICatsUserIdentity.query.with_entities(
+        AICatsUserIdentity.user_id
+    )
+    profile_user_ids = AICatsAccountProfile.query.with_entities(
+        AICatsAccountProfile.user_id
+    )
+    query = User.query.join(Role).filter(
+        or_(
+            Role.code.in_(QC_ADMIN_MANAGED_ROLE_CODES),
+            User.id.in_(identity_user_ids),
+            User.id.in_(profile_user_ids),
+        )
     )
 
     if role_code:
-        query = query.filter(Role.code == role_code)
+        if role_code in AI_CATS_IDENTITY_DEFINITIONS:
+            matching_user_ids = AICatsUserIdentity.query.filter_by(
+                identity_code=role_code,
+            ).with_entities(AICatsUserIdentity.user_id)
+            query = query.filter(User.id.in_(matching_user_ids))
+        else:
+            query = query.filter(Role.code == role_code)
     if status == 'active':
-        query = query.filter(User.is_active.is_(True))
+        disabled_profile_ids = AICatsAccountProfile.query.filter_by(
+            is_enabled=False,
+        ).with_entities(AICatsAccountProfile.user_id)
+        query = query.filter(
+            User.is_active.is_(True),
+            ~User.id.in_(disabled_profile_ids),
+        )
     elif status == 'inactive':
-        query = query.filter(User.is_active.is_(False))
+        disabled_profile_ids = AICatsAccountProfile.query.filter_by(
+            is_enabled=False,
+        ).with_entities(AICatsAccountProfile.user_id)
+        query = query.filter(
+            or_(User.is_active.is_(False), User.id.in_(disabled_profile_ids))
+        )
     if keyword:
         like_keyword = f'%{keyword}%'
         query = query.filter(
@@ -2301,12 +2344,32 @@ def qc_admin_users():
         per_page=20,
         error_out=False,
     )
-    roles = Role.query.filter(Role.code.in_(QC_ADMIN_MANAGED_ROLE_CODES)).order_by(Role.level.desc()).all()
+    users = pagination.items
+    user_ids = [user.id for user in users]
+    identities = (
+        AICatsUserIdentity.query.filter(AICatsUserIdentity.user_id.in_(user_ids))
+        .order_by(AICatsUserIdentity.user_id.asc(), AICatsUserIdentity.id.asc())
+        .all()
+        if user_ids else []
+    )
+    identity_map: dict[int, list[AICatsUserIdentity]] = {}
+    for identity in identities:
+        identity_map.setdefault(identity.user_id, []).append(identity)
+    profile_map = {
+        profile.user_id: profile
+        for profile in AICatsAccountProfile.query.filter(
+            AICatsAccountProfile.user_id.in_(user_ids)
+        ).all()
+    } if user_ids else {}
+    roles = Role.query.filter(Role.code.in_(QC_MANAGER_ROLE_CODES)).order_by(Role.level.desc()).all()
     return render_template(
         'qc/admin_users.html',
-        users=pagination.items,
+        users=users,
         pagination=pagination,
         roles=roles,
+        identity_definitions=AI_CATS_IDENTITY_DEFINITIONS,
+        identity_map=identity_map,
+        profile_map=profile_map,
         role=role_code,
         status=status,
         keyword=keyword,
@@ -2316,7 +2379,7 @@ def qc_admin_users():
 @qc_bp.route('/admin/users/<int:user_id>/toggle', methods=['POST'])
 @login_required
 def qc_admin_toggle_user(user_id: int):
-    """QC admin: toggle user status."""
+    """QC admin: toggle AI CATS access without affecting shared ERP access."""
     blocked = _require_qc_admin()
     if blocked:
         return blocked
@@ -2325,12 +2388,23 @@ def qc_admin_toggle_user(user_id: int):
     if not user:
         flash('操作失败，请检查后重试', 'error')
         return redirect(url_for('qc.qc_admin_users'))
-    if user.is_superadmin:
+    if user.is_superadmin or user.id == g.current_user.id:
         flash('操作失败，请检查后重试', 'error')
         return redirect(url_for('qc.qc_admin_users'))
 
-    AuthService.toggle_user_status(user)
-    flash(f'用户 {user.username} 鐘舵€佸凡鏇存柊', 'success')
+    profile = AICatsAccessService.get_profile(user)
+    currently_enabled = profile.is_enabled if profile else AICatsAccessService.can_enter(user)
+    try:
+        AICatsAccessService.set_account_enabled(
+            user,
+            not currently_enabled,
+            g.current_user,
+        )
+        db.session.commit()
+        flash(f'用户 {user.username} 的 AI CATS 状态已更新', 'success')
+    except ValueError as exc:
+        db.session.rollback()
+        flash(str(exc), 'error')
     return redirect(url_for('qc.qc_admin_users'))
 
 
@@ -2369,12 +2443,152 @@ def qc_admin_pending():
     pending_qc_bindings = QCUserBinding.query.filter_by(is_active=False).order_by(
         QCUserBinding.created_at.asc()
     ).all()
+    pending_identities = AICatsUserIdentity.query.filter_by(status='pending').order_by(
+        AICatsUserIdentity.requested_at.asc(),
+        AICatsUserIdentity.id.asc(),
+    ).all()
+    pending_user_ids = {identity.user_id for identity in pending_identities}
+    pending_profiles = {
+        profile.user_id: profile
+        for profile in AICatsAccountProfile.query.filter(
+            AICatsAccountProfile.user_id.in_(pending_user_ids)
+        ).all()
+    } if pending_user_ids else {}
 
     return render_template(
         'qc/admin_pending.html',
         pending_qc_users=pending_qc_users,
         pending_qc_bindings=pending_qc_bindings,
+        pending_identities=pending_identities,
+        pending_profiles=pending_profiles,
     )
+
+
+@qc_bp.route('/admin/identities/<int:identity_id>/<action>', methods=['POST'])
+@login_required
+def qc_admin_identity_action(identity_id: int, action: str):
+    """Approve, reject, revoke, or restore one AI CATS identity."""
+    blocked = _require_qc_admin()
+    if blocked:
+        return blocked
+
+    identity = AICatsUserIdentity.query.get_or_404(identity_id)
+    status_by_action = {
+        'approve': 'active',
+        'reject': 'rejected',
+        'revoke': 'revoked',
+        'restore': 'active',
+    }
+    target_status = status_by_action.get(action)
+    if not target_status:
+        flash('无效的身份管理操作', 'error')
+        return redirect(url_for('qc.qc_admin_users'))
+
+    allowed_source_statuses = {
+        'approve': {'pending'},
+        'reject': {'pending'},
+        'revoke': {'active'},
+        'restore': {'rejected', 'revoked'},
+    }
+    if identity.status not in allowed_source_statuses[action]:
+        flash('当前身份状态不允许执行此操作', 'error')
+        return redirect(url_for('qc.qc_admin_user_detail', user_id=identity.user_id))
+
+    try:
+        if action == 'revoke':
+            AICatsAccessService.assert_identity_change_safe(identity)
+        AICatsAccessService.set_identity_status(
+            identity,
+            target_status,
+            g.current_user,
+            reason=request.form.get('reason'),
+        )
+        db.session.commit()
+        flash(f'{identity.user.username} 的“{identity.display_name}”身份已更新', 'success')
+    except ValueError as exc:
+        db.session.rollback()
+        flash(str(exc), 'error')
+
+    next_url = request.form.get('next', '').strip()
+    if not next_url.startswith('/') or next_url.startswith('//'):
+        next_url = url_for('qc.qc_admin_pending')
+    return redirect(next_url)
+
+
+@qc_bp.route('/admin/users/<int:user_id>')
+@login_required
+def qc_admin_user_detail(user_id: int):
+    """Display one user's AI CATS identities, scopes, and audit trail."""
+    blocked = _require_qc_admin()
+    if blocked:
+        return blocked
+    user = User.query.get_or_404(user_id)
+    identities = AICatsUserIdentity.query.filter_by(user_id=user.id).order_by(
+        AICatsUserIdentity.id.asc()
+    ).all()
+    audits = AICatsIdentityAuditLog.query.filter_by(target_user_id=user.id).order_by(
+        AICatsIdentityAuditLog.created_at.desc(),
+        AICatsIdentityAuditLog.id.desc(),
+    ).limit(100).all()
+    return render_template(
+        'qc/admin_user_detail.html',
+        user=user,
+        profile=AICatsAccessService.get_profile(user),
+        identities=identities,
+        audits=audits,
+        identity_definitions=AI_CATS_IDENTITY_DEFINITIONS,
+    )
+
+
+@qc_bp.route('/admin/users/<int:user_id>/identity/add', methods=['POST'])
+@login_required
+def qc_admin_add_identity(user_id: int):
+    """Assign one additional AI CATS identity immediately."""
+    blocked = _require_qc_admin()
+    if blocked:
+        return blocked
+    user = User.query.get_or_404(user_id)
+    identity_code = request.form.get('identity_code', '').strip()
+    try:
+        identity = AICatsAccessService.request_identities(
+            user,
+            [identity_code],
+            source='admin',
+            status='pending',
+        )[0]
+        AICatsAccessService.set_identity_status(identity, 'active', g.current_user)
+        db.session.commit()
+        flash(f'已为 {user.username} 添加“{identity.display_name}”身份', 'success')
+    except ValueError as exc:
+        db.session.rollback()
+        flash(str(exc), 'error')
+    return redirect(url_for('qc.qc_admin_user_detail', user_id=user.id))
+
+
+@qc_bp.route('/admin/identities/<int:identity_id>/scope/<module_code>', methods=['POST'])
+@login_required
+def qc_admin_toggle_identity_scope(identity_id: int, module_code: str):
+    """Toggle one valid module scope for an AI CATS identity."""
+    blocked = _require_qc_admin()
+    if blocked:
+        return blocked
+    identity = AICatsUserIdentity.query.get_or_404(identity_id)
+    is_enabled = request.form.get('is_enabled') == '1'
+    try:
+        if not is_enabled:
+            AICatsAccessService.assert_identity_change_safe(identity, module_code)
+        AICatsAccessService.set_scope_enabled(
+            identity,
+            module_code,
+            is_enabled,
+            g.current_user,
+        )
+        db.session.commit()
+        flash('模块权限范围已更新', 'success')
+    except ValueError as exc:
+        db.session.rollback()
+        flash(str(exc), 'error')
+    return redirect(url_for('qc.qc_admin_user_detail', user_id=identity.user_id))
 
 
 @qc_bp.route('/admin/pending/user/<int:user_id>/approve', methods=['POST'])
@@ -2432,6 +2646,21 @@ def qc_admin_approve_binding(binding_id: int):
         binding.user.approved_by = g.current_user.id
         binding.user.approved_at = now
 
+    AICatsAccessService.ensure_profile(binding.user, 'shared', is_enabled=True)
+    for identity_code in AI_CATS_LEGACY_ROLE_IDENTITY_MAP.get(binding.role.code, ()):
+        identity = AICatsUserIdentity.query.filter_by(
+            user_id=binding.user_id,
+            identity_code=identity_code,
+        ).first()
+        if not identity:
+            identity = AICatsAccessService.request_identities(
+                binding.user,
+                [identity_code],
+                source='legacy_binding',
+                status='pending',
+            )[0]
+        AICatsAccessService.set_identity_status(identity, 'active', g.current_user)
+
     db.session.commit()
     flash(f'已通过 {binding.user.username} 的 AI CATS 绑定申请', 'success')
     return redirect(url_for('qc.qc_admin_pending'))
@@ -2448,9 +2677,25 @@ def qc_admin_reject_binding(binding_id: int):
     binding = QCUserBinding.query.get_or_404(binding_id)
     username = binding.user.username
     user = binding.user
-    db.session.delete(binding)
     if not user.is_active and user.role.code in QC_ROLE_CODES:
-        db.session.delete(user)
+        AuthService.reject_user(user)
+        flash(f'已拒绝 {username} 的 AI CATS 账号申请', 'success')
+        return redirect(url_for('qc.qc_admin_pending'))
+
+    for identity_code in AI_CATS_LEGACY_ROLE_IDENTITY_MAP.get(binding.role.code, ()):
+        identity = AICatsUserIdentity.query.filter_by(
+            user_id=binding.user_id,
+            identity_code=identity_code,
+            status='pending',
+        ).first()
+        if identity:
+            AICatsAccessService.set_identity_status(
+                identity,
+                'rejected',
+                g.current_user,
+                reason='旧版绑定申请被拒绝',
+            )
+    db.session.delete(binding)
     db.session.commit()
     flash(f'已拒绝 {username} 的 AI CATS 绑定申请', 'success')
     return redirect(url_for('qc.qc_admin_pending'))
@@ -2489,7 +2734,7 @@ def qc_admin_edit_role(role_id: int):
 
     role = Role.query.get_or_404(role_id)
     if role.code not in QC_ADMIN_MANAGED_ROLE_CODES:
-        flash('该角色不属于 QC 系统管理范围', 'error')
+        flash('该角色不属于 AI CATS 历史兼容管理范围', 'error')
         return redirect(url_for('qc.qc_admin_roles'))
     if role.code == 'superadmin':
         flash('操作失败，请检查后重试', 'error')
