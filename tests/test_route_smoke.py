@@ -72,6 +72,20 @@ def test_new_contract_page_contains_autofill_helpers(client, login, base_data):
     assert "function addPaymentRowWithData" in html
 
 
+def test_prefilled_payment_rows_do_not_keep_amounts_linked(client, login, base_data):
+    """Autofilled/restored payment values must be independently editable."""
+    login(base_data["superadmin_id"])
+    resp = client.get("/contract/new", follow_redirects=False)
+    assert resp.status_code == 200
+
+    html = resp.get_data(as_text=True)
+    add_with_data = html.split("function addPaymentRowWithData", 1)[1].split(
+        "// [v1.4]", 1
+    )[0]
+    assert "bindPaymentRowBehavior(row, { autoFollowInvoice: false });" in add_with_data
+    assert "const autoFollowLockedOff = options.autoFollowInvoice === false;" in html
+
+
 def test_logistics_edit_page_contains_autofill_helpers(app, client, login):
     """Logistics edit page should include one-click delivery autofill helpers."""
     from app import db

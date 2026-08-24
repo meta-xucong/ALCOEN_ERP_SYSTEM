@@ -912,6 +912,7 @@ function bindPaymentRowBehavior(row, options = {}) {
         return;
     }
 
+    const autoFollowLockedOff = options.autoFollowInvoice === false;
     const initialAutoFollow = Object.prototype.hasOwnProperty.call(options, 'autoFollowInvoice')
         ? options.autoFollowInvoice
         : (!invoiceAmountInput.value || invoiceAmountInput.value === amountInput.value);
@@ -927,7 +928,9 @@ function bindPaymentRowBehavior(row, options = {}) {
 
     invoiceAmountInput.addEventListener('input', () => {
         const paymentFilled = amountInput.value !== '';
-        if (!paymentFilled && invoiceAmountInput.value === '') {
+        if (autoFollowLockedOff) {
+            invoiceAmountInput.dataset.autoFollow = 'false';
+        } else if (!paymentFilled && invoiceAmountInput.value === '') {
             invoiceAmountInput.dataset.autoFollow = 'true';
         } else {
             invoiceAmountInput.dataset.autoFollow = invoiceAmountInput.value === amountInput.value ? 'true' : 'false';
@@ -1494,7 +1497,7 @@ function addPaymentRow() {
     // 填充对应发货记录下拉列表
     updatePaymentProductOptions(paymentCount);
     bindPaymentRowBehavior(row);
-    
+
     paymentCount++;
     document.getElementById('payment_count').value = paymentCount;
 }
@@ -2284,7 +2287,9 @@ function addPaymentRowWithData(data, isExisting = false) {
     if (handlerInput) handlerInput.value = payload.handler || currentUserDisplayName;
     if (remarkInput) remarkInput.value = payload.remark || '';
 
-    bindPaymentRowBehavior(row);
+    // Autofill and restored records provide initial values only; their amounts
+    // must remain independent after the row is rendered.
+    bindPaymentRowBehavior(row, { autoFollowInvoice: false });
 
     paymentCount++;
     document.getElementById('payment_count').value = paymentCount;
