@@ -6,8 +6,18 @@ from datetime import datetime, timedelta
 from werkzeug.security import generate_password_hash
 
 from app import db
-from app.models import Role, User, Department, TrustedDevice, QCUserBinding
+from app.models import (
+    AICatsAccountProfile,
+    AICatsUserIdentity,
+    Department,
+    QCUserBinding,
+    Role,
+    TrustedDevice,
+    User,
+)
 from app.routes.auth import _safe_local_next
+from app.services.ai_cats_access_service import AICatsAccessService
+from app.services.auth_service import AuthResult, AuthService
 from app.services.email_service import EmailService
 
 
@@ -24,6 +34,79 @@ def test_login_next_redirect_accepts_only_local_paths():
     assert _safe_local_next(' https://example.com/steal ') is None
     assert _safe_local_next('//example.com/steal') is None
     assert _safe_local_next('javascript:alert(1)') is None
+
+
+def test_ai_cats_only_supplier_preserves_qc_login_on_form_post(app, client, monkeypatch):
+    """AI CATS-only suppliers must not be mistaken for ERP logins on POST."""
+    with app.app_context():
+        role = AICatsAccessService.ensure_technical_role()
+        user = User(
+            username="ai_cats_supplier_login",
+            password_hash=generate_password_hash("Pass123!"),
+            real_name="AI CATS Supplier",
+            role_id=role.id,
+            email="ai_cats_supplier_login@example.com",
+            is_active=True,
+            require_password_change=False,
+        )
+        db.session.add(user)
+        db.session.flush()
+        db.session.add_all([
+            AICatsAccountProfile(
+                user_id=user.id,
+                access_mode="ai_cats_only",
+                is_enabled=True,
+            ),
+            AICatsUserIdentity(
+                user_id=user.id,
+                identity_code="supplier",
+                status="active",
+            ),
+        ])
+        db.session.commit()
+        user_id = user.id
+
+    def _authenticate(**_kwargs):
+        return AuthResult(success=True, user=db.session.get(User, user_id))
+
+    monkeypatch.setattr(AuthService, "authenticate", _authenticate)
+
+    page = client.get("/auth/login?sub=qc&next=/qc/production/")
+    page_text = page.get_data(as_text=True)
+    assert page.status_code == 200
+    assert 'name="subsystem" value="qc"' in page_text
+    assert 'name="next" value="/qc/production/"' in page_text
+
+    # Deliberately omit ?sub=qc to mirror browsers that drop query strings on POST.
+    response = client.post(
+        "/auth/login",
+        data={
+            "username": "ai_cats_supplier_login",
+            "password": "Pass123!",
+            "subsystem": "qc",
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 302
+    assert response.headers["Location"].endswith("/qc/")
+    with client.session_transaction() as sess:
+        assert sess["user_id"] == user_id
+        assert sess["subsystem"] == "qc"
+
+    with client.session_transaction() as sess:
+        sess.clear()
+
+    erp_response = client.post(
+        "/auth/login",
+        data={"username": "ai_cats_supplier_login", "password": "Pass123!"},
+        follow_redirects=False,
+    )
+
+    assert erp_response.status_code == 302
+    assert "/auth/login" in erp_response.headers["Location"]
+    with client.session_transaction() as sess:
+        assert "user_id" not in sess
 
 
 def test_register_creates_pending_user(app, client, base_data):

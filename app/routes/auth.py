@@ -63,7 +63,9 @@ def _get_erp_roles():
 @auth_bp.route('/login', methods=['GET', 'POST'])
 def login():
     """Description."""
-    is_qc = request.args.get('sub') == 'qc'
+    # Keep the selected subsystem after the login form is posted. Some clients
+    # do not preserve the original query string when submitting an empty action.
+    is_qc = request.args.get('sub') == 'qc' or request.form.get('subsystem') == 'qc'
     
     # 如果用户点击取消验证，清除 pending 状态
     if request.args.get('cancel'):
@@ -196,7 +198,7 @@ def login():
             )
             flash('验证码已发送至您的邮箱，请查收', 'success')
             return redirect(url_for('auth.verify_code'))
-        next_url = request.args.get('next')
+        next_url = request.form.get('next') or request.args.get('next')
         subsystem = 'qc' if is_qc else ''
         return _do_login(user, remember, ip_address, next_url, subsystem)
     

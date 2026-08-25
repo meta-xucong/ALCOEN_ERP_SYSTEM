@@ -368,7 +368,13 @@
                 {% endif %}
             {% endwith %}
             
-            <form method="POST" action="">
+            <form method="POST" action="{{ url_for('auth.login', sub='qc') if is_qc else url_for('auth.login') }}">
+                {% if is_qc %}
+                <input type="hidden" name="subsystem" value="qc">
+                {% endif %}
+                {% if request.args.get('next') %}
+                <input type="hidden" name="next" value="{{ request.args.get('next') }}">
+                {% endif %}
                 <div class="form-floating">
                     <input type="text" class="form-control" id="username" name="username" placeholder="用户名" required>
                     <label for="username"><i class="bi bi-person"></i> 用户名</label>
