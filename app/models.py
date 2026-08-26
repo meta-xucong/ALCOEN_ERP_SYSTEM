@@ -1700,6 +1700,8 @@ QC_STATUS_DISPLAY = {
     'rejected': {'text': '质检不合格', 'badge': 'bg-danger'},
 }
 
+QC_WORK_ORDER_EDITABLE_STATUSES = frozenset({'draft', 'qc_pending', 'rejected'})
+
 
 def get_qc_signer_role_display(role_code: str) -> str:
     """Return the user-facing QC signer role label."""
@@ -2193,24 +2195,33 @@ class QCWorkOrder(db.Model):
     def remark_note_filename(self) -> str:
         return self._display_filename(self.remark_note_original_name, self.remark_note_file_path)
 
+    @property
+    def is_editable_before_quality_submission(self) -> bool:
+        """Return whether the order is still in its pre-submission edit window."""
+        return self.status in QC_WORK_ORDER_EDITABLE_STATUSES
+
     def can_be_edited_by(self, user: 'User') -> bool:
         """判断指定用户是否可以编辑此订单"""
+        if not self.is_editable_before_quality_submission:
+            return False
         if user.is_superadmin:
             return True
         if user.ai_cats_is_manager and user.has_ai_cats_permission('qc_work_order_edit'):
-            return self.status in ['draft', 'qc_pending', 'rejected']
+            return True
         if user.has_ai_cats_identity('controller', 'production') and user.has_ai_cats_permission('qc_work_order_edit') and self.controller_id == user.id:
-            return self.status in ['draft', 'qc_pending', 'rejected']
+            return True
         return False
 
     def can_be_deleted_by(self, user: 'User') -> bool:
         """判断指定用户是否可以删除此订单"""
+        if not self.is_editable_before_quality_submission:
+            return False
         if user.is_superadmin:
             return True
         if user.ai_cats_is_manager and user.has_ai_cats_permission('qc_work_order_delete'):
-            return self.status in ['draft', 'qc_pending', 'rejected']
+            return True
         if user.has_ai_cats_identity('controller', 'production') and user.has_ai_cats_permission('qc_work_order_delete') and self.controller_id == user.id:
-            return self.status in ['draft', 'qc_pending', 'rejected']
+            return True
         return False
 
     def can_be_viewed_by(self, user: 'User') -> bool:

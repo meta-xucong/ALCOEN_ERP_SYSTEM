@@ -1795,6 +1795,130 @@ def test_batch_number_schema_upgrade_rebuilds_legacy_table_constraint(app):
         assert matching_count == 2
 
 
+def test_qc_order_edit_window_locks_after_submission_and_reopens_after_return(app, client, login):
+    """Orders are editable only before submission, then reopen through a formal return state."""
+    with app.app_context():
+        controller_id, inspector_id, department_id = _seed_qc_users()
+        super_role = Role(name='Lock Super', code='superadmin', permissions='[]', level=999)
+        db.session.add(super_role)
+        db.session.flush()
+        superadmin = User(
+            username='lock_superadmin',
+            password_hash=generate_password_hash('Pass123!'),
+            real_name='Lock Superadmin',
+            role_id=super_role.id,
+            department_id=department_id,
+            email='lock_superadmin@example.com',
+            is_active=True,
+            is_superadmin=True,
+            require_password_change=False,
+        )
+        order = QCWorkOrder(
+            batch_no='LOCK-WINDOW-001',
+            workpiece_name='可编辑窗口工件',
+            quantity=1,
+            controller_id=controller_id,
+            status='qc_pending',
+        )
+        db.session.add_all([superadmin, order])
+        db.session.flush()
+        drawing = QCWorkOrderAttachment(
+            work_order_id=order.id,
+            attach_type='drawing',
+            title='必需图纸',
+            content='',
+            file_path='drawings/lock-window.png',
+            file_type='png',
+            is_required=True,
+            sort_order=0,
+        )
+        db.session.add(drawing)
+        db.session.commit()
+        order_id = order.id
+        drawing_id = drawing.id
+        superadmin_id = superadmin.id
+
+    login(controller_id)
+    editable_detail = client.get(f'/qc/quality-control/{order_id}')
+    editable_form = client.get(f'/qc/quality-control/{order_id}/edit')
+    assert editable_detail.status_code == 200
+    assert '编辑订单（提交前）' in editable_detail.get_data(as_text=True)
+    assert editable_form.status_code == 200
+    assert '当前订单尚未提交至质量检测' in editable_form.get_data(as_text=True)
+
+    with app.app_context():
+        controller = db.session.get(User, controller_id)
+        superadmin = db.session.get(User, superadmin_id)
+        order = db.session.get(QCWorkOrder, order_id)
+
+        QCService.update_work_order(
+            order_id,
+            {
+                'batch_no': order.batch_no,
+                'workpiece_name': order.workpiece_name,
+                'workpiece_type': order.workpiece_type,
+                'quantity': '2',
+            },
+            controller,
+        )
+        order = db.session.get(QCWorkOrder, order_id)
+        assert order.quantity == 2
+        assert any(
+            history.action == '编辑工件订单' and '生产数量：1 -> 2' in (history.detail or '')
+            for history in order.histories
+        )
+
+        QCService.complete_quality_control(order_id, inspector_id, controller)
+        order = db.session.get(QCWorkOrder, order_id)
+        assert order.status == 'qc_completed'
+        assert order.is_editable_before_quality_submission is False
+        assert QCService.can_edit_work_order(controller, order) is False
+        assert QCService.can_edit_work_order(superadmin, order) is False
+        assert QCService.can_delete_work_order(superadmin, order) is False
+        assert any(
+            history.action == '完成质量控制' and '基础信息已锁定' in (history.detail or '')
+            for history in order.histories
+        )
+
+        with pytest.raises(ValueError, match='没有权限编辑此订单'):
+            QCService.update_work_order(
+                order_id,
+                {
+                    'batch_no': order.batch_no,
+                    'workpiece_name': order.workpiece_name,
+                    'workpiece_type': order.workpiece_type,
+                    'quantity': '3',
+                },
+                superadmin,
+            )
+        with pytest.raises(ValueError, match='没有权限编辑此订单'):
+            QCService.sync_order_section_files(order_id, None, None, None, superadmin)
+        with pytest.raises(ValueError, match='没有权限删除此订单'):
+            QCService.delete_work_order(order_id, superadmin)
+        with pytest.raises(ValueError, match='没有权限编辑此附件'):
+            QCService.update_attachment_meta(drawing_id, title='不应修改', user=superadmin)
+
+    submitted_detail = client.get(f'/qc/quality-control/{order_id}')
+    submitted_edit = client.get(f'/qc/quality-control/{order_id}/edit', follow_redirects=False)
+    assert submitted_detail.status_code == 200
+    assert '编辑订单（提交前）' not in submitted_detail.get_data(as_text=True)
+    assert submitted_edit.status_code == 302
+
+    with app.app_context():
+        controller = db.session.get(User, controller_id)
+        order = db.session.get(QCWorkOrder, order_id)
+        order.status = 'rejected'
+        db.session.commit()
+        assert order.is_editable_before_quality_submission is True
+        assert QCService.can_edit_work_order(controller, order) is True
+
+    reopened_detail = client.get(f'/qc/quality-control/{order_id}')
+    reopened_edit = client.get(f'/qc/quality-control/{order_id}/edit')
+    assert reopened_detail.status_code == 200
+    assert '编辑订单（提交前）' in reopened_detail.get_data(as_text=True)
+    assert reopened_edit.status_code == 200
+
+
 def test_qc_admin_menu_contains_required_items_without_department(app, client, login):
     """QC system-management menu should expose required entries and hide department management."""
     with app.app_context():

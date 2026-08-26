@@ -483,9 +483,31 @@ class QCService:
         if not QCService.can_edit_work_order(user, work_order):
             raise ValueError('没有权限编辑此订单')
 
+        section_labels = {
+            'drawing': '图纸/质检材料批注',
+            'guide': '生产凭证',
+            'remark': '备注批注',
+        }
+        changed_sections = []
+        for section_key, upload in (
+            ('drawing', drawing_note_file),
+            ('guide', guide_certificate_file),
+            ('remark', remark_note_file),
+        ):
+            if upload and upload.filename:
+                changed_sections.append(f'{section_labels[section_key]}：{upload.filename}')
+
         QCService._replace_order_section_file(work_order, 'drawing', drawing_note_file)
         QCService._replace_order_section_file(work_order, 'guide', guide_certificate_file)
         QCService._replace_order_section_file(work_order, 'remark', remark_note_file)
+
+        if changed_sections:
+            QCService.add_order_history(
+                work_order,
+                '更新订单补充附件',
+                '；'.join(changed_sections),
+                user,
+            )
 
         if auto_commit:
             db.session.commit()
@@ -1529,6 +1551,12 @@ class QCService:
         if not QCService.can_edit_work_order(user, work_order):
             raise ValueError('没有权限编辑此订单')
 
+        previous_values = {
+            'batch_no': work_order.batch_no,
+            'workpiece_name': work_order.workpiece_name,
+            'workpiece_type': work_order.workpiece_type,
+            'quantity': float(work_order.quantity or 0),
+        }
         batch_no = (data.get('batch_no') or '').strip()
         quantity = data.get('quantity')
         workpiece_id = data.get('workpiece_id')
@@ -1572,10 +1600,22 @@ class QCService:
             work_order.workpiece_name = selected_workpiece.workpiece_name
         else:
             work_order.workpiece_name = workpiece_name
+
+        changes = []
+        if previous_values['batch_no'] != work_order.batch_no:
+            changes.append(f"批次编号：{previous_values['batch_no']} -> {work_order.batch_no}")
+        if previous_values['workpiece_name'] != work_order.workpiece_name:
+            changes.append(f"工件：{previous_values['workpiece_name']} -> {work_order.workpiece_name}")
+        if previous_values['workpiece_type'] != work_order.workpiece_type:
+            changes.append(f"工件类型：{previous_values['workpiece_type']} -> {work_order.workpiece_type}")
+        if previous_values['quantity'] != float(work_order.quantity or 0):
+            changes.append(
+                f"生产数量：{previous_values['quantity']:g} -> {float(work_order.quantity or 0):g}"
+            )
         QCService.add_order_history(
             work_order,
             '编辑工件订单',
-            f'批次 {work_order.batch_no}，工件 {work_order.workpiece_name}，数量 {float(work_order.quantity or 0):g}',
+            '；'.join(changes) if changes else '未修改基础信息',
             user,
         )
         db.session.commit()
@@ -1764,6 +1804,12 @@ class QCService:
                 QCService._remove_file(work_order.id, redundant.file_path)
             db.session.delete(redundant)
 
+        QCService.add_order_history(
+            work_order,
+            '同步订单附件',
+            f'作业指导书 {len(point_items)} 项，备注 {len(remark_items)} 项',
+            user,
+        )
         db.session.commit()
         return work_order
 
@@ -1797,7 +1843,7 @@ class QCService:
         if not work_order:
             raise ValueError('工件订单不存在')
 
-        if user and not QCService.can_edit_work_order(user, work_order):
+        if user is None or not QCService.can_edit_work_order(user, work_order):
             raise ValueError('没有权限编辑此订单')
 
         relative_path, file_type = QCService._save_file_for_attachment(file, work_order_id, attach_type)
@@ -1813,6 +1859,12 @@ class QCService:
             sort_order=sort_order,
         )
         db.session.add(attachment)
+        QCService.add_order_history(
+            work_order,
+            '新增订单附件',
+            f'新增{title or attach_type}：{file.filename}',
+            user,
+        )
         if auto_commit:
             db.session.commit()
         return attachment
@@ -1828,8 +1880,15 @@ class QCService:
         if not QCService.can_edit_work_order(user, work_order):
             raise ValueError('没有权限删除此附件')
 
+        attachment_title = attachment.display_title or attachment.title or '未命名附件'
         QCService._remove_file(work_order.id, attachment.file_path)
         db.session.delete(attachment)
+        QCService.add_order_history(
+            work_order,
+            '删除订单附件',
+            f'删除附件：{attachment_title}',
+            user,
+        )
         db.session.commit()
         return True
 
@@ -1842,15 +1901,30 @@ class QCService:
             raise ValueError('附件不存在')
 
         work_order = QCWorkOrder.query.get(attachment.work_order_id)
-        if user and not QCService.can_edit_work_order(user, work_order):
+        if user is None or not QCService.can_edit_work_order(user, work_order):
             raise ValueError('没有权限编辑此附件')
 
+        changes = []
         if title is not None:
+            if attachment.title != title:
+                changes.append(f'标题：{attachment.title or "未命名"} -> {title or "未命名"}')
             attachment.title = title
         if content is not None:
+            if attachment.content != content:
+                changes.append('更新附件说明')
             attachment.content = content
         if is_required is not None:
+            if attachment.is_required != is_required:
+                changes.append(f"是否必填：{'是' if attachment.is_required else '否'} -> {'是' if is_required else '否'}")
             attachment.is_required = is_required
+
+        if changes:
+            QCService.add_order_history(
+                work_order,
+                '更新订单附件',
+                '；'.join(changes),
+                user,
+            )
 
         db.session.commit()
         return attachment
@@ -1910,7 +1984,8 @@ class QCService:
         QCService.add_order_history(
             work_order,
             '完成质量控制',
-            f'已分配给 {inspector.real_name or inspector.username}，进入质量检测',
+            f'已确认提交给 {inspector.real_name or inspector.username}，进入质量检测；基础信息已锁定，'
+            '如需修改请通过质检退回至质量控制流程',
             user,
         )
         db.session.commit()

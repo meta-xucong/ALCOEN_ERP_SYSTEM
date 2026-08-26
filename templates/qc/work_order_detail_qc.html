@@ -11,9 +11,9 @@
         <span class="badge {{ status_info.badge }} fs-6">{{ status_info.text }}</span>
     </h1>
     <div class="d-flex gap-2">
-        {% if order.can_be_edited_by(current_user) %}
+        {% if order.is_editable_before_quality_submission and order.can_be_edited_by(current_user) %}
         <a href="{{ url_for('qc.quality_control_edit', order_id=order.id) }}" class="btn btn-info">
-            <i class="bi bi-pencil"></i> 编辑
+            <i class="bi bi-pencil"></i> 编辑订单（提交前）
         </a>
         {% endif %}
         {% if order.can_be_deleted_by(current_user) %}
@@ -262,13 +262,13 @@
     </div>
 </div>
 
-{% if order.status in ['draft', 'qc_pending', 'rejected'] and order.can_be_edited_by(current_user) %}
+{% if order.is_editable_before_quality_submission and order.can_be_edited_by(current_user) %}
 <div class="card border-primary">
     <div class="card-header bg-primary text-white">
         <h5 class="mb-0"><i class="bi bi-send-check"></i> 完成质控并推送</h5>
     </div>
     <div class="card-body">
-        <form method="POST" action="{{ url_for('qc.quality_control_complete', order_id=order.id) }}">
+        <form method="POST" action="{{ url_for('qc.quality_control_complete', order_id=order.id) }}" onsubmit="return confirm('确认提交至质量检测吗？提交后基础信息和附件将锁定；如需修改，必须通过正式退回质量控制流程。');">
             <div class="row align-items-end">
                 <div class="col-md-6 mb-3">
                     <label class="form-label">选择目标供应商 <span class="text-danger">*</span></label>
@@ -294,6 +294,10 @@
             {% elif order.status == 'draft' %}
             <div class="alert alert-secondary mb-0">
                 <i class="bi bi-info-circle"></i> 当前为草稿状态，发起人、管理层和系统管理员可见。点击完成后将进入质量检测模块。
+            </div>
+            {% else %}
+            <div class="alert alert-secondary mb-0">
+                <i class="bi bi-info-circle"></i> 提交至质量检测前可继续编辑；提交后基础信息和附件将锁定。
             </div>
             {% endif %}
         </form>

@@ -70,6 +70,12 @@
 </div>
 
 <form method="POST" action="" id="workOrderForm" enctype="multipart/form-data">
+    {% if is_edit %}
+    <div class="alert alert-info d-flex align-items-start gap-2" role="alert">
+        <i class="bi bi-pencil-square"></i>
+        <div>当前订单尚未提交至质量检测，可修改基础信息和附件。保存后仍可继续编辑；确认提交后将锁定，如需改正必须通过正式退回质量控制流程。</div>
+    </div>
+    {% endif %}
     <div class="card mb-4">
         <div class="card-header bg-primary text-white">
             <h5 class="mb-0"><i class="bi bi-info-circle"></i> 基础信息</h5>
@@ -442,6 +448,9 @@ function filterWorkpieceOptions(resetSelection = true) {
 }
 
 function submitNewOrder(action) {
+    if (action === 'complete' && !window.confirm('确认提交至质量检测吗？提交后基础信息和附件将锁定；如需修改，必须通过正式退回质量控制流程。')) {
+        return;
+    }
     document.getElementById('submitAction').value = action;
     document.getElementById('workOrderForm').submit();
 }
