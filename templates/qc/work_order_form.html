@@ -79,6 +79,7 @@
                 <div class="col-md-3 mb-3">
                     <label class="form-label">批次编号 <span class="text-danger">*</span></label>
                     <input type="text" class="form-control" name="batch_no" value="{{ order.batch_no if order else '' }}">
+                    <div class="form-text">可与历史订单编号重复，系统会以订单号区分每一笔记录。</div>
                 </div>
                 <div class="col-md-3 mb-3">
                     <label class="form-label">工件类型 <span class="text-danger">*</span></label>

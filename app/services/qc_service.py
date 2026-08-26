@@ -749,7 +749,11 @@ class QCService:
     def can_view_work_order(user: User, work_order: QCWorkOrder) -> bool:
         """Return whether the user can view the work order."""
         if work_order.status == 'draft':
-            return user.is_superadmin or (
+            if user.is_superadmin:
+                return True
+            if user.ai_cats_is_manager:
+                return QCService._can_access_work_order_scope(user)
+            return (
                 user.has_ai_cats_identity('controller', 'production')
                 and work_order.controller_id == user.id
                 and QCService._can_access_work_order_scope(user)
@@ -992,11 +996,10 @@ class QCService:
         """Return the quality-control work-order list for the user scope."""
         query = QCWorkOrder.query
 
-        if user.is_superadmin:
-            query = query
-        elif user.ai_cats_is_manager and QCService.can_access_quality_control(user):
-            query = query.filter(QCWorkOrder.status != 'draft')
-        else:
+        manager_can_view_all = (
+            user.ai_cats_is_manager and QCService.can_access_quality_control(user)
+        )
+        if not user.is_superadmin and not manager_can_view_all:
             if user.has_ai_cats_identity('controller', 'production') and QCService.can_access_quality_control(user):
                 query = query.filter(QCWorkOrder.controller_id == user.id)
             else:
@@ -1288,9 +1291,6 @@ class QCService:
             QCWorkpieceAttachment.attach_type.in_(QC_GUIDE_ATTACHMENT_TYPES),
         ).order_by(QCWorkpieceAttachment.sort_order.asc(), QCWorkpieceAttachment.id.asc()).all()
 
-        if not guide_items:
-            raise ValueError('请至少添加一项作业指导书')
-
         for idx, item in enumerate(guide_items):
             title = normalize_qc_guide_title(item.get('title'), idx + 1)
             content = (item.get('content') or '').strip()
@@ -1498,10 +1498,6 @@ class QCService:
             except (TypeError, ValueError):
                 raise ValueError('生产数量必须为正数')
 
-        existing = QCWorkOrder.query.filter_by(batch_no=batch_no).first()
-        if existing:
-            raise ValueError(f"批次编号 '{batch_no}' 已存在")
-
         work_order = QCWorkOrder(
             batch_no=batch_no,
             workpiece_id=selected_workpiece.id if selected_workpiece else None,
@@ -1568,11 +1564,6 @@ class QCService:
             except (TypeError, ValueError):
                 raise ValueError('生产数量必须为正数')
 
-        if batch_no != work_order.batch_no:
-            existing = QCWorkOrder.query.filter_by(batch_no=batch_no).first()
-            if existing:
-                raise ValueError(f"批次编号 '{batch_no}' 已存在")
-
         work_order.batch_no = batch_no
         work_order.quantity = quantity
         work_order.workpiece_type = workpiece_type
@@ -1617,9 +1608,6 @@ class QCService:
             for idx, drawing in enumerate(workpiece.drawing_attachments, start=1):
                 if not drawing.file_path:
                     raise ValueError(f'请完善图纸{idx}')
-        if not workpiece.guide_attachments:
-            raise ValueError('所选工件未配置作业指导书')
-
         QCService._apply_workpiece_snapshot(work_order, workpiece)
         QCService.add_order_history(
             work_order,
@@ -1901,9 +1889,6 @@ class QCService:
                     raise ValueError(f'请完善质检材料{idx}')
         elif not primary_materials or not primary_materials[0].file_path:
             raise ValueError('请上传图纸')
-        if not guides:
-            raise ValueError('请至少添加一项作业指导书')
-
         for idx, guide in enumerate(guides, start=1):
             if guide.is_required and (not guide.display_title or not guide.file_path):
                 raise ValueError(f'请完善作业指导书{idx}')
@@ -2252,14 +2237,13 @@ class QCService:
         """Return dashboard statistics for the current user."""
         base_query = QCWorkOrder.query
 
-        if not user.is_superadmin:
-            if user.ai_cats_is_manager and (
-                QCService.can_access_quality_control(user)
-                or QCService.can_access_inspection(user)
-                or QCService.can_access_acceptance(user)
-            ):
-                base_query = base_query.filter(QCWorkOrder.status != 'draft')
-            elif user.has_ai_cats_identity('controller', 'production'):
+        manager_can_view_all = user.ai_cats_is_manager and (
+            QCService.can_access_quality_control(user)
+            or QCService.can_access_inspection(user)
+            or QCService.can_access_acceptance(user)
+        )
+        if not user.is_superadmin and not manager_can_view_all:
+            if user.has_ai_cats_identity('controller', 'production'):
                 base_query = base_query.filter(QCWorkOrder.controller_id == user.id)
             elif user.has_ai_cats_identity('supplier', 'production'):
                 base_query = base_query.filter(QCWorkOrder.inspector_id == user.id)
@@ -2284,19 +2268,17 @@ class QCService:
         """Return recent work orders visible to the current user."""
         query = QCWorkOrder.query
 
-        if user.is_superadmin:
-            query = query
-        elif user.ai_cats_is_manager and (
+        manager_can_view_all = user.ai_cats_is_manager and (
             QCService.can_access_quality_control(user)
             or QCService.can_access_inspection(user)
             or QCService.can_access_acceptance(user)
-        ):
-            query = query.filter(QCWorkOrder.status != 'draft')
-        elif user.has_ai_cats_identity('controller', 'production'):
-            query = query.filter(QCWorkOrder.controller_id == user.id)
-        elif user.has_ai_cats_identity('supplier', 'production'):
-            query = query.filter(QCWorkOrder.inspector_id == user.id)
-        else:
-            return []
+        )
+        if not user.is_superadmin and not manager_can_view_all:
+            if user.has_ai_cats_identity('controller', 'production'):
+                query = query.filter(QCWorkOrder.controller_id == user.id)
+            elif user.has_ai_cats_identity('supplier', 'production'):
+                query = query.filter(QCWorkOrder.inspector_id == user.id)
+            else:
+                return []
 
         return query.order_by(QCWorkOrder.created_at.desc()).limit(limit).all()

@@ -83,7 +83,7 @@ def create_qc_tables(cursor):
         cursor.execute("""
             CREATE TABLE qc_work_orders (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                batch_no VARCHAR(100) UNIQUE NOT NULL,
+                batch_no VARCHAR(100) NOT NULL,
                 workpiece_name VARCHAR(200) NOT NULL,
                 quantity FLOAT NOT NULL,
                 controller_id INTEGER NOT NULL,

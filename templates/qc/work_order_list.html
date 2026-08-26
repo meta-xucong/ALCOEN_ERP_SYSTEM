@@ -67,7 +67,10 @@
                     {% for order in orders %}
                     {% set status_info = order.get_status_display() %}
                     <tr>
-                        <td><strong>{{ order.batch_no }}</strong></td>
+                        <td>
+                            <strong>{{ order.batch_no }}</strong>
+                            <div class="small text-muted">订单 #{{ order.id }}</div>
+                        </td>
                         <td>{{ order.workpiece_name }}</td>
                         <td class="text-center">
                             <span class="badge {{ 'bg-info' if order.is_outsourced else 'bg-success' }}">

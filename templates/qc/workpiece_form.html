@@ -251,7 +251,7 @@
     <div class="card mt-4 mb-4">
         <div class="card-header bg-warning text-dark">
             <div class="attachment-toolbar">
-                <h5 class="mb-0"><i class="bi bi-list-check"></i> 作业指导书 <span class="text-danger">*</span></h5>
+                <h5 class="mb-0"><i class="bi bi-list-check"></i> 作业指导书</h5>
                 <button type="button" class="btn btn-light btn-sm" onclick="addGuide()">
                     <i class="bi bi-plus-circle"></i> 增加作业指导书
                 </button>
@@ -290,28 +290,7 @@
                     </div>
                     {% endfor %}
                 {% else %}
-                <div class="attachment-item guide-item" data-index="0">
-                    <div class="attachment-toolbar mb-3">
-                        <h6 class="fw-bold mb-0">作业指导书 1</h6>
-                        <button type="button" class="btn btn-outline-danger btn-sm" onclick="removeGuide(this)">
-                            <i class="bi bi-trash"></i> 删除
-                        </button>
-                    </div>
-                    <div class="row">
-                        <div class="col-md-4 mb-3">
-                            <label class="form-label">标题</label>
-                            <input type="text" class="form-control" name="guide_title_0" value="作业指导书1">
-                        </div>
-                        <div class="col-md-4 mb-3">
-                            <label class="form-label">内容</label>
-                            <input type="text" class="form-control" name="guide_content_0">
-                        </div>
-                        <div class="col-md-4 mb-3">
-                            <label class="form-label">文件 <span class="text-danger">*</span></label>
-                            <input type="file" class="form-control" name="guide_file_0" accept="image/*,application/pdf">
-                        </div>
-                    </div>
-                </div>
+                <div id="guideEmptyText" class="help-copy text-muted">暂未添加作业指导书，可按需添加。</div>
                 {% endif %}
             </div>
         </div>
@@ -522,6 +501,10 @@ function removeMaterial(button) {
 
 function addGuide() {
     const container = document.getElementById('guideContainer');
+    const empty = document.getElementById('guideEmptyText');
+    if (empty) {
+        empty.remove();
+    }
     const index = guideIndex++;
     container.insertAdjacentHTML('beforeend', `
         <div class="attachment-item guide-item" data-index="${index}">
@@ -551,13 +534,15 @@ function addGuide() {
 }
 
 function removeGuide(button) {
-    const items = document.querySelectorAll('.guide-item');
-    if (items.length <= 1) {
-        alert('至少保留一项作业指导书。');
-        return;
-    }
+    const container = document.getElementById('guideContainer');
     button.closest('.guide-item').remove();
     renumberItems('.guide-item', '作业指导书');
+    if (container.querySelectorAll('.guide-item').length === 0) {
+        container.insertAdjacentHTML(
+            'beforeend',
+            '<div id="guideEmptyText" class="help-copy text-muted">暂未添加作业指导书，可按需添加。</div>'
+        );
+    }
 }
 
 function addRemark() {

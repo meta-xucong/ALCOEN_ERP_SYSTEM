@@ -1971,7 +1971,9 @@ class QCWorkOrder(db.Model):
     __tablename__ = 'qc_work_orders'
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    batch_no: Mapped[str] = mapped_column(String(100), unique=True, nullable=False, index=True)
+    # A business batch number may be reused for separate production orders.
+    # The primary key remains the immutable identifier for every order.
+    batch_no: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
     workpiece_id: Mapped[int] = mapped_column(ForeignKey('qc_workpieces.id', ondelete='SET NULL'), nullable=True, index=True)
     workpiece_name: Mapped[str] = mapped_column(String(200), nullable=False)
     workpiece_type: Mapped[str] = mapped_column(
@@ -2213,20 +2215,6 @@ class QCWorkOrder(db.Model):
 
     def can_be_viewed_by(self, user: 'User') -> bool:
         """判断指定用户是否有权查看此订单"""
-        if self.status == 'draft':
-            return user.is_superadmin or (
-                user.has_ai_cats_identity('controller', 'production')
-                and self.controller_id == user.id
-                and any(
-                    user.has_ai_cats_permission(permission_code)
-                    for permission_code in (
-                        'qc_work_order_view',
-                        'qc_work_order_create',
-                        'qc_work_order_edit',
-                        'qc_work_order_delete',
-                    )
-                )
-            )
         if user.is_superadmin:
             return True
         if user.ai_cats_is_manager:
@@ -2241,6 +2229,20 @@ class QCWorkOrder(db.Model):
                     'qc_inspection_perform',
                     'qc_acceptance_perform',
                     'qc_acceptance_rollback',
+                )
+            )
+        if self.status == 'draft':
+            return (
+                user.has_ai_cats_identity('controller', 'production')
+                and self.controller_id == user.id
+                and any(
+                    user.has_ai_cats_permission(permission_code)
+                    for permission_code in (
+                        'qc_work_order_view',
+                        'qc_work_order_create',
+                        'qc_work_order_edit',
+                        'qc_work_order_delete',
+                    )
                 )
             )
         if user.has_ai_cats_identity('controller', 'production') and self.controller_id == user.id:

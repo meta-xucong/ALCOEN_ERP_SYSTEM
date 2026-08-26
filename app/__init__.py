@@ -17,6 +17,119 @@ except ImportError:
 db = SQLAlchemy()
 
 
+def _quote_sqlite_identifier(identifier: str) -> str:
+    """Quote one SQLite identifier supplied by schema introspection."""
+    return f'"{identifier.replace("\"", "\"\"")}"'
+
+
+def _rebuild_qc_work_orders_without_unique_batch_no(connection) -> None:
+    """Rebuild the legacy table only when batch_no is a table-level UNIQUE key."""
+    table_name = 'qc_work_orders'
+    replacement_name = 'qc_work_orders_batch_no_rebuild'
+    columns = connection.exec_driver_sql(f'PRAGMA table_info({table_name})').fetchall()
+    foreign_keys = connection.exec_driver_sql(f'PRAGMA foreign_key_list({table_name})').fetchall()
+    index_rows = connection.exec_driver_sql(f'PRAGMA index_list({table_name})').fetchall()
+
+    column_names = [row[1] for row in columns]
+    column_definitions = []
+    for _, column_name, column_type, not_null, default_value, primary_key in columns:
+        definition = f'{_quote_sqlite_identifier(column_name)} {column_type or "TEXT"}'
+        if not_null:
+            definition += ' NOT NULL'
+        if default_value is not None:
+            definition += f' DEFAULT {default_value}'
+        if primary_key:
+            definition += ' PRIMARY KEY'
+        column_definitions.append(definition)
+
+    foreign_keys_by_id = {}
+    for row in foreign_keys:
+        foreign_keys_by_id.setdefault(row[0], []).append(row)
+    for key_rows in foreign_keys_by_id.values():
+        first = key_rows[0]
+        source_columns = ', '.join(_quote_sqlite_identifier(row[3]) for row in key_rows)
+        target_columns = ', '.join(_quote_sqlite_identifier(row[4]) for row in key_rows)
+        foreign_key = (
+            f'FOREIGN KEY ({source_columns}) REFERENCES {_quote_sqlite_identifier(first[2])} '
+            f'({target_columns})'
+        )
+        if first[6] and first[6] != 'NO ACTION':
+            foreign_key += f' ON DELETE {first[6]}'
+        if first[5] and first[5] != 'NO ACTION':
+            foreign_key += f' ON UPDATE {first[5]}'
+        column_definitions.append(foreign_key)
+
+    preserved_indexes = []
+    for index_row in index_rows:
+        index_name, is_unique = index_row[1], bool(index_row[2])
+        index_columns = [
+            column_row[2]
+            for column_row in connection.exec_driver_sql(
+                f'PRAGMA index_info({_quote_sqlite_identifier(index_name)})'
+            ).fetchall()
+        ]
+        if is_unique and index_columns == ['batch_no']:
+            continue
+        if not index_name.startswith('sqlite_autoindex'):
+            preserved_indexes.append((index_name, is_unique, index_columns))
+
+    quoted_table = _quote_sqlite_identifier(table_name)
+    quoted_replacement = _quote_sqlite_identifier(replacement_name)
+    quoted_columns = ', '.join(_quote_sqlite_identifier(column_name) for column_name in column_names)
+    connection.exec_driver_sql(f'DROP TABLE IF EXISTS {quoted_replacement}')
+    connection.exec_driver_sql(
+        f'CREATE TABLE {quoted_replacement} ({", ".join(column_definitions)})'
+    )
+    connection.exec_driver_sql(
+        f'INSERT INTO {quoted_replacement} ({quoted_columns}) '
+        f'SELECT {quoted_columns} FROM {quoted_table}'
+    )
+    connection.exec_driver_sql(f'DROP TABLE {quoted_table}')
+    connection.exec_driver_sql(f'ALTER TABLE {quoted_replacement} RENAME TO {quoted_table}')
+
+    for index_name, is_unique, index_columns in preserved_indexes:
+        quoted_index_columns = ', '.join(_quote_sqlite_identifier(column_name) for column_name in index_columns)
+        unique_clause = 'UNIQUE ' if is_unique else ''
+        connection.exec_driver_sql(
+            f'CREATE {unique_clause}INDEX {_quote_sqlite_identifier(index_name)} '
+            f'ON {quoted_table} ({quoted_index_columns})'
+        )
+
+
+def _ensure_qc_work_order_batch_no_index() -> None:
+    """Replace legacy unique batch-number indexes without changing order rows."""
+    with db.engine.begin() as connection:
+        index_rows = connection.exec_driver_sql('PRAGMA index_list(qc_work_orders)').fetchall()
+        unique_batch_indexes = []
+        for index_row in index_rows:
+            index_name, is_unique = index_row[1], bool(index_row[2])
+            if not is_unique:
+                continue
+            index_columns = [
+                column_row[2]
+                for column_row in connection.exec_driver_sql(
+                    f'PRAGMA index_info({_quote_sqlite_identifier(index_name)})'
+                ).fetchall()
+            ]
+            if index_columns == ['batch_no']:
+                unique_batch_indexes.append(index_name)
+
+        if any(name.startswith('sqlite_autoindex') for name in unique_batch_indexes):
+            connection.exec_driver_sql('PRAGMA foreign_keys=OFF')
+            try:
+                _rebuild_qc_work_orders_without_unique_batch_no(connection)
+            finally:
+                connection.exec_driver_sql('PRAGMA foreign_keys=ON')
+        else:
+            for index_name in unique_batch_indexes:
+                connection.exec_driver_sql(f'DROP INDEX IF EXISTS {_quote_sqlite_identifier(index_name)}')
+
+        connection.exec_driver_sql(
+            'CREATE INDEX IF NOT EXISTS ix_qc_work_orders_batch_no '
+            'ON qc_work_orders (batch_no)'
+        )
+
+
 def _run_lightweight_schema_upgrades():
     """Apply additive QC schema upgrades for SQLite deployments without Alembic."""
     inspector = inspect(db.engine)
@@ -100,6 +213,10 @@ def _run_lightweight_schema_upgrades():
             with db.engine.begin() as connection:
                 for statement in alter_statements:
                     connection.exec_driver_sql(statement)
+
+        # Business batch numbers are reusable. This covers both the named
+        # unique index made by SQLAlchemy and older table-level UNIQUE keys.
+        _ensure_qc_work_order_batch_no_index()
 
     if inspector.has_table('qc_workpieces'):
         workpiece_columns = {column['name'] for column in inspector.get_columns('qc_workpieces')}

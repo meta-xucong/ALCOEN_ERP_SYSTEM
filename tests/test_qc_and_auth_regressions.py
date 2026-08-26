@@ -10,7 +10,7 @@ import pytest
 from werkzeug.datastructures import FileStorage
 from werkzeug.security import generate_password_hash
 
-from app import db
+from app import _ensure_qc_work_order_batch_no_index, db
 from app.models import (
     Department,
     QCAcceptanceSignature,
@@ -589,11 +589,17 @@ def test_outsourced_workpiece_materials_flow_updates_inventory_and_history(app, 
 
 
 def test_self_produced_workpiece_supports_multiple_drawings_and_preview(app, client, login, monkeypatch):
-    """Self-produced workpieces should store drawings with the same multi-file structure as materials."""
+    """Workpieces can omit guides while retaining required drawings and workflow access."""
     with app.app_context():
-        controller_id, _, _ = _seed_qc_users()
+        controller_id, inspector_id, _ = _seed_qc_users()
 
     login(controller_id)
+
+    form = client.get("/qc/workpieces/new")
+    form_text = form.get_data(as_text=True)
+    assert form.status_code == 200
+    assert "暂未添加作业指导书，可按需添加。" in form_text
+    assert "作业指导书 <span class=\"text-danger\">*</span>" not in form_text
 
     monkeypatch.setattr(
         QCService,
@@ -623,9 +629,6 @@ def test_self_produced_workpiece_supports_multiple_drawings_and_preview(app, cli
             "drawing_title_2": "Drawing B",
             "drawing_content_2": "Version B",
             "drawing_file_2": (io.BytesIO(b"draw-b"), "drawing-b.pdf"),
-            "guide_title_0": "Guide A",
-            "guide_content_0": "Instruction",
-            "guide_file_0": (io.BytesIO(b"guide"), "guide.png"),
         },
         content_type="multipart/form-data",
         follow_redirects=False,
@@ -638,6 +641,7 @@ def test_self_produced_workpiece_supports_multiple_drawings_and_preview(app, cli
         workpiece = QCWorkpiece.query.filter_by(workpiece_code="SELF-DRAW-001").first()
         assert workpiece is not None
         assert len(workpiece.drawing_attachments) == 2
+        assert not workpiece.guide_attachments
         assert [drawing.display_title for drawing in workpiece.drawing_attachments] == ["Drawing A", "Drawing B"]
 
         preview = QCService.serialize_workpiece_preview(workpiece)
@@ -659,6 +663,10 @@ def test_self_produced_workpiece_supports_multiple_drawings_and_preview(app, cli
         order = QCWorkOrder.query.get(order.id)
         assert len(order.drawing_attachments) == 2
         assert len(order.primary_material_attachments) == 2
+        assert not order.guide_attachments
+
+        QCService.complete_quality_control(order.id, inspector_id, controller)
+        assert QCWorkOrder.query.get(order.id).status == "qc_completed"
 
 
 def test_cancel_acceptance_signature_reopens_accepted_order_and_reverses_inventory(app):
@@ -1608,8 +1616,8 @@ def test_quality_control_new_without_submit_action_does_not_persist(app, client,
         assert order is None
 
 
-def test_draft_visibility_owner_and_superadmin_only(app):
-    """Draft work order should only be visible to owner and superadmin."""
+def test_draft_visibility_includes_management(app, client, login):
+    """Draft work orders should remain visible to management under its existing full access."""
     with app.app_context():
         dept = Department(name="QC Draft")
         db.session.add(dept)
@@ -1654,6 +1662,7 @@ def test_draft_visibility_owner_and_superadmin_only(app):
         )
         db.session.add_all([superadmin, owner, gm])
         db.session.flush()
+        gm_id = gm.id
 
         draft = QCService.create_work_order(
             data={"batch_no": "BATCH-DRAFT-VIS", "workpiece_name": "Draft Visible", "quantity": "1"},
@@ -1664,7 +1673,126 @@ def test_draft_visibility_owner_and_superadmin_only(app):
 
         assert QCService.can_view_work_order(owner, draft) is True
         assert QCService.can_view_work_order(superadmin, draft) is True
-        assert QCService.can_view_work_order(gm, draft) is False
+        assert QCService.can_view_work_order(gm, draft) is True
+        assert draft.can_be_viewed_by(gm) is True
+        assert QCService.can_edit_work_order(gm, draft) is True
+        assert [order.id for order in QCService.get_work_order_list(gm).items] == [draft.id]
+        assert [order.id for order in QCService.get_recent_work_orders(gm)] == [draft.id]
+        draft_id = draft.id
+
+    login(gm_id)
+    list_response = client.get('/qc/quality-control/')
+    detail_response = client.get(f'/qc/quality-control/{draft_id}')
+    assert list_response.status_code == 200
+    assert 'BATCH-DRAFT-VIS' in list_response.get_data(as_text=True)
+    assert detail_response.status_code == 200
+    assert '发起人、管理层和系统管理员可见' in detail_response.get_data(as_text=True)
+
+
+def test_qc_work_order_batch_no_can_repeat_and_update_to_existing_value(app):
+    """Separate work orders may reuse one business batch number."""
+    with app.app_context():
+        controller_id, _, _ = _seed_qc_users()
+        controller = db.session.get(User, controller_id)
+
+        first_order = QCService.create_work_order(
+            data={
+                'batch_no': 'REPEAT-BATCH-001',
+                'workpiece_name': '第一批工件',
+                'quantity': '1',
+            },
+            controller_id=controller_id,
+            status='draft',
+        )
+        second_order = QCService.create_work_order(
+            data={
+                'batch_no': 'REPEAT-BATCH-002',
+                'workpiece_name': '第二批工件',
+                'quantity': '2',
+            },
+            controller_id=controller_id,
+            status='draft',
+        )
+        db.session.commit()
+
+        updated_order = QCService.update_work_order(
+            second_order.id,
+            {
+                'batch_no': first_order.batch_no,
+                'workpiece_name': second_order.workpiece_name,
+                'quantity': str(second_order.quantity),
+            },
+            controller,
+        )
+
+        matching_orders = QCWorkOrder.query.filter_by(batch_no='REPEAT-BATCH-001').all()
+        assert {order.id for order in matching_orders} == {first_order.id, second_order.id}
+        assert updated_order.id == second_order.id
+
+
+def test_batch_number_schema_upgrade_replaces_unique_lookup_index(app):
+    """The startup migration must preserve rows while removing the legacy unique index."""
+    with app.app_context():
+        with db.engine.begin() as connection:
+            connection.exec_driver_sql('DROP INDEX IF EXISTS ix_qc_work_orders_batch_no')
+            connection.exec_driver_sql(
+                'CREATE UNIQUE INDEX ix_qc_work_orders_batch_no ON qc_work_orders (batch_no)'
+            )
+
+        _ensure_qc_work_order_batch_no_index()
+
+        with db.engine.connect() as connection:
+            index_rows = connection.exec_driver_sql('PRAGMA index_list(qc_work_orders)').fetchall()
+            batch_indexes = []
+            for index_row in index_rows:
+                index_name = index_row[1].replace('"', '""')
+                columns = connection.exec_driver_sql(
+                    f'PRAGMA index_info("{index_name}")'
+                ).fetchall()
+                if [column_row[2] for column_row in columns] == ['batch_no']:
+                    batch_indexes.append(bool(index_row[2]))
+        assert batch_indexes == [False]
+
+
+def test_batch_number_schema_upgrade_rebuilds_legacy_table_constraint(app):
+    """The migration must also handle early SQLite tables with a UNIQUE constraint."""
+    with app.app_context():
+        raw_connection = db.engine.raw_connection()
+        try:
+            cursor = raw_connection.cursor()
+            cursor.execute('PRAGMA foreign_keys=OFF')
+            cursor.execute('DROP TABLE qc_work_orders')
+            cursor.execute(
+                '''
+                CREATE TABLE qc_work_orders (
+                    id INTEGER PRIMARY KEY,
+                    batch_no VARCHAR(100) UNIQUE NOT NULL,
+                    workpiece_name VARCHAR(200) NOT NULL,
+                    quantity FLOAT NOT NULL,
+                    controller_id INTEGER NOT NULL
+                )
+                '''
+            )
+            cursor.execute(
+                "INSERT INTO qc_work_orders (batch_no, workpiece_name, quantity, controller_id) "
+                "VALUES ('LEGACY-REPEAT-001', '旧版工件', 1, 1)"
+            )
+            raw_connection.commit()
+            cursor.execute('PRAGMA foreign_keys=ON')
+        finally:
+            raw_connection.close()
+
+        _ensure_qc_work_order_batch_no_index()
+
+        with db.engine.begin() as connection:
+            connection.exec_driver_sql(
+                "INSERT INTO qc_work_orders (batch_no, workpiece_name, quantity, controller_id) "
+                "VALUES ('LEGACY-REPEAT-001', '新版工件', 2, 1)"
+            )
+            matching_count = connection.exec_driver_sql(
+                "SELECT COUNT(*) FROM qc_work_orders WHERE batch_no = 'LEGACY-REPEAT-001'"
+            ).scalar_one()
+        assert matching_count == 2
 
 
 def test_qc_admin_menu_contains_required_items_without_department(app, client, login):
