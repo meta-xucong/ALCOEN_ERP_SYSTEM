@@ -19,7 +19,7 @@ db = SQLAlchemy()
 
 def _quote_sqlite_identifier(identifier: str) -> str:
     """Quote one SQLite identifier supplied by schema introspection."""
-    return f'"{identifier.replace("\"", "\"\"")}"'
+    return '"' + identifier.replace('"', '""') + '"'
 
 
 def _rebuild_qc_work_orders_without_unique_batch_no(connection) -> None:
