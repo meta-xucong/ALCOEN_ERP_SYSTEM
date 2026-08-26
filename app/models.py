@@ -465,18 +465,80 @@ class Contract(db.Model):
         return status_map.get(self.payment_status, status_map['pending'])
 
     def get_invoice_status_display(self):
-        """获取开票状态显示。"""
-        if any(record.is_zero_value_exemption for record in self.payment_records):
-            return {'text': '不需要开票', 'class': 'secondary', 'badge': 'bg-secondary'}
-        has_invoice = any(
-            (p.invoice_date or (p.invoice_amount or 0) > 0)
-            for p in self.payment_records
-        ) or any(
-            t.invoice_date for t in self.transactions
+        """获取按合同累计开票金额计算的开票状态。"""
+        status_map = {
+            'not_required': {'text': '不需要开票', 'class': 'secondary', 'badge': 'bg-secondary'},
+            'invoiced': {'text': '已开票', 'class': 'success', 'badge': 'bg-success'},
+            'partial': {'text': '部分开票', 'class': 'warning', 'badge': 'bg-warning'},
+            'not_invoiced': {'text': '未开票', 'class': 'danger', 'badge': 'bg-danger'},
+        }
+        return status_map[self.get_invoice_summary()['status']]
+
+    def get_invoice_summary(self):
+        """汇总合同开票金额，并兼容历史发货记录中的开票日期。
+
+        新版开票金额以 ``PaymentRecord.invoice_amount`` 为唯一金额来源。
+        仅当合同没有新版开票金额时，才用旧发货记录的含税金额作兼容，
+        避免同一笔历史数据在两个来源中被重复累计。
+        """
+        payment_records = self.payment_records or []
+        transactions = self.transactions or []
+        has_zero_value_exemption = any(
+            record.is_zero_value_exemption for record in payment_records
         )
-        if has_invoice:
-            return {'text': '已开票', 'class': 'success', 'badge': 'bg-success'}
-        return {'text': '未开票', 'class': 'danger', 'badge': 'bg-danger'}
+        target_amount = round(
+            float(
+                self.actual_received_value
+                if self.actual_received_value is not None
+                else (self.total_value or 0)
+            ),
+            2,
+        )
+        payment_invoice_amount = round(
+            sum(float(record.invoice_amount or 0) for record in payment_records),
+            2,
+        )
+        has_payment_invoice_marker = any(
+            record.invoice_date or (record.invoice_amount or 0) > 0
+            for record in payment_records
+        )
+        legacy_invoice_amount = round(
+            sum(
+                float(transaction.total_price_with_tax or 0)
+                for transaction in transactions
+                if transaction.invoice_date
+            ),
+            2,
+        )
+        has_legacy_invoice_marker = any(
+            transaction.invoice_date for transaction in transactions
+        )
+
+        if payment_invoice_amount > 0:
+            invoiced_amount = payment_invoice_amount
+            has_invoice = True
+        elif has_payment_invoice_marker:
+            # 历史上可能仅保存了开票日期而没有金额，保守显示为部分开票。
+            invoiced_amount = 0.0
+            has_invoice = True
+        else:
+            invoiced_amount = legacy_invoice_amount
+            has_invoice = has_legacy_invoice_marker
+
+        if has_zero_value_exemption:
+            status = 'not_required'
+        elif not has_invoice:
+            status = 'not_invoiced'
+        elif target_amount > 0 and invoiced_amount < target_amount - 0.005:
+            status = 'partial'
+        else:
+            status = 'invoiced'
+
+        return {
+            'status': status,
+            'target_amount': target_amount,
+            'invoiced_amount': invoiced_amount,
+        }
 
     def append_remark(self, message: str):
         """追加备注记录"""

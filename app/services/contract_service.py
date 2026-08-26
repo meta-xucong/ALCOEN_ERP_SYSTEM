@@ -758,7 +758,13 @@ class ContractService:
             query = query.filter(Contract.created_by_id == created_by)
 
         if invoice_statuses:
-            from sqlalchemy import or_
+            from sqlalchemy import case, func, or_
+
+            payment_invoice_amount = db.session.query(
+                func.coalesce(func.sum(PaymentRecord.invoice_amount), 0)
+            ).filter(
+                PaymentRecord.contract_id == Contract.id
+            ).scalar_subquery()
             payment_invoice_exists = db.session.query(PaymentRecord.id).filter(
                 PaymentRecord.contract_id == Contract.id,
                 or_(
@@ -766,14 +772,44 @@ class ContractService:
                     PaymentRecord.invoice_amount > 0
                 )
             ).exists()
-            transaction_invoice_exists = db.session.query(Transaction.id).filter(
+            legacy_invoice_amount = db.session.query(
+                func.coalesce(
+                    func.sum(
+                        case(
+                            (Transaction.invoice_date.isnot(None), Transaction.total_price_with_tax),
+                            else_=0,
+                        )
+                    ),
+                    0,
+                )
+            ).filter(
+                Transaction.contract_id == Contract.id
+            ).scalar_subquery()
+            legacy_invoice_exists = db.session.query(Transaction.id).filter(
                 Transaction.contract_id == Contract.id,
                 Transaction.invoice_date.isnot(None)
             ).exists()
-            has_invoice_expr = or_(payment_invoice_exists, transaction_invoice_exists)
+            has_numeric_payment_invoice = payment_invoice_amount > 0
+            has_invoice_expr = or_(payment_invoice_exists, legacy_invoice_exists)
+            invoiced_amount_expr = case(
+                (has_numeric_payment_invoice, payment_invoice_amount),
+                (payment_invoice_exists, 0),
+                else_=legacy_invoice_amount,
+            )
+            invoice_target_expr = func.coalesce(Contract.actual_received_value, Contract.total_value, 0)
+            fully_invoiced_expr = (
+                has_invoice_expr
+                & or_(
+                    invoice_target_expr <= 0,
+                    invoiced_amount_expr >= invoice_target_expr - 0.005,
+                )
+            )
+            partially_invoiced_expr = has_invoice_expr & ~fully_invoiced_expr
             invoice_filters = []
             if 'invoiced' in invoice_statuses:
-                invoice_filters.append(has_invoice_expr)
+                invoice_filters.append(fully_invoiced_expr)
+            if 'partial' in invoice_statuses:
+                invoice_filters.append(partially_invoiced_expr)
             if 'not_invoiced' in invoice_statuses:
                 invoice_filters.append(~has_invoice_expr)
             if invoice_filters:

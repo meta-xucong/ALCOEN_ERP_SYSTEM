@@ -109,6 +109,10 @@
                             <label class="form-check-label" for="invoice-done">已开票</label>
                         </div>
                         <div class="form-check">
+                            <input class="form-check-input" type="checkbox" name="invoice_status" value="partial" id="invoice-partial" {% if 'partial' in invoice_statuses %}checked{% endif %}>
+                            <label class="form-check-label" for="invoice-partial">部分开票</label>
+                        </div>
+                        <div class="form-check">
                             <input class="form-check-input" type="checkbox" name="invoice_status" value="not_invoiced" id="invoice-none" {% if 'not_invoiced' in invoice_statuses %}checked{% endif %}>
                             <label class="form-check-label" for="invoice-none">未开票</label>
                         </div>
