@@ -87,6 +87,9 @@ def test_research_module_tables_have_required_columns(db_session):
     assert {"batch_id", "attach_type", "source_type", "file_path"} <= batch_attachment_cols
     assert {"batch_id", "reviewer_id", "attachment_id", "result"} <= review_cols
     assert {"batch_id", "signer_id", "signer_role", "signed_at"} <= signature_cols
+    # Research acceptance is a two-party batch workflow; it must not depend on
+    # the unrelated assembly acceptance-batch table.
+    assert "acceptance_batch_id" not in signature_cols
     assert {"batch_id", "operator_id", "action", "detail", "created_at"} <= history_cols
 
 

@@ -2983,7 +2983,6 @@ class ResearchAcceptanceSignature(db.Model):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     batch_id: Mapped[int] = mapped_column(ForeignKey('research_batches.id', ondelete='CASCADE'), nullable=False, index=True)
-    acceptance_batch_id: Mapped[int] = mapped_column(ForeignKey('assembly_acceptance_batches.id', ondelete='CASCADE'), nullable=True, index=True)
     signer_id: Mapped[int] = mapped_column(ForeignKey('users.id'), nullable=False, index=True)
     signer_role: Mapped[str] = mapped_column(String(50), nullable=False)
     signed_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
