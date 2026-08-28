@@ -238,3 +238,50 @@ def test_research_module_end_to_end_workflow(app, client, login, monkeypatch):
         assert batch.accepted_at is not None
         assert len(batch.signatures) == 2
         assert any(history.action == "阶段研发完成" for history in batch.histories)
+
+
+def test_research_project_core_materials_are_optional(app, client, login):
+    """Projects can be created and edited without initiation, research, or plan files."""
+    with app.app_context():
+        controller_id, _ = _seed_research_users()
+
+    login(controller_id)
+    new_page = client.get("/qc/research/projects/new")
+    new_page_html = new_page.get_data(as_text=True)
+    assert new_page.status_code == 200
+    assert '立项资料 <span class="text-danger">*</span>' not in new_page_html
+    assert '研究资料 <span class="text-danger">*</span>' not in new_page_html
+    assert '实验方案 <span class="text-danger">*</span>' not in new_page_html
+
+    create_response = client.post(
+        "/qc/research/projects/new",
+        data={
+            "project_code": "RS-OPTIONAL-001",
+            "project_name": "无资料研究项目",
+        },
+        content_type="multipart/form-data",
+        follow_redirects=False,
+    )
+    assert create_response.status_code == 302
+
+    with app.app_context():
+        project = ResearchProject.query.filter_by(project_code="RS-OPTIONAL-001").first()
+        assert project is not None
+        assert project.attachments == []
+        project_id = project.id
+
+    edit_response = client.post(
+        f"/qc/research/projects/{project_id}/edit",
+        data={
+            "project_code": "RS-OPTIONAL-001",
+            "project_name": "无资料研究项目（已编辑）",
+        },
+        content_type="multipart/form-data",
+        follow_redirects=False,
+    )
+    assert edit_response.status_code == 302
+
+    with app.app_context():
+        project = db.session.get(ResearchProject, project_id)
+        assert project.project_name == "无资料研究项目（已编辑）"
+        assert project.attachments == []

@@ -61,8 +61,6 @@ class ResearchService:
         'validation_item',
         'risk_note',
     )
-    REQUIRED_PROJECT_ATTACHMENT_TYPES = {'initiation_material', 'experiment_plan'}
-
     _ATTACH_SUBFOLDER_MAP = {
         'initiation_material': 'initiation_materials',
         'research_material': 'research_materials',
@@ -683,21 +681,10 @@ class ResearchService:
                         content=content,
                         file_path=relative_path,
                         file_type=file_type,
-                        is_required=True,
+                        is_required=False,
                         sort_order=index,
                     )
                 )
-
-        db.session.flush()
-        for required_type in ResearchService.REQUIRED_PROJECT_ATTACHMENT_TYPES:
-            has_required = ResearchProjectAttachment.query.filter_by(
-                project_id=project.id,
-                attach_type=required_type,
-            ).filter(
-                ResearchProjectAttachment.file_path != ''
-            ).count() > 0
-            if not has_required:
-                raise ValueError('立项资料和实验方案至少各上传一项')
 
         db.session.commit()
         return project

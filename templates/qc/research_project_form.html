@@ -61,7 +61,7 @@
                 <div class="row">
                     <div class="col-md-5 mb-3">
                         <label class="form-label">{{ title_label }}</label>
-                        <input type="text" class="form-control" name="{{ field_prefix }}_title_0" value="{{ card_title }}1" placeholder="请输入{{ title_label }}">
+                        <input type="text" class="form-control" name="{{ field_prefix }}_title_0" placeholder="请输入{{ title_label }}">
                     </div>
                     <div class="col-md-7 mb-3">
                         <label class="form-label">文件{% if not file_optional %} <span class="text-danger">*</span>{% endif %}</label>
@@ -184,13 +184,13 @@
 
     <div class="row g-4">
         <div class="col-12 col-xl-6">
-            {{ render_attachment_section('initiationContainer', 'initiation', '立项资料', 'bi-folder2-open', initiation_materials, '建议上传需求背景、客户资料、样品照片、问题描述等基础材料。', '资料标题') }}
+            {{ render_attachment_section('initiationContainer', 'initiation', '立项资料', 'bi-folder2-open', initiation_materials, '选填：建议上传需求背景、客户资料、样品照片、问题描述等基础材料。', '资料标题', True) }}
         </div>
         <div class="col-12 col-xl-6">
-            {{ render_attachment_section('researchContainer', 'research', '研究资料', 'bi-bezier2', research_materials, '用于补充谱图、参考数据、前期实验输入、外部参考材料。', '资料标题') }}
+            {{ render_attachment_section('researchContainer', 'research', '研究资料', 'bi-bezier2', research_materials, '选填：用于补充谱图、参考数据、前期实验输入、外部参考材料。', '资料标题', True) }}
         </div>
         <div class="col-12 col-xl-6">
-            {{ render_attachment_section('planContainer', 'plan', '实验方案', 'bi-diagram-3', experiment_plans, '请沉淀实验设计、步骤、参数方案、变量控制方案等。', '方案标题') }}
+            {{ render_attachment_section('planContainer', 'plan', '实验方案', 'bi-diagram-3', experiment_plans, '选填：可沉淀实验设计、步骤、参数方案、变量控制方案等。', '方案标题', True) }}
         </div>
         <div class="col-12 col-xl-6">
             {{ render_attachment_section('validationContainer', 'validation', '观察项 / 验证目标', 'bi-binoculars', validation_items, '这部分可以没有附件，只写清需要重点观察或验证的项目。', '观察项标题', True) }}
@@ -239,7 +239,7 @@ function buildResearchSectionItem(container, index) {
             <div class="row">
                 <div class="col-md-5 mb-3">
                     <label class="form-label">${escapeHtml(titleLabel)}</label>
-                    <input type="text" class="form-control" name="${prefix}_title_${index}" value="${escapeHtml(cardTitle)}${index + 1}" placeholder="请输入${escapeHtml(titleLabel)}">
+                    <input type="text" class="form-control" name="${prefix}_title_${index}" placeholder="请输入${escapeHtml(titleLabel)}">
                 </div>
                 <div class="col-md-7 mb-3">
                     <label class="form-label">文件${fileOptional ? '' : ' <span class="text-danger">*</span>'}</label>
