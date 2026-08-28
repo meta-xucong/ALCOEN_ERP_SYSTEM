@@ -804,6 +804,19 @@ class QCService:
         return False
 
     @staticmethod
+    def can_return_work_order_to_edit(user: User, work_order: QCWorkOrder) -> bool:
+        """Return whether a pending inspection can be returned for source-data edits."""
+        if work_order.status not in ['qc_completed', 'inspection_pending']:
+            return False
+        if user.is_superadmin or user.ai_cats_is_manager:
+            return True
+        return (
+            user.has_ai_cats_identity('supplier', 'production')
+            and user.has_ai_cats_permission('qc_inspection_perform')
+            and work_order.inspector_id == user.id
+        )
+
+    @staticmethod
     def can_accept_work_order(user: User, work_order: QCWorkOrder) -> bool:
         """Return whether the user can sign acceptance for the work order."""
         return bool(QCService.eligible_acceptance_signer_roles(user, work_order))
@@ -1988,6 +2001,39 @@ class QCService:
             '如需修改请通过质检退回至质量控制流程',
             user,
         )
+        db.session.commit()
+        return work_order
+
+    @staticmethod
+    def return_work_order_to_edit(order_id: int, user: User) -> QCWorkOrder:
+        """Return a pending inspection to quality control so its source data can be corrected."""
+        work_order = QCWorkOrder.query.get(order_id)
+        if not work_order:
+            raise ValueError('工件订单不存在')
+        if not QCService.can_return_work_order_to_edit(user, work_order):
+            raise ValueError('当前用户或订单状态不允许退回编辑')
+
+        inspection_records = list(work_order.inspection_records)
+        result_labels = {'pass': '通过', 'fail': '不通过', 'draft': '草稿'}
+        record_summary = '、'.join(
+            f'{record.attachment.display_title if record.attachment else "检测项"}:{result_labels.get(record.result, record.result or "未填写")}'
+            for record in inspection_records
+        )
+        for record in inspection_records:
+            if record.report_file_path:
+                QCService._remove_file(work_order.id, record.report_file_path)
+            db.session.delete(record)
+
+        work_order.status = 'qc_pending'
+        work_order.qc_completed_at = None
+        work_order.inspection_completed_at = None
+        work_order.accepted_at = None
+        work_order.rejected_at = None
+        work_order.rejection_reason = None
+        detail = '已从质量检测退回质量控制，基础信息和附件重新开放编辑。'
+        if inspection_records:
+            detail += f'已撤销 {len(inspection_records)} 项质检草稿：{record_summary}'
+        QCService.add_order_history(work_order, '退回编辑', detail, user)
         db.session.commit()
         return work_order
 

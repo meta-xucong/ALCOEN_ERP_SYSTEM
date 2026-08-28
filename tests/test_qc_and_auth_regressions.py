@@ -1919,6 +1919,120 @@ def test_qc_order_edit_window_locks_after_submission_and_reopens_after_return(ap
     assert reopened_edit.status_code == 200
 
 
+def test_inspector_can_return_pending_inspection_for_editing(app, client, login):
+    """The assigned supplier can return an unfinalized inspection to the controller for correction."""
+    with app.app_context():
+        controller_id, inspector_id, _ = _seed_qc_users()
+        controller = db.session.get(User, controller_id)
+        inspector = db.session.get(User, inspector_id)
+        order = QCWorkOrder(
+            batch_no='RETURN-TO-EDIT-001',
+            workpiece_name='待修正工件',
+            quantity=2,
+            controller_id=controller_id,
+            status='qc_pending',
+        )
+        db.session.add(order)
+        db.session.flush()
+        attachment = QCWorkOrderAttachment(
+            work_order_id=order.id,
+            attach_type='drawing',
+            title='待修正图纸',
+            content='',
+            file_path='drawings/return-to-edit.png',
+            file_type='png',
+            is_required=True,
+            sort_order=0,
+        )
+        db.session.add(attachment)
+        db.session.commit()
+
+        QCService.complete_quality_control(order.id, inspector_id, controller)
+        QCService.submit_inspection(
+            order.id,
+            [{'attachment_id': attachment.id, 'result': 'draft', 'remark': '待补充资料'}],
+            inspector,
+            final_submit=False,
+        )
+        order_id = order.id
+        assert order.status == 'inspection_pending'
+        assert QCService.can_return_work_order_to_edit(inspector, order) is True
+        assert QCService.can_return_work_order_to_edit(controller, order) is False
+
+    login(inspector_id)
+    inspection_detail = client.get(f'/qc/quality-inspection/{order_id}')
+    assert inspection_detail.status_code == 200
+    assert '退回编辑' in inspection_detail.get_data(as_text=True)
+
+    response = client.post(
+        f'/qc/quality-inspection/{order_id}/return-to-edit',
+        follow_redirects=False,
+    )
+    assert response.status_code == 302
+
+    with app.app_context():
+        refreshed = db.session.get(QCWorkOrder, order_id)
+        controller = db.session.get(User, controller_id)
+        assert refreshed.status == 'qc_pending'
+        assert refreshed.qc_completed_at is None
+        assert QCService.can_edit_work_order(controller, refreshed) is True
+        assert QCInspectionRecord.query.filter_by(work_order_id=order_id).count() == 0
+        assert any(
+            history.action == '退回编辑' and '已撤销 1 项质检草稿' in (history.detail or '')
+            for history in refreshed.histories
+        )
+
+    login(controller_id)
+    edit_page = client.get(f'/qc/quality-control/{order_id}/edit')
+    assert edit_page.status_code == 200
+
+
+def test_qc_admin_can_return_submitted_order_for_editing(app, client, login, base_data):
+    """Super administrators can return a submitted order before final inspection."""
+    with app.app_context():
+        controller_id, inspector_id, _ = _seed_qc_users()
+        controller = db.session.get(User, controller_id)
+        order = QCWorkOrder(
+            batch_no='ADMIN-RETURN-EDIT-001',
+            workpiece_name='管理员退回工件',
+            quantity=1,
+            controller_id=controller_id,
+            status='qc_pending',
+        )
+        db.session.add(order)
+        db.session.flush()
+        db.session.add(
+            QCWorkOrderAttachment(
+                work_order_id=order.id,
+                attach_type='drawing',
+                title='图纸',
+                content='',
+                file_path='drawings/admin-return.png',
+                file_type='png',
+                is_required=True,
+                sort_order=0,
+            )
+        )
+        db.session.commit()
+        QCService.complete_quality_control(order.id, inspector_id, controller)
+        order_id = order.id
+
+    login(base_data['superadmin_id'])
+    detail = client.get(f'/qc/quality-control/{order_id}')
+    assert detail.status_code == 200
+    assert '退回编辑' in detail.get_data(as_text=True)
+
+    response = client.post(
+        f'/qc/quality-inspection/{order_id}/return-to-edit',
+        follow_redirects=False,
+    )
+    assert response.status_code == 302
+    with app.app_context():
+        order = db.session.get(QCWorkOrder, order_id)
+        assert order.status == 'qc_pending'
+        assert order.is_editable_before_quality_submission is True
+
+
 def test_qc_admin_menu_contains_required_items_without_department(app, client, login):
     """QC system-management menu should expose required entries and hide department management."""
     with app.app_context():

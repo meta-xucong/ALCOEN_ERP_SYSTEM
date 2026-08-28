@@ -11,6 +11,13 @@
         <span class="badge {{ status_info.badge }} fs-6">{{ status_info.text }}</span>
     </h1>
     <div class="d-flex gap-2">
+        {% if can_return_to_edit %}
+        <form method="POST" action="{{ url_for('qc.quality_inspection_return_to_edit', order_id=order.id) }}" onsubmit="return confirm('确认退回编辑吗？质检草稿将被撤销，质控人修改后需要重新提交。');">
+            <button type="submit" class="btn btn-warning">
+                <i class="bi bi-arrow-counterclockwise"></i> 退回编辑
+            </button>
+        </form>
+        {% endif %}
         {% if order.is_editable_before_quality_submission and order.can_be_edited_by(current_user) %}
         <a href="{{ url_for('qc.quality_control_edit', order_id=order.id) }}" class="btn btn-info">
             <i class="bi bi-pencil"></i> 编辑订单（提交前）

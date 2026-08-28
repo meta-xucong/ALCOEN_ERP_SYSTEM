@@ -3092,6 +3092,7 @@ def quality_control_detail(order_id: int):
         order=work_order,
         suppliers=suppliers,
         inspection_records_by_attachment=_build_inspection_record_map(work_order),
+        can_return_to_edit=QCService.can_return_work_order_to_edit(user, work_order),
     )
 
 
@@ -3211,6 +3212,22 @@ def quality_control_complete(order_id: int):
     return redirect(url_for('qc.quality_control_detail', order_id=order_id))
 
 
+@qc_bp.route('/quality-inspection/<int:order_id>/return-to-edit', methods=['POST'])
+@login_required
+def quality_inspection_return_to_edit(order_id: int):
+    """Return a pending inspection to quality control for source-data corrections."""
+    user = g.current_user
+    try:
+        QCService.return_work_order_to_edit(order_id, user)
+        flash('订单已退回编辑，质控人可修正后重新提交', 'success')
+    except ValueError as exc:
+        flash(str(exc), 'error')
+
+    if QCService.can_access_quality_control(user):
+        return redirect(url_for('qc.quality_control_detail', order_id=order_id))
+    return redirect(url_for('qc.quality_inspection_list'))
+
+
 @qc_bp.route('/quality-control/attachments/<int:attachment_id>/delete', methods=['POST'])
 @login_required
 def quality_control_delete_attachment(attachment_id: int):
@@ -3321,6 +3338,7 @@ def quality_inspection_detail(order_id: int):
         'qc/work_order_detail_inspector.html',
         order=work_order,
         inspection_records_by_attachment=_build_inspection_record_map(work_order),
+        can_return_to_edit=QCService.can_return_work_order_to_edit(user, work_order),
     )
 
 
