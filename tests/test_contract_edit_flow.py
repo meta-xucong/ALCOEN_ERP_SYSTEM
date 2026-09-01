@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import Dict
 
 from app.services.contract_service import ContractService
@@ -90,6 +91,32 @@ def test_edit_contract_preserves_four_decimal_product_price(app, client, login, 
         assert round(float(cp.price), 4) == 33.3333
         assert round(float(cp.total), 2) == 100.00
         assert round(float(contract.total_value), 2) == 100.00
+
+
+def test_edit_contract_serializes_special_product_model_without_html_entities(
+    app, client, login, base_data
+):
+    """Existing delivery plans must keep quotes and Unicode intact in page JavaScript."""
+    from app import db
+
+    special_model = "OD1/8'',20μm"
+    with app.app_context():
+        contract, product_plan = _create_contract(base_data["owner_user_id"])
+        product_plan.product_model = special_model
+        db.session.commit()
+        contract_id = contract.id
+
+    login(base_data["superadmin_id"])
+    response = client.get(f"/contract/{contract_id}/edit")
+    assert response.status_code == 200
+
+    product_model_match = re.search(
+        r'product_model:\s*("(?:[^"\\]|\\.)*"),',
+        response.get_data(as_text=True),
+        re.DOTALL,
+    )
+    assert product_model_match is not None
+    assert json.loads(product_model_match.group(1)) == special_model
 
 
 def test_edit_contract_preserves_duplicate_product_plans_and_remarks(app, client, login, base_data):

@@ -295,13 +295,13 @@
 const contractProducts = [
     {% for cp in contract.contract_products %}
     {
-        id: {{ cp.id }},
-        code: '{{ cp.product_code }}',
-        name: '{{ cp.product_name or "" }}',
-        model: '{{ cp.product_model or "" }}',
-        quantity: {{ cp.quantity }},
-        unit: '{{ cp.unit }}',
-        price: {{ cp.price }}
+        id: {{ cp.id|tojson }},
+        code: {{ (cp.product_code or '')|tojson }},
+        name: {{ (cp.product_name or '')|tojson }},
+        model: {{ (cp.product_model or '')|tojson }},
+        quantity: {{ (cp.quantity or 0)|tojson }},
+        unit: {{ (cp.unit or '')|tojson }},
+        price: {{ (cp.price or 0)|tojson }}
     }{% if not loop.last %},{% endif %}
     {% endfor %}
 ];

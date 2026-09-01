@@ -1999,15 +1999,15 @@ function loadExistingData() {
         const existingProducts = [
         {% for cp in contract.contract_products %}
         {
-            id: {{ cp.id }},
-            product_code: '{{ cp.product_code }}',
-            product_name: '{{ cp.product_name or "" }}',
-            product_model: '{{ cp.product_model or "" }}',
-            product_type: '{{ cp.product_type or "" }}',
-            quantity: {{ cp.quantity }},
-            unit: '{{ cp.unit }}',
-            price: {{ cp.price }},
-            total: {{ cp.total }},
+            id: {{ cp.id|tojson }},
+            product_code: {{ (cp.product_code or '')|tojson }},
+            product_name: {{ (cp.product_name or '')|tojson }},
+            product_model: {{ (cp.product_model or '')|tojson }},
+            product_type: {{ (cp.product_type or '')|tojson }},
+            quantity: {{ (cp.quantity or 0)|tojson }},
+            unit: {{ (cp.unit or '')|tojson }},
+            price: {{ (cp.price or 0)|tojson }},
+            total: {{ (cp.total or 0)|tojson }},
             remark: {{ (cp.remark or '')|tojson }}
         }{% if not loop.last %},{% endif %}
         {% endfor %}
