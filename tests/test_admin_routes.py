@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 
 def test_department_crud_routes_for_superadmin(app, client, login, base_data):
     """Superadmin can create, edit, and delete departments."""
@@ -74,6 +76,46 @@ def test_backup_page_requires_admin(client, login, base_data):
     resp = client.get("/backup/", follow_redirects=False)
     assert resp.status_code == 302
     assert resp.headers.get("Location", "").endswith("/")
+
+
+@pytest.mark.parametrize("role_code", ["general_manager", "gm_assistant"])
+def test_backup_page_allows_general_management_roles(app, client, login, role_code):
+    """General managers and assistants can access only the backup entry point."""
+    from app import db
+    from app.models import Department, Role, User
+
+    with app.app_context():
+        department = Department(name=f"Backup {role_code}")
+        role = Role(
+            name=f"Backup {role_code}",
+            code=role_code,
+            permissions=json.dumps([]),
+            level=80,
+        )
+        db.session.add_all([department, role])
+        db.session.flush()
+        user = User(
+            username=f"backup_{role_code}",
+            password_hash="x",
+            real_name=f"Backup {role_code}",
+            role_id=role.id,
+            department_id=department.id,
+            is_active=True,
+            is_superadmin=False,
+            require_password_change=False,
+        )
+        db.session.add(user)
+        db.session.commit()
+        user_id = user.id
+
+    login(user_id)
+    response = client.get("/backup/", follow_redirects=False)
+    assert response.status_code == 200
+    assert "数据备份" in response.get_data(as_text=True)
+
+    if role_code == "gm_assistant":
+        user_management_response = client.get("/user/", follow_redirects=False)
+        assert user_management_response.status_code == 302
 
 
 def test_settings_email_access_for_user_manage_non_superadmin(app, client, login, base_data):

@@ -133,7 +133,7 @@
                         </ul>
                     </li>
                     {% endif %}
-                    {% if current_user and (current_user.has_permission('user_manage') or current_user.role.code == 'general_manager') %}
+                    {% if current_user and (current_user.has_permission('user_manage') or current_user.role.code in ['general_manager', 'gm_assistant']) %}
                     <li class="nav-item dropdown">
                         <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown">
                             <i class="bi bi-gear"></i> 系统管理
@@ -175,7 +175,7 @@
                                 </a>
                             </li>
                             {% endif %}
-                            {% if current_user.is_superadmin or current_user.role.code == 'general_manager' %}
+                            {% if current_user.is_superadmin or current_user.role.code in ['general_manager', 'gm_assistant'] %}
                             <li>
                                 <a class="dropdown-item" href="{{ url_for('backup.backup_page') }}">
                                     <i class="bi bi-cloud-download"></i> 数据备份

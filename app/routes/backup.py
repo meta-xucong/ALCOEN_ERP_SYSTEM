@@ -1,5 +1,5 @@
 """
-数据备份路由 - 超级管理员和总经理专用
+数据备份路由 - 超级管理员、总经理和总经理助理专用
 提供ERP系统完整数据备份下载功能
 """
 import os
@@ -14,7 +14,7 @@ backup_bp = Blueprint('backup', __name__, url_prefix='/backup')
 
 
 def backup_admin_required(f):
-    """要求用户必须是超级管理员或总经理"""
+    """要求用户必须是超级管理员、总经理或总经理助理。"""
     @wraps(f)
     def decorated_function(*args, **kwargs):
         if 'user_id' not in session:
@@ -23,7 +23,11 @@ def backup_admin_required(f):
         from app.models import User
         user = User.query.get(session['user_id'])
         
-        if not user or not (user.is_superadmin or user.role.code == 'general_manager'):
+        allowed_role_codes = {'general_manager', 'gm_assistant'}
+        if not user or not (
+            user.is_superadmin
+            or (user.role and user.role.code in allowed_role_codes)
+        ):
             flash('需要管理员权限', 'error')
             return redirect(url_for('main.index'))
         
