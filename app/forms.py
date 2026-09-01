@@ -311,6 +311,12 @@ class StatementGeneratorForm(FlaskForm):
         validators=[Optional()],
         render_kw={'placeholder': '输入产品名称，多个用逗号分隔（可选，模糊匹配）'}
     )
+
+    product_type_filter = StringField(
+        '产品类型',
+        validators=[Optional()],
+        render_kw={'placeholder': '输入产品类型，多个用逗号分隔（可选，模糊匹配）'}
+    )
     
     # [v1.3] 部门和负责人筛选（替换原来的归属人）
     department = StringField(
@@ -325,6 +331,15 @@ class StatementGeneratorForm(FlaskForm):
     )
     
     # 日期范围（可选）
+    date_filter_mode = RadioField(
+        '时间依据',
+        choices=[
+            ('delivery_date', '按发货日期'),
+            ('contract_created_at', '按合同创建日期'),
+        ],
+        default='delivery_date',
+        validators=[Optional()],
+    )
     start_date = DateField('起始日期', validators=[Optional()], format='%Y-%m-%d', render_kw={'type': 'date'})
     end_date = DateField('结束日期', validators=[Optional()], format='%Y-%m-%d', render_kw={'type': 'date'})
     

@@ -60,21 +60,28 @@
                     
                     <div class="row">
                         <!-- 产品编码 -->
-                        <div class="col-md-4 mb-3">
+                        <div class="col-md-6 col-lg-3 mb-3">
                             {{ form.product_code_filter.label(class="form-label") }}
                             {{ form.product_code_filter(class="form-control", placeholder="如: P0001, P0002") }}
                             <div class="form-text">多个编码用逗号分隔，模糊匹配</div>
                         </div>
-                        
+
                         <!-- 产品名称 -->
-                        <div class="col-md-4 mb-3">
+                        <div class="col-md-6 col-lg-3 mb-3">
                             {{ form.product_filter.label(class="form-label") }}
                             {{ form.product_filter(class="form-control", placeholder="如: 产品A, 产品B") }}
                             <div class="form-text">多个名称用逗号分隔，模糊匹配</div>
                         </div>
-                        
+
+                        <!-- 产品类型 -->
+                        <div class="col-md-6 col-lg-2 mb-3">
+                            {{ form.product_type_filter.label(class="form-label") }}
+                            {{ form.product_type_filter(class="form-control", placeholder="如: 色谱柱") }}
+                            <div class="form-text">可模糊匹配</div>
+                        </div>
+
                         <!-- [v1.3] 部门和负责人筛选 -->
-                        <div class="col-md-2 mb-3">
+                        <div class="col-md-6 col-lg-2 mb-3">
                             {{ form.department.label(class="form-label") }}
                             {% if is_department_pm %}
                             <select name="department" class="form-select" required>
@@ -95,7 +102,7 @@
                             {% endif %}
                             <div class="form-text">可选</div>
                         </div>
-                        <div class="col-md-2 mb-3">
+                        <div class="col-md-6 col-lg-2 mb-3">
                             {{ form.manager.label(class="form-label") }}
                             {{ form.manager(class="form-control", placeholder="输入负责人姓名") }}
                             <div class="form-text">可选</div>
@@ -104,7 +111,15 @@
                     
                     <!-- 时间范围 -->
                     <div class="mb-4">
-                        <label class="form-label">时间范围 <span class="text-muted">（发货日期）</span></label>
+                        <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+                            <label class="form-label mb-0">时间范围</label>
+                            <div class="btn-group btn-group-sm" role="group" aria-label="时间范围依据">
+                                {% for subfield in form.date_filter_mode %}
+                                    {{ subfield(class="btn-check") }}
+                                    {{ subfield.label(class="btn btn-outline-primary") }}
+                                {% endfor %}
+                            </div>
+                        </div>
                         <div class="row">
                             <div class="col-md-6">
                                 {{ form.start_date(class="form-control", placeholder="起始日期") }}
@@ -113,7 +128,7 @@
                                 {{ form.end_date(class="form-control", placeholder="结束日期") }}
                             </div>
                         </div>
-                        <div class="form-text">可选，不选则不限时间范围</div>
+                        <div class="form-text">二选一；可选，不选日期则不限时间范围</div>
                     </div>
                     
                     <!-- 提示信息 -->
@@ -142,7 +157,8 @@
                     <li><strong>合同编号：</strong>筛选特定合同的交易记录（支持模糊匹配）</li>
                     <li><strong>产品编码：</strong>模糊匹配产品编码，多个用逗号分隔</li>
                     <li><strong>产品名称：</strong>模糊匹配产品名称，多个用逗号分隔</li>
-                    <li><strong>时间范围：</strong>按发货日期筛选</li>
+                    <li><strong>产品类型：</strong>模糊匹配产品类型，多个用逗号分隔</li>
+                    <li><strong>时间范围：</strong>可选择按发货日期或合同创建日期筛选</li>
                 </ul>
                 <h6>使用示例：</h6>
                 <ul class="mb-0">

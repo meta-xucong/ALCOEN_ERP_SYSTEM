@@ -2,10 +2,18 @@
 
 from __future__ import annotations
 
+from datetime import datetime
+
 from app.services.contract_service import ContractService
 
 
-def _create_contract_with_transaction(owner_user_id: int, company_name: str = "Statement Corp"):
+def _create_contract_with_transaction(
+    owner_user_id: int,
+    company_name: str = "Statement Corp",
+    product_type: str = "TypeS",
+    delivery_date: str = "2026-04-01",
+    product_code: str = "ST-P1",
+):
     """Create one contract and one transaction for statement generation."""
     contract = ContractService.create_contract(
         {
@@ -18,10 +26,10 @@ def _create_contract_with_transaction(owner_user_id: int, company_name: str = "S
         },
         [
             {
-                "product_code": "ST-P1",
+                "product_code": product_code,
                 "product_name": "Statement Product",
                 "product_model": "SP1",
-                "product_type": "TypeS",
+                "product_type": product_type,
                 "quantity": 10,
                 "unit": "pcs",
                 "price": 10,
@@ -38,12 +46,13 @@ def _create_contract_with_transaction(owner_user_id: int, company_name: str = "S
             "unit": "pcs",
             "price_with_tax": 10,
             "handler": "Logistics",
-            "delivery_date": "2026-04-01",
+            "delivery_date": delivery_date,
             "invoice_date": "",
             "remark": "tx for statement",
         },
         is_new=True,
     )
+    return contract
 
 
 def test_statement_generator_empty_filter_does_not_crash(app, client, login, base_data):
@@ -134,6 +143,83 @@ def test_statement_generator_product_code_filter_supports_fuzzy_match(app, clien
         statement = Statement.query.first()
         assert statement is not None
         assert statement.record_count == 1
+
+
+def test_statement_generator_filters_by_contract_created_date(app, client, login, base_data):
+    """Date ranges can use contract creation dates instead of delivery dates."""
+    from app import db
+    from app.models import Statement
+    import json
+
+    with app.app_context():
+        created_in_range = _create_contract_with_transaction(
+            base_data["owner_user_id"],
+            "Created In Range",
+            delivery_date="2026-04-01",
+        )
+        created_out_of_range = _create_contract_with_transaction(
+            base_data["owner_user_id"],
+            "Created Out Of Range",
+            delivery_date="2026-01-15",
+        )
+        created_in_range.created_at = datetime(2026, 1, 15, 18, 30)
+        created_out_of_range.created_at = datetime(2026, 3, 1, 9, 0)
+        db.session.commit()
+
+    login(base_data["superadmin_id"])
+    response = client.post(
+        "/statement/generator",
+        data={
+            "date_filter_mode": "contract_created_at",
+            "start_date": "2026-01-15",
+            "end_date": "2026-01-15",
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 302
+    with app.app_context():
+        statement = Statement.query.one()
+        assert statement.record_count == 1
+        assert json.loads(statement.filter_products)["date_filter_mode"] == "contract_created_at"
+
+
+def test_statement_generator_filters_by_product_type_fuzzily(app, client, login, base_data):
+    """Product type filters use fuzzy matching against delivery snapshots."""
+    from app.models import Statement
+    import json
+
+    with app.app_context():
+        _create_contract_with_transaction(
+            base_data["owner_user_id"],
+            "Column Accessory Corp",
+            product_type="色谱柱配件",
+            product_code="ST-COLUMN-001",
+        )
+        _create_contract_with_transaction(
+            base_data["owner_user_id"],
+            "Tube Accessory Corp",
+            product_type="柱管配件",
+            product_code="ST-TUBE-001",
+        )
+
+    login(base_data["superadmin_id"])
+    generator_page = client.get("/statement/generator")
+    assert generator_page.status_code == 200
+    assert b'name="date_filter_mode"' in generator_page.data
+    assert b'name="product_type_filter"' in generator_page.data
+
+    response = client.post(
+        "/statement/generator",
+        data={"product_type_filter": "色谱柱"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 302
+    with app.app_context():
+        statement = Statement.query.one()
+        assert statement.record_count == 1
+        assert json.loads(statement.filter_products)["product_types"] == ["色谱柱"]
 
 
 def test_statement_list_requires_login(client):

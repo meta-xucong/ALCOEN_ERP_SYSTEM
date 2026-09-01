@@ -72,6 +72,7 @@ def generator():
         manager = form.manager.data.strip() if form.manager.data else None
         start_date = form.start_date.data
         end_date = form.end_date.data
+        date_filter_mode = form.date_filter_mode.data or 'delivery_date'
         
         # 解析产品编码筛选（模糊匹配）
         product_codes = []
@@ -82,6 +83,15 @@ def generator():
         products = []
         if form.product_filter.data:
             products = [p.strip() for p in form.product_filter.data.split(',') if p.strip()]
+
+        # 解析产品类型筛选（模糊匹配）
+        product_types = []
+        if form.product_type_filter.data:
+            product_types = [
+                value.strip()
+                for value in form.product_type_filter.data.split(',')
+                if value.strip()
+            ]
         
         # [v1.4] 根据用户权限添加额外的筛选条件
         user = g.current_user
@@ -108,7 +118,17 @@ def generator():
             pass
         
         # 验证至少有一个筛选条件（销售经理可以通过created_by筛选，所以单独判断）
-        has_filter = any([company_names, contract_no, department, manager, start_date, end_date, product_codes, products])
+        has_filter = any([
+            company_names,
+            contract_no,
+            department,
+            manager,
+            start_date,
+            end_date,
+            product_codes,
+            products,
+            product_types,
+        ])
         if user.is_sales_manager():
             # 销售经理可以通过created_by查看自己的所有订单
             has_filter = has_filter or True  # 销售经理至少有过滤条件（created_by）
@@ -122,7 +142,9 @@ def generator():
             company_names=company_names or None,
             start_date=start_date,
             end_date=end_date,
+            date_filter_mode=date_filter_mode,
             products=products if products else None,
+            product_types=product_types if product_types else None,
             contract_no=contract_no,
             product_codes=product_codes if product_codes else None,
             department=department,

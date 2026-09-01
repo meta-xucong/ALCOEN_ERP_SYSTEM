@@ -94,14 +94,15 @@ def export_statement_to_excel(statement, transactions, output_path):
     current_row += 1
 
     # Preserve every selected company in aggregate exports, not only the count.
-    company_names = []
+    filter_conditions = {}
     if statement.filter_products:
         try:
-            filter_conditions = json.loads(statement.filter_products)
-            if isinstance(filter_conditions, dict):
-                company_names = filter_conditions.get('company_names') or []
+            decoded_filter_conditions = json.loads(statement.filter_products)
+            if isinstance(decoded_filter_conditions, dict):
+                filter_conditions = decoded_filter_conditions
         except (TypeError, ValueError):
-            company_names = []
+            filter_conditions = {}
+    company_names = filter_conditions.get('company_names') or []
     if company_names:
         ws[f'A{current_row}'] = f'聚合客户：{"、".join(company_names)}'
         ws[f'A{current_row}'].font = bold_font
@@ -109,7 +110,15 @@ def export_statement_to_excel(statement, transactions, output_path):
         current_row += 1
     
     if statement.filter_start_date and statement.filter_end_date:
-        ws[f'A{current_row}'] = f'时间范围：{statement.filter_start_date} 至 {statement.filter_end_date}'
+        date_filter_label = (
+            '合同创建日期'
+            if filter_conditions.get('date_filter_mode') == 'contract_created_at'
+            else '发货日期'
+        )
+        ws[f'A{current_row}'] = (
+            f'时间范围（{date_filter_label}）：'
+            f'{statement.filter_start_date} 至 {statement.filter_end_date}'
+        )
     else:
         ws[f'A{current_row}'] = '时间范围：不限'
     current_row += 1

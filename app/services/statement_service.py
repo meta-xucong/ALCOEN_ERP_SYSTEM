@@ -47,7 +47,9 @@ class StatementService:
                         company_names: list[str] = None,
                         start_date=None,
                         end_date=None,
+                        date_filter_mode: str = 'delivery_date',
                         products: list = None,
+                        product_types: list = None,
                         contract_no: str = None,
                         product_codes: list = None,
                         department: str | list[str] = None,
@@ -61,7 +63,9 @@ class StatementService:
             company_names: 公司名称列表（可选，聚合多个公司）
             start_date: 起始日期（可选）
             end_date: 结束日期（可选）
+            date_filter_mode: 日期范围依据（发货日期或合同创建日期）
             products: 产品名称筛选列表（可选，模糊匹配）
+            product_types: 产品类型筛选列表（可选，模糊匹配）
             contract_no: 合同编号筛选（可选）
             product_codes: 产品编码筛选列表（可选，精确匹配，支持多个逗号分隔）
             department: 部门筛选（可选）[v1.3]
@@ -72,7 +76,7 @@ class StatementService:
         Returns:
             包含对账单信息的字典，如果没有匹配记录返回None
         """
-        from sqlalchemy import or_, and_
+        from sqlalchemy import func, or_
 
         if current_user and current_user.is_department_pm():
             if not isinstance(department, str) or not current_user.belongs_to_department(department):
@@ -97,15 +101,32 @@ class StatementService:
         elif company_name:
             query = query.filter(Transaction.company_name == company_name)
         
+        date_filter_mode = (
+            date_filter_mode
+            if date_filter_mode in {'delivery_date', 'contract_created_at'}
+            else 'delivery_date'
+        )
+        needs_contract_join = (
+            date_filter_mode == 'contract_created_at'
+            or bool(contract_no or department or manager or created_by)
+        )
+        if needs_contract_join:
+            query = query.join(Transaction.contract)
+
         # 3. 应用日期筛选
         if start_date:
-            query = query.filter(Transaction.delivery_date >= start_date)
+            if date_filter_mode == 'contract_created_at':
+                query = query.filter(func.date(Contract.created_at) >= start_date.isoformat())
+            else:
+                query = query.filter(Transaction.delivery_date >= start_date)
         if end_date:
-            query = query.filter(Transaction.delivery_date <= end_date)
-        
+            if date_filter_mode == 'contract_created_at':
+                query = query.filter(func.date(Contract.created_at) <= end_date.isoformat())
+            else:
+                query = query.filter(Transaction.delivery_date <= end_date)
+
         # 4. 应用合同号筛选 [v1.3] 支持部门和负责人筛选 [v1.4] 添加创建人筛选
         if contract_no or department or manager or created_by:
-            query = query.join(Transaction.contract)
             if contract_no:
                 query = query.filter(Contract.contract_no.contains(contract_no))
             if isinstance(department, (list, tuple, set)):
@@ -139,17 +160,28 @@ class StatementService:
                     name_filters.append(Transaction.product_name.contains(product.strip()))
             if name_filters:
                 query = query.filter(or_(*name_filters))
-        
-        # 7. 按发货日期排序
+
+        # 7. 应用产品类型筛选（模糊匹配）
+        if product_types and len(product_types) > 0 and product_types[0]:
+            type_filters = []
+            for product_type in product_types:
+                if product_type.strip():
+                    type_filters.append(
+                        Transaction.product_type.contains(product_type.strip())
+                    )
+            if type_filters:
+                query = query.filter(or_(*type_filters))
+
+        # 8. 对账单明细始终按发货日期展示
         transactions = query.order_by(Transaction.delivery_date).all()
         
         if not transactions:
             return None
         
-        # 8. 计算总金额
+        # 9. 计算总金额
         total_amount = sum(t.total_price_with_tax for t in transactions)
         
-        # 9. 构建显示用的公司名（多个公司时显示"多家公司"）
+        # 10. 构建显示用的公司名（多个公司时显示"多家公司"）
         unique_companies = set(t.company_name for t in transactions)
         display_company = (
             normalized_company_names[0]
@@ -161,7 +193,7 @@ class StatementService:
             )
         )
         
-        # 10. 构建筛选条件JSON
+        # 11. 构建筛选条件JSON
         filter_conditions = {}
         if normalized_company_names:
             filter_conditions['company_names'] = normalized_company_names
@@ -171,10 +203,13 @@ class StatementService:
             filter_conditions['product_codes'] = product_codes
         if products:
             filter_conditions['product_names'] = products
+        if product_types:
+            filter_conditions['product_types'] = product_types
+        filter_conditions['date_filter_mode'] = date_filter_mode
         if isinstance(department, str) and department:
             filter_conditions['department'] = department
         
-        # 11. 生成对账单记录 [v1.4] 添加发起人信息
+        # 12. 生成对账单记录 [v1.4] 添加发起人信息
         statement = Statement(
             statement_no=StatementService.generate_statement_no(),
             company_name=display_company,
@@ -198,7 +233,7 @@ class StatementService:
         db.session.add(statement)
         db.session.flush()  # 获取statement.id
         
-        # 12. 创建明细关联（重新编号）
+        # 13. 创建明细关联（重新编号）
         for i, trans in enumerate(transactions, 1):
             item = StatementItem(
                 statement_id=statement.id,
