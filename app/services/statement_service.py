@@ -44,6 +44,7 @@ class StatementService:
     
     @staticmethod
     def create_statement(company_name: str = None,
+                        company_names: list[str] = None,
                         start_date=None,
                         end_date=None,
                         products: list = None,
@@ -56,7 +57,8 @@ class StatementService:
         """[LOGIC-8] 创建对账单 - 支持多维度筛选 [v1.4] 添加创建人筛选和记录
         
         Args:
-            company_name: 公司名称（可选）
+            company_name: 单个公司名称（兼容旧调用，可选）
+            company_names: 公司名称列表（可选，聚合多个公司）
             start_date: 起始日期（可选）
             end_date: 结束日期（可选）
             products: 产品名称筛选列表（可选，模糊匹配）
@@ -79,8 +81,20 @@ class StatementService:
         # 1. 构建基础查询
         query = Transaction.query
         
-        # 2. 应用公司筛选
-        if company_name:
+        # 2. Apply the selected company cards as one aggregated company scope.
+        normalized_company_names = []
+        seen_company_names = set()
+        for raw_company_name in company_names or []:
+            normalized_company_name = (raw_company_name or '').strip()
+            if normalized_company_name and normalized_company_name not in seen_company_names:
+                normalized_company_names.append(normalized_company_name)
+                seen_company_names.add(normalized_company_name)
+        if not normalized_company_names and company_name:
+            normalized_company_names.append(company_name.strip())
+
+        if normalized_company_names:
+            query = query.filter(Transaction.company_name.in_(normalized_company_names))
+        elif company_name:
             query = query.filter(Transaction.company_name == company_name)
         
         # 3. 应用日期筛选
@@ -137,12 +151,20 @@ class StatementService:
         
         # 9. 构建显示用的公司名（多个公司时显示"多家公司"）
         unique_companies = set(t.company_name for t in transactions)
-        display_company = company_name if company_name else (
+        display_company = (
+            normalized_company_names[0]
+            if len(normalized_company_names) == 1
+            else f"{len(normalized_company_names)}家公司"
+            if normalized_company_names
+            else (
             list(unique_companies)[0] if len(unique_companies) == 1 else f"{len(unique_companies)}家公司"
+            )
         )
         
         # 10. 构建筛选条件JSON
         filter_conditions = {}
+        if normalized_company_names:
+            filter_conditions['company_names'] = normalized_company_names
         if contract_no:
             filter_conditions['contract_no'] = contract_no
         if product_codes:

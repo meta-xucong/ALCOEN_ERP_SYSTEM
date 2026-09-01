@@ -5,12 +5,12 @@ from __future__ import annotations
 from app.services.contract_service import ContractService
 
 
-def _create_contract_with_transaction(owner_user_id: int):
+def _create_contract_with_transaction(owner_user_id: int, company_name: str = "Statement Corp"):
     """Create one contract and one transaction for statement generation."""
     contract = ContractService.create_contract(
         {
-            "contract_no": f"ST-{owner_user_id}",
-            "company_name": "Statement Corp",
+            "contract_no": f"ST-{owner_user_id}-{company_name}",
+            "company_name": company_name,
             "owner": "Sales - Owner",
             "department": "Sales",
             "manager": "Sales Owner",
@@ -76,6 +76,41 @@ def test_statement_generator_creates_statement(app, client, login, base_data):
         assert statement is not None
         assert statement.company_name == "Statement Corp"
         assert statement.record_count == 1
+
+
+def test_statement_generator_aggregates_multiple_company_cards(app, client, login, base_data):
+    """Selected company cards should create one statement with all matching transactions."""
+    from app.models import Statement
+    import json
+
+    with app.app_context():
+        _create_contract_with_transaction(base_data["owner_user_id"], "Statement Corp A")
+        _create_contract_with_transaction(base_data["owner_user_id"], "Statement Corp B")
+
+    login(base_data["superadmin_id"])
+    generator_page = client.get("/statement/generator")
+    assert generator_page.status_code == 200
+    assert b'id="companyCards"' in generator_page.data
+    assert b'id="addCompanyCard"' in generator_page.data
+    assert b'name="company_names"' in generator_page.data
+
+    response = client.post(
+        "/statement/generator",
+        data={"company_names": ["Statement Corp A", "Statement Corp B", "Statement Corp A"]},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 302
+    with app.app_context():
+        statement = Statement.query.one()
+        assert statement.company_name == "2家公司"
+        assert statement.record_count == 2
+        assert json.loads(statement.filter_products)["company_names"] == ["Statement Corp A", "Statement Corp B"]
+
+    result_page = client.get(response.headers["Location"])
+    assert result_page.status_code == 200
+    result_html = result_page.get_data(as_text=True)
+    assert "Statement Corp A、Statement Corp B" in result_html
 
 
 def test_statement_generator_product_code_filter_supports_fuzzy_match(app, client, login, base_data):

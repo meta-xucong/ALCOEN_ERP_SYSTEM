@@ -53,7 +53,20 @@ def generator():
     
     if form.validate_on_submit():
         # 获取所有筛选条件
-        company_name = form.company_name.data.strip() if form.company_name.data else None
+        company_names = []
+        seen_company_names = set()
+        for raw_company_name in request.form.getlist('company_names'):
+            company_name = raw_company_name.strip()
+            if company_name and company_name not in seen_company_names:
+                company_names.append(company_name)
+                seen_company_names.add(company_name)
+
+        # Backward compatibility for old form submissions and bookmarked requests.
+        if not company_names and form.company_name.data:
+            company_name = form.company_name.data.strip()
+            if company_name:
+                company_names.append(company_name)
+
         contract_no = form.contract_no.data.strip() if form.contract_no.data else None
         department = form.department.data.strip() if form.department.data else None
         manager = form.manager.data.strip() if form.manager.data else None
@@ -95,7 +108,7 @@ def generator():
             pass
         
         # 验证至少有一个筛选条件（销售经理可以通过created_by筛选，所以单独判断）
-        has_filter = any([company_name, contract_no, department, manager, start_date, end_date, product_codes, products])
+        has_filter = any([company_names, contract_no, department, manager, start_date, end_date, product_codes, products])
         if user.is_sales_manager():
             # 销售经理可以通过created_by查看自己的所有订单
             has_filter = has_filter or True  # 销售经理至少有过滤条件（created_by）
@@ -106,7 +119,7 @@ def generator():
         
         # 生成对账单 [v1.4] 传入当前用户记录发起人
         result = StatementService.create_statement(
-            company_name=company_name,
+            company_names=company_names or None,
             start_date=start_date,
             end_date=end_date,
             products=products if products else None,

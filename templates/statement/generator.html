@@ -16,26 +16,40 @@
                 <form method="POST" action="">
                     {{ form.hidden_tag() }}
                     
-                    <div class="row">
-                        <!-- 公司名称 -->
-                        <div class="col-md-6 mb-3">
-                            {{ form.company_name.label(class="form-label") }}
-                            {{ form.company_name(class="form-control" + (" is-invalid" if form.company_name.errors else ""), list="company-list") }}
-                            <datalist id="company-list">
-                                {% for company in companies %}
-                                <option value="{{ company }}">
-                                {% endfor %}
-                            </datalist>
-                            {% if form.company_name.errors %}
-                            <div class="invalid-feedback">
-                                {% for error in form.company_name.errors %}
-                                {{ error }}
-                                {% endfor %}
+                    <datalist id="company-list">
+                        {% for company in companies %}
+                        <option value="{{ company }}">
+                        {% endfor %}
+                    </datalist>
+
+                    <div class="statement-company-panel mb-4">
+                        <div class="statement-company-panel-header">
+                            <div>
+                                <div class="fw-bold"><i class="bi bi-buildings"></i> 聚合公司</div>
+                                <div class="small text-muted">默认一张卡片；可添加多个公司，生成一份合并对账单。</div>
                             </div>
-                            {% endif %}
-                            <div class="form-text">可选，不选则匹配所有公司</div>
+                            <button type="button" class="btn btn-outline-primary btn-sm" id="addCompanyCard">
+                                <i class="bi bi-plus-circle"></i> 添加公司
+                            </button>
                         </div>
-                        
+                        <div class="row g-3 mt-0" id="companyCards">
+                            <div class="col-md-6 statement-company-card">
+                                <div class="card h-100 border-primary-subtle">
+                                    <div class="card-body">
+                                        <div class="d-flex justify-content-between align-items-center mb-2">
+                                            <label class="form-label fw-bold mb-0">公司 <span class="company-card-number">1</span></label>
+                                            <button type="button" class="btn btn-outline-danger btn-sm remove-company-card" disabled title="至少保留一张公司卡片">
+                                                <i class="bi bi-trash"></i>
+                                            </button>
+                                        </div>
+                                        <input type="text" class="form-control" name="company_names" list="company-list" placeholder="选择或输入公司名称（可选）">
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="row">
                         <!-- 合同编号 -->
                         <div class="col-md-6 mb-3">
                             {{ form.contract_no.label(class="form-label") }}
@@ -105,7 +119,7 @@
                     <!-- 提示信息 -->
                     <div class="alert alert-info">
                         <i class="bi bi-info-circle"></i>
-                        <strong>筛选规则：</strong>所有条件为 "与" 关系，即同时满足。请至少输入一个筛选条件。
+                        <strong>筛选规则：</strong>公司卡片之间为“或”关系，其他条件与公司范围共同生效。请至少输入一个筛选条件。
                     </div>
                     
                     <!-- 按钮 -->
@@ -124,7 +138,7 @@
             <div class="card-body">
                 <h6>筛选维度（可灵活组合）：</h6>
                 <ul>
-                    <li><strong>公司名称：</strong>筛选特定客户的交易记录</li>
+                    <li><strong>聚合公司：</strong>可添加多个公司，合并生成一份对账单</li>
                     <li><strong>合同编号：</strong>筛选特定合同的交易记录（支持模糊匹配）</li>
                     <li><strong>产品编码：</strong>模糊匹配产品编码，多个用逗号分隔</li>
                     <li><strong>产品名称：</strong>模糊匹配产品名称，多个用逗号分隔</li>
@@ -132,7 +146,7 @@
                 </ul>
                 <h6>使用示例：</h6>
                 <ul class="mb-0">
-                    <li>查询某公司某合同的所有记录：填写公司名 + 合同编号</li>
+                    <li>查询多个公司某合同的所有记录：添加多个公司卡片 + 填写合同编号</li>
                     <li>查询特定产品的所有销售：填写产品编码（如：P0001, P0002）</li>
                     <li>跨公司查询某产品：只填写产品编码，不填公司</li>
                 </ul>
@@ -144,6 +158,36 @@
 
 {% block extra_js %}
 <script>
+function refreshCompanyCards() {
+    const cards = Array.from(document.querySelectorAll('.statement-company-card'));
+    cards.forEach((card, index) => {
+        card.querySelector('.company-card-number').textContent = String(index + 1);
+        const removeButton = card.querySelector('.remove-company-card');
+        removeButton.disabled = cards.length === 1;
+        removeButton.title = cards.length === 1 ? '至少保留一张公司卡片' : '删除此公司卡片';
+    });
+}
+
+function addCompanyCard() {
+    const container = document.getElementById('companyCards');
+    const card = document.createElement('div');
+    card.className = 'col-md-6 statement-company-card';
+    card.innerHTML = `
+        <div class="card h-100 border-primary-subtle">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <label class="form-label fw-bold mb-0">公司 <span class="company-card-number"></span></label>
+                    <button type="button" class="btn btn-outline-danger btn-sm remove-company-card" title="删除此公司卡片">
+                        <i class="bi bi-trash"></i>
+                    </button>
+                </div>
+                <input type="text" class="form-control" name="company_names" list="company-list" placeholder="选择或输入公司名称（可选）">
+            </div>
+        </div>`;
+    container.appendChild(card);
+    refreshCompanyCards();
+}
+
 // 设置默认日期范围为当前月份
 document.addEventListener('DOMContentLoaded', function() {
     const startDateInput = document.getElementById('start_date');
@@ -159,6 +203,37 @@ document.addEventListener('DOMContentLoaded', function() {
         const now = new Date();
         endDateInput.value = now.toISOString().split('T')[0];
     }
+
+    document.getElementById('addCompanyCard').addEventListener('click', addCompanyCard);
+    document.getElementById('companyCards').addEventListener('click', function(event) {
+        const button = event.target.closest('.remove-company-card');
+        if (button && !button.disabled) {
+            button.closest('.statement-company-card').remove();
+            refreshCompanyCards();
+        }
+    });
+    refreshCompanyCards();
 });
 </script>
+{% endblock %}
+
+{% block extra_css %}
+<style>
+    .statement-company-panel {
+        border: 1px solid rgba(13, 110, 253, 0.2);
+        border-radius: 1rem;
+        padding: 1rem;
+        background: linear-gradient(135deg, rgba(13, 110, 253, 0.06), rgba(255, 255, 255, 0.9));
+    }
+    .statement-company-panel-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 1rem;
+        flex-wrap: wrap;
+    }
+    #companyCards > .statement-company-card:only-child {
+        width: 100%;
+    }
+</style>
 {% endblock %}

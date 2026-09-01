@@ -5,6 +5,7 @@ from openpyxl.drawing.image import Image as XLImage
 from openpyxl.worksheet.properties import PageSetupProperties
 from datetime import datetime
 from itertools import groupby
+import json
 import os
 from PIL import Image as PILImage
 
@@ -91,6 +92,21 @@ def export_statement_to_excel(statement, transactions, output_path):
     ws[f'A{current_row}'] = f'客户名称：{statement.company_name}'
     ws[f'A{current_row}'].font = bold_font
     current_row += 1
+
+    # Preserve every selected company in aggregate exports, not only the count.
+    company_names = []
+    if statement.filter_products:
+        try:
+            filter_conditions = json.loads(statement.filter_products)
+            if isinstance(filter_conditions, dict):
+                company_names = filter_conditions.get('company_names') or []
+        except (TypeError, ValueError):
+            company_names = []
+    if company_names:
+        ws[f'A{current_row}'] = f'聚合客户：{"、".join(company_names)}'
+        ws[f'A{current_row}'].font = bold_font
+        ws[f'A{current_row}'].alignment = left_align
+        current_row += 1
     
     if statement.filter_start_date and statement.filter_end_date:
         ws[f'A{current_row}'] = f'时间范围：{statement.filter_start_date} 至 {statement.filter_end_date}'

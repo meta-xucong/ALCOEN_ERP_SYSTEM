@@ -442,6 +442,14 @@
                 </p>
             </div>
         </div>
+        {% if filter_conditions.get('company_names') %}
+        <div class="row mt-2">
+            <div class="col-12">
+                <p class="mb-1"><strong>聚合公司：</strong></p>
+                <p>{{ filter_conditions.get('company_names')|join('、') }}</p>
+            </div>
+        </div>
+        {% endif %}
         {% if statement.filter_products %}
         <div class="row mt-2">
             <div class="col-12">
