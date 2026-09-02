@@ -102,6 +102,12 @@ def export_statement_to_excel(statement, transactions, output_path):
                 filter_conditions = decoded_filter_conditions
         except (TypeError, ValueError):
             filter_conditions = {}
+    use_contract_created_at = (
+        filter_conditions.get('date_filter_mode') == 'contract_created_at'
+    )
+    statement_date_label = (
+        '合同创建日期' if use_contract_created_at else '发货日期'
+    )
     company_names = filter_conditions.get('company_names') or []
     if company_names:
         ws[f'A{current_row}'] = f'聚合客户：{"、".join(company_names)}'
@@ -158,7 +164,7 @@ def export_statement_to_excel(statement, transactions, output_path):
         current_row += 1
         
         # 表头
-        headers = ['序号', '发货日期', '产品编码', '产品名称', '型号', '数量', '单位', '含税单价', '含税金额']
+        headers = ['序号', statement_date_label, '产品编码', '产品名称', '型号', '数量', '单位', '含税单价', '含税金额']
         for col, header in enumerate(headers, 1):
             cell = ws.cell(row=current_row, column=col, value=header)
             cell.font = header_font
@@ -179,11 +185,15 @@ def export_statement_to_excel(statement, transactions, output_path):
             ws.cell(row=current_row, column=1, value=global_index).border = thin_border
             ws.cell(row=current_row, column=1).alignment = center_align
             
-            # 发货日期
-            delivery_date = trans.delivery_date
-            if hasattr(delivery_date, 'strftime'):
-                delivery_date = delivery_date.strftime('%Y-%m-%d')
-            ws.cell(row=current_row, column=2, value=delivery_date).border = thin_border
+            # The detail date must match the active generator filter mode.
+            detail_date = (
+                trans.contract.created_at
+                if use_contract_created_at and trans.contract
+                else trans.delivery_date
+            )
+            if hasattr(detail_date, 'strftime'):
+                detail_date = detail_date.strftime('%Y-%m-%d')
+            ws.cell(row=current_row, column=2, value=detail_date).border = thin_border
             ws.cell(row=current_row, column=2).alignment = center_align
             
             # 产品编码

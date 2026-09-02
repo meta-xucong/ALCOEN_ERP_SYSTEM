@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 from datetime import datetime
+from io import BytesIO
+
+from openpyxl import load_workbook
 
 from app.services.contract_service import ContractService
 
@@ -183,6 +186,24 @@ def test_statement_generator_filters_by_contract_created_date(app, client, login
         assert statement.record_count == 1
         assert json.loads(statement.filter_products)["date_filter_mode"] == "contract_created_at"
 
+    result_page = client.get(response.headers["Location"])
+    assert result_page.status_code == 200
+    result_html = result_page.get_data(as_text=True)
+    assert "合同创建日期" in result_html
+    assert "2026-01-15" in result_html
+
+    export_page = client.get(f'{response.headers["Location"]}/export')
+    assert export_page.status_code == 200
+    workbook = load_workbook(BytesIO(export_page.data))
+    worksheet = workbook.active
+    worksheet_values = [
+        cell.value
+        for row in worksheet.iter_rows()
+        for cell in row
+    ]
+    assert "合同创建日期" in worksheet_values
+    assert "2026-01-15" in worksheet_values
+
 
 def test_statement_generator_filters_by_product_type_fuzzily(app, client, login, base_data):
     """Product type filters use fuzzy matching against delivery snapshots."""
@@ -208,6 +229,7 @@ def test_statement_generator_filters_by_product_type_fuzzily(app, client, login,
     assert generator_page.status_code == 200
     assert b'name="date_filter_mode"' in generator_page.data
     assert b'name="product_type_filter"' in generator_page.data
+    assert b'date-filter-mode' in generator_page.data
 
     response = client.post(
         "/statement/generator",

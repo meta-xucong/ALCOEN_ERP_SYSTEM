@@ -2,6 +2,9 @@
 
 {% block title %}对账单结果 - {{ statement.statement_no }}{% endblock %}
 
+{% set use_contract_created_at = filter_conditions.get('date_filter_mode') == 'contract_created_at' %}
+{% set statement_date_label = '合同创建日期' if use_contract_created_at else '发货日期' %}
+
 {% block extra_css %}
 <style>
     /* 打印样式 - 纯表格风格，类似Excel */
@@ -413,7 +416,7 @@
                 <p class="fs-5">{{ statement.company_name }}</p>
             </div>
             <div class="col-md-3">
-                <p class="mb-1"><strong>时间范围（{{ '合同创建日期' if filter_conditions.get('date_filter_mode') == 'contract_created_at' else '发货日期' }}）：</strong></p>
+                <p class="mb-1"><strong>时间范围（{{ statement_date_label }}）：</strong></p>
                 <p>
                     {% if statement.filter_start_date and statement.filter_end_date %}
                         {{ statement.filter_start_date|format_date }} 至 {{ statement.filter_end_date|format_date }}
@@ -494,7 +497,7 @@
                         <th class="text-center" style="width: 8%">单位</th>
                         <th class="text-end" style="width: 10%">数量</th>
                         <th class="text-end" style="width: 10%">单价</th>
-                        <th class="text-end" style="width: 10%">发货日期</th>
+                        <th class="text-end" style="width: 10%">{{ statement_date_label }}</th>
                         <th class="text-end" style="width: 10%">金额</th>
                     </tr>
                 </thead>
@@ -509,7 +512,9 @@
                         <td class="text-center">{{ tx.unit or '件' }}</td>
                         <td class="text-end">{{ tx.quantity|format_money }}</td>
                         <td class="text-end">{{ tx.price_with_tax|format_money }}</td>
-                        <td class="text-end">{{ tx.delivery_date|format_date }}</td>
+                        <td class="text-end">
+                            {{ (tx.contract.created_at if use_contract_created_at and tx.contract else tx.delivery_date)|format_date }}
+                        </td>
                         <td class="text-end">{{ tx.total_price_with_tax|format_money }}</td>
                     </tr>
                     {% endfor %}
