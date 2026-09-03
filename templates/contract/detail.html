@@ -444,17 +444,17 @@
 {% endif %}
 
 <div class="d-flex justify-content-between mb-4">
-    <a href="{{ url_for('contract.list_contracts') }}" class="btn btn-secondary">
+    <a href="{{ return_to }}" class="btn btn-secondary">
         <i class="bi bi-arrow-left"></i> 返回
     </a>
     <div>
         {% if current_user.can_edit_contract(contract) %}
             {% if current_user.is_logistics_manager() %}
-            <a href="{{ url_for('contract.logistics_edit_contract', id=contract.id) }}" class="btn btn-info">
+            <a href="{{ url_for('contract.logistics_edit_contract', id=contract.id, return_to=return_to) }}" class="btn btn-info">
                 <i class="bi bi-truck"></i> 编辑发货记录
             </a>
             {% else %}
-            <a href="{{ url_for('contract.edit_contract', id=contract.id) }}" class="btn btn-primary">
+            <a href="{{ url_for('contract.edit_contract', id=contract.id, return_to=return_to) }}" class="btn btn-primary">
                 <i class="bi bi-pencil"></i> 编辑合同
             </a>
             {% endif %}

@@ -89,7 +89,7 @@
     </div>
 </div>
 
-<form method="POST" action="" id="logisticsForm" enctype="multipart/form-data">
+<form method="POST" action="{{ url_for('contract.logistics_edit_contract', id=contract.id, return_to=return_to|default(url_for('contract.list_contracts'))) }}" id="logisticsForm" enctype="multipart/form-data">
     <!-- 发货记录（可编辑） -->
     <div class="card mb-4 border-info">
         <div class="card-header bg-info text-white d-flex justify-content-between align-items-center">
@@ -198,7 +198,7 @@
     
     <!-- 按钮 -->
     <div class="d-flex justify-content-between mb-4">
-        <a href="{{ url_for('contract.view_contract', id=contract.id) }}" class="btn btn-secondary">
+        <a href="{{ url_for('contract.view_contract', id=contract.id, return_to=return_to|default(url_for('contract.list_contracts'))) }}" class="btn btn-secondary">
             <i class="bi bi-arrow-left"></i> 返回
         </a>
         <button type="submit" class="btn btn-primary btn-lg">

@@ -91,7 +91,7 @@
     </div>
 </div>
 
-<form method="POST" action="" id="contractForm" enctype="multipart/form-data">
+<form method="POST" action="{% if contract %}{{ url_for('contract.edit_contract', id=contract.id, return_to=return_to|default(url_for('contract.list_contracts'))) }}{% endif %}" id="contractForm" enctype="multipart/form-data">
     {{ form.hidden_tag() }}
     <datalist id="product-type-list">
         {% for product_type in product_types or [] %}
@@ -504,7 +504,7 @@
     
     <!-- 按钮 -->
     <div class="d-flex justify-content-between mb-4">
-        <a href="{{ url_for('contract.list_contracts') }}" class="btn btn-secondary">
+        <a href="{{ return_to|default(url_for('contract.list_contracts')) }}" class="btn btn-secondary">
             <i class="bi bi-arrow-left"></i> 返回
         </a>
         <button type="submit" class="btn btn-primary btn-lg">

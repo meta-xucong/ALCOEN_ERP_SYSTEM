@@ -186,16 +186,16 @@
                         </td>
                         <td>{{ contract.created_at.strftime('%Y-%m-%d') }}</td>
                         <td class="text-center">
-                            <a href="{{ url_for('contract.view_contract', id=contract.id) }}" class="btn btn-sm btn-outline-info">
+                            <a href="{{ url_for('contract.view_contract', id=contract.id, return_to=return_to) }}" class="btn btn-sm btn-outline-info">
                                 <i class="bi bi-eye"></i> 查看
                             </a>
                             {% if current_user.can_edit_contract(contract) %}
                             {% if current_user.is_logistics_manager() %}
-                            <a href="{{ url_for('contract.logistics_edit_contract', id=contract.id) }}" class="btn btn-sm btn-outline-info">
+                            <a href="{{ url_for('contract.logistics_edit_contract', id=contract.id, return_to=return_to) }}" class="btn btn-sm btn-outline-info">
                                 <i class="bi bi-truck"></i> 编辑发货
                             </a>
                             {% else %}
-                            <a href="{{ url_for('contract.edit_contract', id=contract.id) }}" class="btn btn-sm btn-outline-primary">
+                            <a href="{{ url_for('contract.edit_contract', id=contract.id, return_to=return_to) }}" class="btn btn-sm btn-outline-primary">
                                 <i class="bi bi-pencil"></i> 编辑
                             </a>
                             {% endif %}

@@ -4,6 +4,7 @@
 from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify, send_file, g, current_app
 import os
 from datetime import datetime
+from urllib.parse import urlsplit
 from app.forms import ContractForm, ContractProductForm, ContractTransactionForm
 from app.services.contract_service import ContractService, ContractProductService
 from app.services.product_service import ProductService
@@ -14,6 +15,39 @@ from app import db
 from app.utils.decorators import login_required, permission_required
 
 contract_bp = Blueprint('contract', __name__, url_prefix='/contract')
+
+
+def _current_contract_list_url() -> str:
+    """Return the current contract-list URL, preserving every active filter."""
+    query_string = request.query_string.decode('utf-8')
+    return f"{request.path}?{query_string}" if query_string else request.path
+
+
+def _safe_contract_list_return_url() -> str:
+    """Return a validated list URL and reject external or unrelated redirects."""
+    default_url = url_for('contract.list_contracts')
+    requested_url = (request.args.get('return_to') or '').strip()
+    if not requested_url:
+        return default_url
+
+    parsed_url = urlsplit(requested_url)
+    allowed_paths = {
+        default_url,
+        f"{default_url.rstrip('/')}/",
+    }
+    if (
+        parsed_url.scheme
+        or parsed_url.netloc
+        or parsed_url.fragment
+        or parsed_url.path not in allowed_paths
+    ):
+        return default_url
+
+    return (
+        f"{parsed_url.path}?{parsed_url.query}"
+        if parsed_url.query
+        else parsed_url.path
+    )
 
 
 def _get_multi_query_values(param_name: str) -> list:
@@ -333,9 +367,10 @@ def list_contracts():
     companies = StatementService.get_company_list()
     
     return render_template('contract/list.html',
-                         contracts=pagination.items,
-                         pagination=pagination,
-                         contract_no=contract_no,
+                          contracts=pagination.items,
+                          pagination=pagination,
+                          return_to=_current_contract_list_url(),
+                          contract_no=contract_no,
                          company_name=company_name,
                          status=status,
                          delivery_statuses=delivery_statuses,
@@ -569,10 +604,12 @@ def view_contract(id):
     db.session.commit()
     
     stats = ContractService.get_statistics(id)
-    
+    return_to = _safe_contract_list_return_url()
+
     return render_template('contract/detail.html',
-                         contract=contract,
-                         stats=stats)
+                          contract=contract,
+                          stats=stats,
+                          return_to=return_to)
 
 
 @contract_bp.route('/<int:id>/edit', methods=['GET', 'POST'])
@@ -582,11 +619,12 @@ def edit_contract(id):
     """编辑合同 - 可继续添加交易记录"""
     from flask import g
     contract = Contract.query.get_or_404(id)
+    return_to = _safe_contract_list_return_url()
     
     # [v1.4] 权限检查
     if not g.current_user.can_edit_contract(contract):
         flash('您没有权限编辑此合同', 'error')
-        return redirect(url_for('contract.view_contract', id=id))
+        return redirect(url_for('contract.view_contract', id=id, return_to=return_to))
     form = ContractForm(obj=contract)
     transaction_form = ContractTransactionForm()
     
@@ -944,7 +982,7 @@ def edit_contract(id):
             db.session.commit()
             
             flash('合同更新成功！', 'success')
-            return redirect(url_for('contract.view_contract', id=id))
+            return redirect(url_for('contract.view_contract', id=id, return_to=return_to))
         
         except Exception as e:
             db.session.rollback()
@@ -983,10 +1021,11 @@ def edit_contract(id):
                          product_types=ProductService.get_product_types(),
                          departments=departments,
                          department_users=department_users,
-                         managers=managers,
-                         pm_managers=pm_managers,
-                         owners=owners,
-                         is_new=False,
+                          managers=managers,
+                          pm_managers=pm_managers,
+                          owners=owners,
+                          return_to=return_to,
+                          is_new=False,
                          current_user_dept=(
                              contract.department
                              if contract.department in current_user_departments
@@ -1002,11 +1041,12 @@ def logistics_edit_contract(id):
     """[v1.4] 物流经理专用编辑页面 - 仅可编辑发货记录和附件"""
     from flask import g
     contract = Contract.query.get_or_404(id)
+    return_to = _safe_contract_list_return_url()
     
     # 仅限物流经理访问
     if not g.current_user.is_logistics_manager():
         flash('此页面仅限物流经理访问', 'error')
-        return redirect(url_for('contract.view_contract', id=id))
+        return redirect(url_for('contract.view_contract', id=id, return_to=return_to))
     
     if request.method == 'POST':
         try:
@@ -1186,13 +1226,19 @@ def logistics_edit_contract(id):
             db.session.commit()
             
             flash('发货记录和附件保存成功！', 'success')
-            return redirect(url_for('contract.view_contract', id=contract.id))
+            return redirect(
+                url_for('contract.view_contract', id=contract.id, return_to=return_to)
+            )
         
         except Exception as e:
             db.session.rollback()
             flash(f'保存失败：{str(e)}', 'error')
     
-    return render_template('contract/logistics_edit.html', contract=contract)
+    return render_template(
+        'contract/logistics_edit.html',
+        contract=contract,
+        return_to=return_to,
+    )
 
 
 @contract_bp.route('/<int:id>/delete', methods=['POST'])
