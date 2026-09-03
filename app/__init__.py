@@ -16,6 +16,23 @@ except ImportError:
 
 db = SQLAlchemy()
 
+VIDEO_CACHE_SECONDS = 7 * 24 * 60 * 60
+VIDEO_ASSET_FILENAMES = frozenset({
+    'video/video_main.mp4',
+    'video/video_login.mp4',
+})
+
+
+class AlcoenFlask(Flask):
+    """Serve the shared background videos with a safe, long-lived cache."""
+
+    def get_send_file_max_age(self, filename):
+        """Cache only versioned background videos; leave other static files unchanged."""
+        normalized_filename = str(filename or '').replace('\\', '/')
+        if normalized_filename in VIDEO_ASSET_FILENAMES:
+            return VIDEO_CACHE_SECONDS
+        return super().get_send_file_max_age(filename)
+
 
 def _quote_sqlite_identifier(identifier: str) -> str:
     """Quote one SQLite identifier supplied by schema introspection."""
@@ -1458,14 +1475,33 @@ def _run_lightweight_schema_upgrades():
 
 def create_app(config_name='default'):
     """创建Flask应用实例"""
-    app = Flask(__name__, 
-                template_folder='../templates',
-                static_folder='../static')
+    app = AlcoenFlask(
+        __name__,
+        template_folder='../templates',
+        static_folder='../static',
+    )
 
     uploads_root = os.path.join(app.static_folder, 'uploads')
     
     # 加载配置
     app.config.from_object(config[config_name])
+
+    @app.url_defaults
+    def add_video_asset_version(endpoint, values):
+        """Invalidate a cached video immediately when its deployed file changes."""
+        if endpoint != 'static':
+            return
+
+        filename = str(values.get('filename') or '').replace('\\', '/')
+        if filename not in VIDEO_ASSET_FILENAMES or values.get('v'):
+            return
+
+        video_path = os.path.join(app.static_folder, *filename.split('/'))
+        try:
+            values['v'] = str(int(os.path.getmtime(video_path)))
+        except OSError:
+            # Preserve static URL generation if a deployment temporarily lacks the file.
+            pass
     
     # 初始化扩展
     db.init_app(app)
